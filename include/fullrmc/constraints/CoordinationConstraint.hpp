@@ -28,7 +28,7 @@ public:
     elements_ = elements;
   }
 
-  [[nodiscard]] std::string name() const {
+  [[nodiscard]] consteval std::string name() const {
     return "CoordinationConstraint";
   }
 

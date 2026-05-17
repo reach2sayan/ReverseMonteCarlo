@@ -1,3 +1,4 @@
+#include <boost/assert.hpp>
 #include <cmath>
 #include <fullrmc/constraints/PairCorrelationConstraint.hpp>
 #include <numbers>
@@ -6,10 +7,8 @@
 namespace fullrmc {
 
 void PairCorrelationConstraint::set_experimental_data(const mat_t &data) {
-  if (data.cols() < 2) {
-    throw std::invalid_argument(
-        "PairCorrelationConstraint: need 2-column r/F(r) data");
-  }
+  BOOST_ASSERT_MSG(data.cols() >= 2,
+                   "PairCorrelationConstraint: need 2-column r/F(r) data");
   const Eigen::Index N = data.rows();
   exp_r_ = data.col(0);
   exp_F_ = data.col(1);
@@ -35,13 +34,10 @@ PairCorrelationConstraint::weight_for(const std::string &a,
 }
 
 void PairCorrelationConstraint::initialise() {
-  shell_vols_.resize(n_bins_);
-  for (int i = 0; i < n_bins_; ++i) {
-    double r_lo = r_min_ + i * bin_width_;
-    double r_hi = r_lo + bin_width_;
-    shell_vols_(i) = (4.0 * std::numbers::pi / 3.0) *
-                     (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
-  }
+  const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
+  const auto r_lo = r_min_ + idx * bin_width_;
+  const auto r_hi = r_lo + bin_width_;
+  shell_vols_ = (4.0 * std::numbers::pi / 3.0) * (r_hi.cube() - r_lo.cube());
 }
 
 double

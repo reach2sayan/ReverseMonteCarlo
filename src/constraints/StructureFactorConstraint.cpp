@@ -1,3 +1,4 @@
+#include <boost/assert.hpp>
 #include <cmath>
 #include <fullrmc/constraints/StructureFactorConstraint.hpp>
 #include <stdexcept>
@@ -5,37 +6,31 @@
 namespace fullrmc {
 
 void StructureFactorConstraint::set_experimental_data(const mat_t &data) {
-  if (data.cols() < 2)
-    throw std::invalid_argument(
-        "StructureFactorConstraint: need 2-column Q/S(Q) data");
+  BOOST_ASSERT_MSG(data.cols() >= 2,
+                   "StructureFactorConstraint: need 2-column Q/S(Q) data");
   exp_Q_ = data.col(0);
   exp_S_ = data.col(1);
-}
-
-void StructureFactorConstraint::set_weight(const std::string &el1,
-                                           const std::string &el2, double w) {
-  weights_[(el1 < el2) ? (el1 + "_" + el2) : (el2 + "_" + el1)] = w;
 }
 
 void StructureFactorConstraint::initialise() {
   pdf_ = PairDistributionConstraint{};
   pdf_.set_number_density(rho0_);
-
   n_r_bins_ = static_cast<int>((r_max_ - r_min_) / r_bin_);
   mat_t r_data(n_r_bins_, 2);
-  for (int i = 0; i < n_r_bins_; ++i) {
-    double r = r_min_ + (i + 0.5) * r_bin_;
-    r_data(i, 0) = r;
-    r_data(i, 1) = 0.0;
-  }
+  r_data.col(0) =
+      Eigen::VectorXd::LinSpaced(n_r_bins_, 0, n_r_bins_ - 1).array() * r_bin_ +
+      (r_min_ + 0.5 * r_bin_);
+
+  r_data.col(1).setZero();
   pdf_.set_experimental_data(r_data);
   for (auto &[k, w] : weights_) {
-    auto pos = k.find('_');
-    if (pos != std::string::npos)
+    if (auto pos = k.find('_'); pos != std::string::npos) {
       pdf_.set_weight(k.substr(0, pos), k.substr(pos + 1), w);
+    }
   }
-  if (elements_)
+  if (elements_) {
     pdf_.set_elements(elements_);
+  }
   pdf_.initialise();
 
   const Eigen::Index nQ = exp_Q_.size();

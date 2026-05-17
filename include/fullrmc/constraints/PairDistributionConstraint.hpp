@@ -21,18 +21,19 @@ public:
   void set_experimental_data(const mat_t &data);
 
   // Per element-pair weight (e.g. b_i * b_j / <b>^2 for neutron).
-  void set_weight(const std::string &el1, const std::string &el2, double w);
-
-  void set_elements(const std::vector<std::string> *elements) noexcept {
+  constexpr void set_weight(const std::string &el1, const std::string &el2,
+                            double w) {
+    std::string key = (el1 < el2) ? (el1 + "_" + el2) : (el2 + "_" + el1);
+    weights_[key] = w;
+  }
+  constexpr void
+  set_elements(const std::vector<std::string> *elements) noexcept {
     elements_ = elements;
   }
-  void set_number_density(double rho0) noexcept { rho0_ = rho0; }
-
-  // Build precomputed shell-volume array and histogram axis. Call once after
-  // set_experimental_data().
+  constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
   void initialise();
 
-  [[nodiscard]] std::string name() const {
+  [[nodiscard]] consteval std::string name() const {
     return "PairDistributionConstraint";
   }
 

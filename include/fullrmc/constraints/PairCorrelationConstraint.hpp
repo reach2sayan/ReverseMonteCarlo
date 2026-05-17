@@ -16,13 +16,14 @@ class PairCorrelationConstraint
 public:
   void set_experimental_data(const mat_t &data);
   void set_weight(const std::string &el1, const std::string &el2, double w);
-  void set_elements(const std::vector<std::string> *elements) noexcept {
+  constexpr void
+  set_elements(const std::vector<std::string> *elements) noexcept {
     elements_ = elements;
   }
-  void set_number_density(double rho0) noexcept { rho0_ = rho0; }
+  constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
   void initialise();
 
-  [[nodiscard]] std::string name() const {
+  [[nodiscard]] consteval std::string name() const {
     return "PairCorrelationConstraint";
   }
 

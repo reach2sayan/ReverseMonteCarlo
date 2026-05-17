@@ -13,12 +13,12 @@ public:
     double lo, hi;
   };
 
-  void add_dihedral(std::size_t i, std::size_t j, std::size_t k, std::size_t l,
+  constexpr void add_dihedral(std::size_t i, std::size_t j, std::size_t k, std::size_t l,
                     double lo_rad, double hi_rad) {
     quads_.push_back({i, j, k, l, lo_rad, hi_rad});
   }
 
-  [[nodiscard]] constexpr std::string name() const {
+  [[nodiscard]] consteval std::string name() const {
     return "DihedralAngleConstraint";
   }
 
@@ -26,13 +26,14 @@ public:
   compute_error(const coords_t &coords,
                 std::span<const std::size_t> /*moved*/) const {
     double err = 0.0;
-    for (auto &q : quads_) {
+    std::ranges::for_each(quads_, [&](const Quad &q) {
       double phi = dihedral(coords, q.i, q.j, q.k, q.l);
-      if (phi < q.lo)
+      if (phi < q.lo) {
         err += (q.lo - phi);
-      else if (phi > q.hi)
+      } else if (phi > q.hi) {
         err += (phi - q.hi);
-    }
+      }
+    });
     return err;
   }
 

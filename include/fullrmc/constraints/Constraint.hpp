@@ -37,37 +37,37 @@ public:
   using Token = detail::ConstraintToken;
 
   template <CConstraint T>
-  IConstraint(T x)
+  constexpr IConstraint(T x)
       : self_(std::make_unique<ConstraintModel<T>>(std::move(x))) {}
-  IConstraint(const IConstraint &s) : self_{s.self_->clone()} {}
-  IConstraint(IConstraint &&s) noexcept : self_{std::move(s.self_)} {}
-  IConstraint &operator=(const IConstraint &s) {
+  constexpr IConstraint(const IConstraint &s) : self_{s.self_->clone()} {}
+  constexpr IConstraint(IConstraint &&s) noexcept : self_{std::move(s.self_)} {}
+  constexpr IConstraint &operator=(const IConstraint &s) {
     self_ = s.self_->clone();
     return *this;
   }
-  IConstraint &operator=(IConstraint &&s) noexcept {
+  constexpr IConstraint &operator=(IConstraint &&s) noexcept {
     self_ = std::move(s.self_);
     return *this;
   }
 
-  void compute_before_move(const coords_t &coords,
-                           std::span<const std::size_t> moved) {
+  constexpr void compute_before_move(const coords_t &coords,
+                                     std::span<const std::size_t> moved) {
     self_->compute_before_move(coords, moved);
   }
-  void compute_after_move(const coords_t &coords,
-                          std::span<const std::size_t> moved) {
+  constexpr void compute_after_move(const coords_t &coords,
+                                    std::span<const std::size_t> moved) {
     self_->compute_after_move(coords, moved);
   }
-  void accept() noexcept { self_->accept(); }
-  void reject() noexcept { self_->reject(); }
-  [[nodiscard]] double standard_error() const noexcept {
+  constexpr void accept() noexcept { self_->accept(); }
+  constexpr void reject() noexcept { self_->reject(); }
+  [[nodiscard]] constexpr double standard_error() const noexcept {
     return self_->standard_error();
   }
-  [[nodiscard]] bool should_reject() const noexcept {
+  [[nodiscard]] constexpr bool should_reject() const noexcept {
     return self_->should_reject();
   }
-  [[nodiscard]] std::string name() const { return self_->name(); }
-  void set_boundary_conditions(const BoundaryConditions &bc) {
+  [[nodiscard]] constexpr std::string name() const { return self_->name(); }
+  constexpr void set_boundary_conditions(const BoundaryConditions &bc) {
     self_->set_boundary_conditions(bc);
   }
 
@@ -80,8 +80,8 @@ private:
                                      std::span<const std::size_t>) = 0;
     virtual void compute_after_move(const coords_t &,
                                     std::span<const std::size_t>) = 0;
-    virtual void accept() noexcept = 0;
-    virtual void reject() noexcept = 0;
+    virtual constexpr void accept() noexcept = 0;
+    virtual constexpr void reject() noexcept = 0;
     [[nodiscard]] virtual double standard_error() const noexcept = 0;
     [[nodiscard]] virtual bool should_reject() const noexcept = 0;
     [[nodiscard]] virtual std::string name() const = 0;
@@ -90,28 +90,30 @@ private:
   };
 
   template <CConstraint T> struct ConstraintModel final : ConstraintConcept {
-    explicit ConstraintModel(T x) : data_(std::move(x)) {}
-    void compute_before_move(const coords_t &c,
-                             std::span<const std::size_t> m) override {
+    constexpr explicit ConstraintModel(T x) : data_(std::move(x)) {}
+    constexpr void
+    compute_before_move(const coords_t &c,
+                        std::span<const std::size_t> m) override {
       data_.compute_before_move(make_token(), c, m);
     }
-    void compute_after_move(const coords_t &c,
-                            std::span<const std::size_t> m) override {
+    constexpr void compute_after_move(const coords_t &c,
+                                      std::span<const std::size_t> m) override {
       data_.compute_after_move(make_token(), c, m);
     }
-    void accept() noexcept override { data_.accept(make_token()); }
-    void reject() noexcept override { data_.reject(make_token()); }
-    double standard_error() const noexcept override {
+    constexpr void accept() noexcept override { data_.accept(make_token()); }
+    constexpr void reject() noexcept override { data_.reject(make_token()); }
+    constexpr double standard_error() const noexcept override {
       return data_.standard_error(make_token());
     }
-    bool should_reject() const noexcept override {
+    constexpr bool should_reject() const noexcept override {
       return data_.should_reject(make_token());
     }
-    std::string name() const override { return data_.name(); }
-    void set_boundary_conditions(const BoundaryConditions &bc) override {
+    constexpr std::string name() const override { return data_.name(); }
+    constexpr void
+    set_boundary_conditions(const BoundaryConditions &bc) override {
       data_.set_boundary_conditions(make_token(), bc);
     }
-    std::unique_ptr<ConstraintConcept> clone() const override {
+    constexpr std::unique_ptr<ConstraintConcept> clone() const override {
       return std::make_unique<ConstraintModel<T>>(data_);
     }
     T data_;
@@ -133,12 +135,13 @@ public:
   bool flexible = false;
   double tolerance = 0.0;
 
-  void set_boundary_conditions(IConstraint::Token,
-                               const BoundaryConditions &bc) noexcept {
+  constexpr void
+  set_boundary_conditions(IConstraint::Token,
+                          const BoundaryConditions &bc) noexcept {
     bc_ = &bc;
   }
-  // Non-token overload for pre-wrap configuration.
-  void set_boundary_conditions(const BoundaryConditions &bc) noexcept {
+  constexpr void
+  set_boundary_conditions(const BoundaryConditions &bc) noexcept {
     bc_ = &bc;
   }
 
