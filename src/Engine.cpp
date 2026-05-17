@@ -1,9 +1,7 @@
-#include <algorithm>
 #include <boost/log/trivial.hpp>
 #include <fullrmc/Engine.hpp>
 #include <fullrmc/generators/Translations.hpp>
 #include <fullrmc/selectors/RandomSelector.hpp>
-#include <stdexcept>
 
 namespace fullrmc {
 
@@ -51,67 +49,79 @@ void Engine::run_until(double target_chi2, std::uint64_t max_steps) {
   }
 }
 
-void Engine::step() {
-  ++n_steps_total_;
+// Lifts void(T&) into optional<T>(T) for and_then chaining.
+// T is deduced at the call site by optional::and_then — never named here.
+namespace {
+template <typename F>
+auto stage(F &&fn) {
+  return [fn = std::forward<F>(fn)](auto c) -> std::optional<decltype(c)> {
+    std::invoke(fn, c);
+    return c;
+  };
+}
+} // namespace
 
-  // 1. Select group.
+std::optional<Engine::TrialCtx> Engine::select_group() {
   const std::size_t gi = selector_.select(groups_.size());
   Group &g = groups_[gi];
-  if (!g.refine || g.empty())
-    return;
-  if (!g.generator)
-    return;
+  if (!g.refine || g.empty() || !g.generator)
+    return std::nullopt;
+  return TrialCtx{gi, &g};
+}
 
+void Engine::snapshot_and_score_before(TrialCtx &c) {
   ++n_steps_tried_;
+  structure_.save_snapshot(c.group->span());
+  constraints_.compute_before_move(structure_.coordinates, c.group->span());
+}
 
-  // 2. Snapshot positions of the moving atoms.
-  structure_.save_snapshot(g.span());
+void Engine::propose_move(TrialCtx &c) {
+  c.group->generator->generate(structure_.coordinates, c.group->span());
+  apply_pbc(c.group->span());
+}
 
-  // 3. Evaluate constraints before the move.
-  constraints_.compute_before_move(structure_.coordinates, g.span());
+void Engine::score_after(TrialCtx &c) {
+  constraints_.compute_after_move(structure_.coordinates, c.group->span());
+}
 
-  // 4. Apply the generator.
-  g.generator->generate(structure_.coordinates, g.span());
-
-  // 5. Wrap back into the simulation box.
-  apply_pbc(g.span());
-
-  // 6. Evaluate constraints after the move.
-  constraints_.compute_after_move(structure_.coordinates, g.span());
-
-  // 7. Accept / reject.
-  bool rejected = constraints_.should_reject();
-
-  // Handle staged atom removals.
+void Engine::settle(TrialCtx &c) {
+  const bool rejected = constraints_.should_reject();
   if (!rejected && !collector_.pending().empty())
     collector_.commit_removal();
   else
     collector_.rollback_removal();
-
   if (rejected) {
-    structure_.restore_snapshot(g.span());
+    structure_.restore_snapshot(c.group->span());
     constraints_.reject();
   } else {
     constraints_.accept();
     ++n_steps_accepted_;
   }
+  selector_.feedback(c.gi, !rejected);
+}
 
-  // 8. Inform selector about outcome.
-  selector_.feedback(gi, !rejected);
-
-  // 9. Logging.
+void Engine::maybe_log() {
   if (step_cb_ && (n_steps_total_ % log_every_ == 0))
     step_cb_(n_steps_total_, n_steps_accepted_, n_steps_tried_,
              constraints_.total_error());
+}
 
-  // 10. Checkpoint.
+void Engine::maybe_checkpoint() {
   if (checkpoint_path_ && n_steps_accepted_ > 0 &&
-      n_steps_accepted_ % checkpoint_every_ == 0) {
-    if (auto result =
-            io::save_checkpoint(structure_, stats(), *checkpoint_path_);
-        !result)
+      n_steps_accepted_ % checkpoint_every_ == 0)
+    if (auto r = io::save_checkpoint(structure_, stats(), *checkpoint_path_); !r)
       BOOST_LOG_TRIVIAL(warning) << "Checkpoint save failed";
-  }
+}
+
+void Engine::step() {
+  ++n_steps_total_;
+  select_group()
+      .and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
+      .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
+      .and_then(stage([&](TrialCtx &c) { score_after(c); }))
+      .and_then(stage([&](TrialCtx &c) { settle(c); }));
+  maybe_log();
+  maybe_checkpoint();
 }
 
 void Engine::apply_pbc(std::span<const std::size_t> moved) {

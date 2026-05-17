@@ -64,10 +64,21 @@ public:
   }
 
 private:
-  // Execute a single MC trial.
-  void step();
+  struct TrialCtx {
+    std::size_t gi;
+    Group *group;
+  };
 
-  // Apply periodic wrapping to the atoms that just moved.
+  // Pipeline stages — each takes/returns TrialCtx through and_then.
+  std::optional<TrialCtx> select_group();
+  void snapshot_and_score_before(TrialCtx &);
+  void propose_move(TrialCtx &);
+  void score_after(TrialCtx &);
+  void settle(TrialCtx &);
+  void maybe_log();
+  void maybe_checkpoint();
+
+  void step();
   void apply_pbc(std::span<const std::size_t> moved);
 
   AtomicStructure structure_;
