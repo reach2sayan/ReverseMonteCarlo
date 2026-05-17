@@ -1,6 +1,6 @@
 #pragma once
-#include <algorithm>
 #include <RMC/core/Types.hpp>
+#include <algorithm>
 #include <vector>
 
 namespace RMC {

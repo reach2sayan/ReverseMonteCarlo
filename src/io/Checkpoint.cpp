@@ -1,10 +1,10 @@
+#include <RMC/io/Checkpoint.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/leaf/result.hpp>
 #include <boost/serialization/string.hpp>
 #include <boost/serialization/vector.hpp>
 #include <fstream>
-#include <RMC/io/Checkpoint.hpp>
 #include <sstream>
 
 // Teach Boost.Serialization how to handle Eigen dense matrices.

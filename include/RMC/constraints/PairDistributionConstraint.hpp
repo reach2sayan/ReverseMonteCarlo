@@ -1,7 +1,7 @@
 #pragma once
 #include <Eigen/Core>
-#include <cmath>
 #include <RMC/constraints/Constraint.hpp>
+#include <cmath>
 #include <numbers>
 #include <string>
 #include <unordered_map>
@@ -26,8 +26,7 @@ public:
     std::string key = (el1 < el2) ? (el1 + "_" + el2) : (el2 + "_" + el1);
     weights_[key] = w;
   }
-  constexpr void
-  set_elements(const std::vector<std::string> *elements) noexcept {
+  constexpr void set_elements(std::span<const std::string> elements) noexcept {
     elements_ = elements;
   }
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
@@ -59,7 +58,7 @@ private:
   double rho0_{0.1}; // atoms/Å³
 
   std::unordered_map<std::string, double> weights_;
-  const std::vector<std::string> *elements_ = nullptr;
+  std::span<const std::string> elements_;
 };
 
 } // namespace RMC

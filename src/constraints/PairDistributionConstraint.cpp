@@ -1,6 +1,6 @@
+#include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <boost/assert.hpp>
 #include <cmath>
-#include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <numbers>
 #include <stdexcept>
 
@@ -58,9 +58,9 @@ PairDistributionConstraint::compute_error(const coords_t &coords,
       }
 
       double w = 1.0;
-      if (elements_) {
-        const auto &ei = (*elements_)[static_cast<std::size_t>(i)];
-        const auto &ej = (*elements_)[static_cast<std::size_t>(j)];
+      if (!elements_.empty()) {
+        const auto &ei = elements_[static_cast<std::size_t>(i)];
+        const auto &ej = elements_[static_cast<std::size_t>(j)];
         w = weight_for(ei, ej);
       }
       computed_G_(bin) += 2.0 * w; // pair i–j and j–i

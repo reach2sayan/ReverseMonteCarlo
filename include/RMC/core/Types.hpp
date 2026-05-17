@@ -10,7 +10,7 @@
 namespace RMC {
 
 using index_t = std::size_t;
-using real_t  = double;
+using real_t = double;
 using vec3_t = Eigen::Vector3d;
 using mat3_t = Eigen::Matrix3d;
 using coords_t = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>;
@@ -24,7 +24,6 @@ concept BoundaryConditionsConcept = requires(T bc, const vec3_t &v) {
   { bc.min_image(v) } -> std::convertible_to<vec3_t>;
   { bc.volume() } -> std::convertible_to<double>;
 };
-
 
 template <typename T>
 concept GroupSelectorConcept = requires(T s, std::size_t n) {

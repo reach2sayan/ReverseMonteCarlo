@@ -1,8 +1,8 @@
 #pragma once
-#include <cstdint>
-#include <filesystem>
 #include <RMC/core/Structure.hpp>
 #include <RMC/core/Types.hpp>
+#include <cstdint>
+#include <filesystem>
 
 namespace RMC::io {
 

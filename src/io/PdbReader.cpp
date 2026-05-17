@@ -1,8 +1,8 @@
+#include <RMC/io/PdbReader.hpp>
 #include <algorithm>
 #include <boost/leaf/result.hpp>
 #include <charconv>
 #include <fstream>
-#include <RMC/io/PdbReader.hpp>
 #include <sstream>
 #include <string>
 #include <unordered_map>

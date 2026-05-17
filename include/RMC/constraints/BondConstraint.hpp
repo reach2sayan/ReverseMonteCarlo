@@ -1,8 +1,8 @@
 #pragma once
+#include <RMC/constraints/Constraint.hpp>
 #include <algorithm>
 #include <boost/container/flat_map.hpp>
 #include <cmath>
-#include <RMC/constraints/Constraint.hpp>
 #include <utility>
 
 namespace RMC {

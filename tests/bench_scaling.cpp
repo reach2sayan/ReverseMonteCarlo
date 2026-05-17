@@ -120,7 +120,7 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
     CoordinationConstraint cc;
     for (int i = 0; i < N; ++i)
       cc.add_shell(static_cast<std::size_t>(i), "Ar", 2.5, 3.5, 1, 2);
-    cc.set_elements(&engine.structure().elements);
+    cc.set_elements(engine.structure().elements);
     engine.add_constraint(std::move(cc));
     engine.build_atomic_groups(0.0, 0.2, 42);
     meter.measure([&] { engine.run(STEPS); });
@@ -131,8 +131,8 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
     Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
     InterMolecularDistanceConstraint dc;
     dc.set_minimum_distance("Ar", "Ar", 2.0);
-    dc.set_structure(&engine.structure().elements,
-                     &engine.structure().molecule_ids);
+    dc.set_structure(engine.structure().elements,
+                     engine.structure().molecule_ids);
     engine.add_constraint(std::move(dc));
     engine.build_atomic_groups(0.0, 0.2, 42);
     meter.measure([&] { engine.run(STEPS); });

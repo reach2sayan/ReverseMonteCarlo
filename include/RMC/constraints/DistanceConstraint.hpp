@@ -8,7 +8,7 @@
 
 namespace RMC {
 
-enum class DistanceScope { Inter, Intra };
+enum class DistanceScope : std::uint8_t { Inter, Intra };
 
 // Minimum-distance constraint between atom-type pairs.
 // std_err = Σ max(0, d_min - d_ij) for all in-scope pairs (i,j).
@@ -34,9 +34,8 @@ public:
     d_min_[ElemPair{el1, el2}] = d_min;
   }
 
-  constexpr void
-  set_structure(const std::vector<std::string> *elements,
-                const std::vector<std::size_t> *molecule_ids) noexcept {
+  constexpr void set_structure(std::span<const std::string> elements,
+                               std::span<const std::size_t> molecule_ids) noexcept {
     elements_ = elements;
     mol_ids_ = molecule_ids;
   }
@@ -77,23 +76,21 @@ public:
 
 private:
   [[nodiscard]] bool in_scope(std::size_t i, std::size_t j) const noexcept {
-    if (!mol_ids_) {
+    if (mol_ids_.empty())
       return true;
-    }
-    if constexpr (S == DistanceScope::Inter) {
-      return (*mol_ids_)[i] != (*mol_ids_)[j];
-    } else {
-      return (*mol_ids_)[i] == (*mol_ids_)[j];
-    }
+    if constexpr (S == DistanceScope::Inter)
+      return mol_ids_[i] != mol_ids_[j];
+    else
+      return mol_ids_[i] == mol_ids_[j];
   }
 
   [[nodiscard]] ElemPair make_key(std::size_t i, std::size_t j) const {
-    return {elements_->at(i), elements_->at(j)};
+    return {elements_[i], elements_[j]};
   }
 
   boost::container::flat_map<ElemPair, double> d_min_;
-  const std::vector<std::string> *elements_ = nullptr;
-  const std::vector<std::size_t> *mol_ids_ = nullptr;
+  std::span<const std::string> elements_;
+  std::span<const std::size_t> mol_ids_;
 };
 
 using InterMolecularDistanceConstraint =

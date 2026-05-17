@@ -1,6 +1,6 @@
 #pragma once
-#include <boost/assert.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
+#include <boost/assert.hpp>
 #include <random>
 #include <ranges>
 #include <stdexcept>

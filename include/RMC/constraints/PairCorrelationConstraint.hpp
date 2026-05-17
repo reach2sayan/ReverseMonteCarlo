@@ -1,6 +1,6 @@
 #pragma once
-#include <cmath>
 #include <RMC/constraints/Constraint.hpp>
+#include <cmath>
 #include <numbers>
 #include <string>
 #include <unordered_map>
@@ -16,16 +16,13 @@ class PairCorrelationConstraint
 public:
   void set_experimental_data(const mat_t &data);
   void set_weight(const std::string &el1, const std::string &el2, double w);
-  constexpr void
-  set_elements(const std::vector<std::string> *elements) noexcept {
+  constexpr void set_elements(std::span<const std::string> elements) noexcept {
     elements_ = elements;
   }
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
   void initialise();
 
-  [[nodiscard]] std::string name() const {
-    return "PairCorrelationConstraint";
-  }
+  [[nodiscard]] std::string name() const { return "PairCorrelationConstraint"; }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;
@@ -42,7 +39,7 @@ private:
   double rho0_{0.1};
 
   std::unordered_map<std::string, double> weights_;
-  const std::vector<std::string> *elements_ = nullptr;
+  std::span<const std::string> elements_;
 };
 
 } // namespace RMC

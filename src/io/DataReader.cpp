@@ -1,7 +1,7 @@
+#include <RMC/io/DataReader.hpp>
 #include <array>
 #include <boost/leaf/result.hpp>
 #include <fstream>
-#include <RMC/io/DataReader.hpp>
 #include <sstream>
 #include <vector>
 

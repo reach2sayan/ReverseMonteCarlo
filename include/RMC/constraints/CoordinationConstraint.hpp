@@ -1,6 +1,6 @@
 #pragma once
-#include <cmath>
 #include <RMC/constraints/Constraint.hpp>
+#include <cmath>
 #include <vector>
 
 namespace RMC {
@@ -24,14 +24,11 @@ public:
     shells_.push_back({centre, nb_elem, r_min, r_max, min_cn, max_cn});
   }
 
-  constexpr void
-  set_elements(const std::vector<std::string> *elements) noexcept {
+  constexpr void set_elements(std::span<const std::string> elements) noexcept {
     elements_ = elements;
   }
 
-  [[nodiscard]] std::string name() const {
-    return "CoordinationConstraint";
-  }
+  [[nodiscard]] std::string name() const { return "CoordinationConstraint"; }
 
   [[nodiscard]] double
   compute_error(const coords_t &coords,
@@ -44,7 +41,7 @@ public:
         if (j == sh.centre_idx) {
           continue;
         }
-        if (elements_ && (*elements_)[j] != sh.neighbour_elem) {
+        if (!elements_.empty() && elements_[j] != sh.neighbour_elem) {
           continue;
         }
         double d = distance(coords, static_cast<std::size_t>(sh.centre_idx),
@@ -64,7 +61,7 @@ public:
 
 private:
   std::vector<Shell> shells_;
-  const std::vector<std::string> *elements_ = nullptr;
+  std::span<const std::string> elements_;
 };
 
 } // namespace RMC

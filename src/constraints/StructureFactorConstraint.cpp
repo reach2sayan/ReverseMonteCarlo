@@ -1,6 +1,6 @@
+#include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <boost/assert.hpp>
 #include <cmath>
-#include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <stdexcept>
 
 namespace RMC {
@@ -28,7 +28,7 @@ void StructureFactorConstraint::initialise() {
       pdf_.set_weight(k.substr(0, pos), k.substr(pos + 1), w);
     }
   }
-  if (elements_) {
+  if (!elements_.empty()) {
     pdf_.set_elements(elements_);
   }
   pdf_.initialise();

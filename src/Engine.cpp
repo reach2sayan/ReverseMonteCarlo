@@ -1,7 +1,7 @@
-#include <boost/log/trivial.hpp>
 #include <RMC/Engine.hpp>
 #include <RMC/generators/Translations.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
+#include <boost/log/trivial.hpp>
 
 namespace RMC {
 

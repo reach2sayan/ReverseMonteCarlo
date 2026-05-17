@@ -1,6 +1,6 @@
 #pragma once
-#include <cmath>
 #include <RMC/generators/MoveGenerator.hpp>
+#include <cmath>
 #include <numbers>
 #include <random>
 

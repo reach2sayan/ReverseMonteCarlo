@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
           RMC::PairDistributionConstraint c;
           c.set_experimental_data(data);
           c.set_number_density(rho0);
-          c.set_elements(&engine.structure().elements);
+          c.set_elements(engine.structure().elements);
           c.initialise();
           engine.add_constraint(std::move(c));
           BOOST_LOG_TRIVIAL(info) << "Added PairDistribution constraint";
@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
           RMC::StructureFactorConstraint c;
           c.set_experimental_data(data);
           c.set_number_density(rho0);
-          c.set_elements(&engine.structure().elements);
+          c.set_elements(engine.structure().elements);
           c.initialise();
           engine.add_constraint(std::move(c));
           BOOST_LOG_TRIVIAL(info) << "Added StructureFactor constraint";

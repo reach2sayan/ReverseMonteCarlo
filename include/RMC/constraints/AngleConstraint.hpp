@@ -1,6 +1,6 @@
 #pragma once
-#include <cmath>
 #include <RMC/constraints/Constraint.hpp>
+#include <cmath>
 #include <vector>
 
 namespace RMC {
@@ -16,7 +16,8 @@ public:
 
   constexpr void add_angle(std::size_t i, std::size_t j, std::size_t k,
                            double lo_rad, double hi_rad) {
-    triplets_.push_back({i, j, k, lo_rad, hi_rad});
+    triplets_.emplace_back(
+        Triplet{.i = i, .j = j, .k = k, .lo = lo_rad, .hi = hi_rad});
   }
 
   [[nodiscard]] std::string name() const { return "AngleConstraint"; }

@@ -29,8 +29,7 @@ public:
     pdf_.set_boundary_conditions(bc);
   }
 
-  constexpr void
-  set_elements(const std::vector<std::string> *elements) noexcept {
+  constexpr void set_elements(std::span<const std::string> elements) noexcept {
     elements_ = elements;
   }
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
@@ -40,15 +39,17 @@ public:
   }
   void initialise(); // builds Gr2Sq matrix
 
-  [[nodiscard]] std::string name() const {
-    return "StructureFactorConstraint";
-  }
+  [[nodiscard]] std::string name() const { return "StructureFactorConstraint"; }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;
 
-  [[nodiscard]] const vec_t &computed_S() const noexcept { return computed_S_; }
-  [[nodiscard]] const vec_t &experimental_S() const noexcept { return exp_S_; }
+  [[nodiscard]] constexpr const vec_t &computed_S() const noexcept {
+    return computed_S_;
+  }
+  [[nodiscard]] constexpr const vec_t &experimental_S() const noexcept {
+    return exp_S_;
+  }
 
 private:
   vec_t exp_Q_, exp_S_;
@@ -62,7 +63,7 @@ private:
   // Embedded PDF constraint used to compute the G(r) intermediate.
   PairDistributionConstraint pdf_;
   std::unordered_map<std::string, double> weights_;
-  const std::vector<std::string> *elements_ = nullptr;
+  std::span<const std::string> elements_;
 };
 
 } // namespace RMC

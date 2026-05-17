@@ -1,6 +1,6 @@
 #pragma once
-#include <cmath>
 #include <RMC/constraints/Constraint.hpp>
+#include <cmath>
 #include <vector>
 
 namespace RMC {
@@ -19,9 +19,7 @@ public:
     quads_.push_back({i, j, k, l, lo_rad, hi_rad});
   }
 
-  [[nodiscard]] std::string name() const {
-    return "ImproperAngleConstraint";
-  }
+  [[nodiscard]] std::string name() const { return "ImproperAngleConstraint"; }
 
   [[nodiscard]] double
   compute_error(const coords_t &coords,
