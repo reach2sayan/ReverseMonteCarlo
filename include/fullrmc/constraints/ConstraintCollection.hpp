@@ -6,53 +6,55 @@ namespace fullrmc {
 
 class ConstraintCollection {
 public:
-  void add(IConstraint c) {
-    if (bc_)
-      c.set_boundary_conditions(*bc_);
+  constexpr void add(IConstraint c) {
+    if (bc_.has_value()) {
+      c.set_boundary_conditions(bc_.value());
+    }
     constraints_.push_back(std::move(c));
   }
 
-  void set_boundary_conditions(const BoundaryConditions &bc) noexcept {
-    bc_ = &bc;
-    for (auto &c : constraints_)
-      c.set_boundary_conditions(bc);
+  constexpr void
+  set_boundary_conditions(const BoundaryConditions &bc) noexcept {
+    bc_ = bc;
+    std::ranges::for_each(
+        constraints_, [&](IConstraint &c) { c.set_boundary_conditions(bc); });
   }
 
-  void compute_before_move(const coords_t &coords,
-                           std::span<const std::size_t> moved) {
-    for (auto &c : constraints_)
+  constexpr void compute_before_move(const coords_t &coords,
+                                     std::span<const std::size_t> moved) {
+    std::ranges::for_each(constraints_, [&](IConstraint &c) {
       c.compute_before_move(coords, moved);
+    });
   }
-  void compute_after_move(const coords_t &coords,
-                          std::span<const std::size_t> moved) {
-    for (auto &c : constraints_)
+
+  constexpr void compute_after_move(const coords_t &coords,
+                                    std::span<const std::size_t> moved) {
+    std::ranges::for_each(constraints_, [&](IConstraint &c) {
       c.compute_after_move(coords, moved);
+    });
   }
 
-  [[nodiscard]] bool should_reject() const noexcept {
-    for (auto &c : constraints_)
-      if (c.should_reject())
-        return true;
-    return false;
+  [[nodiscard]] constexpr bool should_reject() const noexcept {
+    return std::ranges::any_of(
+        constraints_, [](const IConstraint &c) { return c.should_reject(); });
   }
 
-  void accept() noexcept {
-    for (auto &c : constraints_)
-      c.accept();
+  constexpr void accept() noexcept {
+    std::ranges::for_each(constraints_, [](IConstraint &c) { c.accept(); });
   }
-  void reject() noexcept {
-    for (auto &c : constraints_)
-      c.reject();
+  constexpr void reject() noexcept {
+    std::ranges::for_each(constraints_, [](IConstraint &c) { c.reject(); });
   }
 
-  [[nodiscard]] double total_error() const noexcept {
-    double total = 0.0;
-    for (auto &c : constraints_)
-      total += c.standard_error();
-    return total;
+  [[nodiscard]] constexpr double total_error() const noexcept {
+    return std::ranges::fold_left(
+        constraints_, 0.0,
+        [](double acc, const auto &c) { return acc + c.standard_error(); });
   }
 
-  [[nodiscard]] std::size_t size() const noexcept { return constraints_.size(); }
+  [[nodiscard]] std::size_t size() const noexcept {
+    return constraints_.size();
+  }
 
   [[nodiscard]] IConstraint &operator[](std::size_t i) {
     return constraints_[i];
@@ -63,7 +65,7 @@ public:
 
 private:
   std::vector<IConstraint> constraints_;
-  const BoundaryConditions *bc_{nullptr};
+  std::optional<BoundaryConditions> bc_{std::nullopt};
 };
 
 } // namespace fullrmc
