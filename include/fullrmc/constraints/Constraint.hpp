@@ -108,7 +108,7 @@ private:
     constexpr bool should_reject() const noexcept override {
       return data_.should_reject(make_token());
     }
-    constexpr std::string name() const override { return data_.name(); }
+    std::string name() const override { return data_.name(); }
     constexpr void
     set_boundary_conditions(const BoundaryConditions &bc) override {
       data_.set_boundary_conditions(make_token(), bc);

@@ -29,7 +29,7 @@ public:
     mol_ids_ = molecule_ids;
   }
 
-  [[nodiscard]] consteval std::string name() const {
+  [[nodiscard]] std::string name() const {
     return "DistanceConstraint";
   }
 
@@ -73,7 +73,7 @@ protected:
 
 class InterMolecularDistanceConstraint : public DistanceConstraintBase {
 public:
-  [[nodiscard]] consteval std::string name() const {
+  [[nodiscard]] std::string name() const {
     return "InterMolecularDistanceConstraint";
   }
 
@@ -85,7 +85,7 @@ protected:
 
 class IntraMolecularDistanceConstraint : public DistanceConstraintBase {
 public:
-  [[nodiscard]] consteval std::string name() const {
+  [[nodiscard]] std::string name() const {
     return "IntraMolecularDistanceConstraint";
   }
 

@@ -19,7 +19,7 @@ public:
     quads_.push_back({i, j, k, l, lo_rad, hi_rad});
   }
 
-  [[nodiscard]] consteval std::string name() const {
+  [[nodiscard]] std::string name() const {
     return "ImproperAngleConstraint";
   }
 

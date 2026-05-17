@@ -29,7 +29,7 @@ public:
     elements_ = elements;
   }
 
-  [[nodiscard]] consteval std::string name() const {
+  [[nodiscard]] std::string name() const {
     return "CoordinationConstraint";
   }
 

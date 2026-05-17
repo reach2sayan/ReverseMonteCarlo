@@ -80,8 +80,8 @@ int main(int argc, char *argv[]) {
         engine.build_atomic_groups(0.0, 0.2, vm["seed"].as<std::uint32_t>());
 
         if (vm["smart"].as<bool>())
-          engine.set_selector(std::make_unique<fullrmc::SmartRandomSelector>(
-              1.1, vm["seed"].as<std::uint32_t>()));
+          engine.set_selector(
+              fullrmc::SmartRandomSelector{1.1, vm["seed"].as<std::uint32_t>()});
 
         // ---- Constraints ----
         double rho0 = vm["rho0"].as<double>();

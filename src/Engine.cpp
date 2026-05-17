@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <boost/log/trivial.hpp>
 #include <fullrmc/Engine.hpp>
 #include <fullrmc/generators/Translations.hpp>
@@ -8,11 +7,9 @@
 namespace fullrmc {
 
 Engine::Engine(AtomicStructure structure, BoundaryConditions bc)
-    : structure_(std::move(structure)), bc_(std::move(bc)) {
-  selector_ = std::make_unique<RandomSelector>();
-}
+    : structure_(std::move(structure)), bc_(std::move(bc)),
+      selector_(RandomSelector{}) {}
 
-void Engine::add_group(Group g) { groups_.push_back(std::move(g)); }
 
 void Engine::build_atomic_groups(double min_amp, double max_amp,
                                  std::uint32_t seed) {
@@ -28,7 +25,7 @@ void Engine::build_atomic_groups(double min_amp, double max_amp,
   }
 }
 
-void Engine::set_selector(std::unique_ptr<IGroupSelector> s) {
+void Engine::set_selector(IGroupSelector s) {
   selector_ = std::move(s);
 }
 
@@ -55,9 +52,6 @@ io::EngineStats Engine::stats() const noexcept {
 void Engine::run(std::uint64_t n_steps) {
   if (groups_.empty())
     throw std::runtime_error("Engine::run: no groups defined");
-  if (!selector_)
-    selector_ = std::make_unique<RandomSelector>();
-
   for (std::uint64_t i = 0; i < n_steps; ++i)
     step();
 }
@@ -79,7 +73,7 @@ void Engine::step() {
   ++n_steps_total_;
 
   // 1. Select group.
-  const std::size_t gi = selector_->select(groups_.size());
+  const std::size_t gi = selector_.select(groups_.size());
   Group &g = groups_[gi];
   if (!g.refine || g.empty())
     return;
@@ -121,7 +115,7 @@ void Engine::step() {
   }
 
   // 8. Inform selector about outcome.
-  selector_->feedback(gi, !rejected);
+  selector_.feedback(gi, !rejected);
 
   // 9. Logging.
   if (step_cb_ && (n_steps_total_ % log_every_ == 0))

@@ -16,52 +16,47 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <memory>
 #include <optional>
 #include <vector>
 
 namespace fullrmc {
 
-// Callback invoked at the end of every `log_every` steps.
-// Signature: (step, accepted_count, tried_count, total_chi2)
 using StepCallback =
     std::function<void(std::uint64_t, std::uint64_t, std::uint64_t, double)>;
 
 class Engine {
 public:
-  // ---- Construction / configuration ----
   explicit Engine(AtomicStructure structure, BoundaryConditions bc);
 
   // Add a group (takes ownership of generator via Group::generator).
-  void add_group(Group g);
+  constexpr void add_group(Group g) { groups_.push_back(std::move(g)); }
 
   // Build groups automatically: one group per atom with default
   // TranslationGenerator.
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
 
-  void set_selector(std::unique_ptr<IGroupSelector> s);
+  void set_selector(IGroupSelector s);
   void add_constraint(IConstraint c);
 
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
   void set_step_callback(StepCallback cb, std::uint64_t log_every = 1000);
 
-  // ---- Run ----
   void run(std::uint64_t n_steps);
-  // Stop when total chi² drops below target or max_steps is reached.
   void run_until(double target_chi2, std::uint64_t max_steps = 0);
 
-  // ---- State accessors ----
-  [[nodiscard]] const AtomicStructure &structure() const noexcept {
+  [[nodiscard]] constexpr const AtomicStructure &structure() const noexcept {
     return structure_;
   }
-  [[nodiscard]] AtomicStructure &structure() noexcept { return structure_; }
-  [[nodiscard]] const BoundaryConditions &boundary() const noexcept {
+  [[nodiscard]] constexpr AtomicStructure &structure() noexcept {
+    return structure_;
+  }
+  [[nodiscard]] constexpr const BoundaryConditions &boundary() const noexcept {
     return bc_;
   }
   [[nodiscard]] io::EngineStats stats() const noexcept;
-  [[nodiscard]] ConstraintCollection &constraints() noexcept {
+  [[nodiscard]] constexpr ConstraintCollection &constraints() noexcept {
     return constraints_;
   }
 
@@ -75,7 +70,7 @@ private:
   AtomicStructure structure_;
   BoundaryConditions bc_;
   std::vector<Group> groups_;
-  std::unique_ptr<IGroupSelector> selector_;
+  IGroupSelector selector_;
   ConstraintCollection constraints_;
   AtomsCollector collector_;
 

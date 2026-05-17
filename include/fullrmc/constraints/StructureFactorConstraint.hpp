@@ -40,7 +40,7 @@ public:
   }
   void initialise(); // builds Gr2Sq matrix
 
-  [[nodiscard]] consteval std::string name() const {
+  [[nodiscard]] std::string name() const {
     return "StructureFactorConstraint";
   }
 

@@ -33,7 +33,7 @@ public:
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
   void initialise();
 
-  [[nodiscard]] consteval std::string name() const {
+  [[nodiscard]] std::string name() const {
     return "PairDistributionConstraint";
   }
 
