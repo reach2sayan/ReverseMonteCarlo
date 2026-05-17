@@ -1,9 +1,9 @@
 #include <boost/log/trivial.hpp>
-#include <fullrmc/Engine.hpp>
-#include <fullrmc/generators/Translations.hpp>
-#include <fullrmc/selectors/RandomSelector.hpp>
+#include <RMC/Engine.hpp>
+#include <RMC/generators/Translations.hpp>
+#include <RMC/selectors/RandomSelector.hpp>
 
-namespace fullrmc {
+namespace RMC {
 
 Engine::Engine(AtomicStructure structure, BoundaryConditions bc)
     : structure_(std::move(structure)), bc_(std::move(bc)),
@@ -42,4 +42,4 @@ constexpr void Engine::run_until(double target_chi2, std::uint64_t max_steps) {
   }
 }
 
-} // namespace fullrmc
+} // namespace RMC

@@ -1,11 +1,11 @@
 #include <array>
 #include <boost/leaf/result.hpp>
 #include <fstream>
-#include <fullrmc/io/DataReader.hpp>
+#include <RMC/io/DataReader.hpp>
 #include <sstream>
 #include <vector>
 
-namespace fullrmc::io {
+namespace RMC::io {
 
 Result<mat_t> read_xy_data(const std::filesystem::path &path) {
   std::ifstream f(path);
@@ -35,4 +35,4 @@ Result<mat_t> read_xy_data(const std::filesystem::path &path) {
   return m;
 }
 
-} // namespace fullrmc::io
+} // namespace RMC::io

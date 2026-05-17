@@ -1,13 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <fullrmc/generators/Combined.hpp>
-#include <fullrmc/generators/Rotations.hpp>
-#include <fullrmc/generators/Swaps.hpp>
-#include <fullrmc/generators/Translations.hpp>
+#include <RMC/generators/Combined.hpp>
+#include <RMC/generators/Rotations.hpp>
+#include <RMC/generators/Swaps.hpp>
+#include <RMC/generators/Translations.hpp>
 #include <cmath>
 #include <vector>
 
-using namespace fullrmc;
+using namespace RMC;
 using Catch::Matchers::WithinAbs;
 
 static coords_t make_coords(std::initializer_list<std::array<double,3>> atoms) {

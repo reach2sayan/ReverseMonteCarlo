@@ -4,7 +4,7 @@
 #include <boost/serialization/string.hpp>
 #include <boost/serialization/vector.hpp>
 #include <fstream>
-#include <fullrmc/io/Checkpoint.hpp>
+#include <RMC/io/Checkpoint.hpp>
 #include <sstream>
 
 // Teach Boost.Serialization how to handle Eigen dense matrices.
@@ -27,7 +27,7 @@ void serialize(Archive &ar,
 
 } // namespace boost::serialization
 
-namespace fullrmc::io {
+namespace RMC::io {
 
 Result<void> save_checkpoint(const AtomicStructure &s, const EngineStats &stats,
                              const std::filesystem::path &path) {
@@ -72,4 +72,4 @@ Result<EngineStats> load_checkpoint(AtomicStructure &s,
   }
 }
 
-} // namespace fullrmc::io
+} // namespace RMC::io

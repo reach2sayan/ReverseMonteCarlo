@@ -10,12 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ── Options ────────────────────────────────────────────────────────────────────
 option(RMC_BUILD_TESTS "Build Catch2 test suite" ON)
 option(ENABLE_NATIVE_ARCH "Optimise for the current machine" ON)
 option(ENABLE_MKL "Use Intel MKL backend for Eigen" ON)
 
-# ── Compiler detection ─────────────────────────────────────────────────────────
 set(RMC_KNOWN_COMPILER OFF)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     set(RMC_KNOWN_COMPILER ON)
@@ -30,7 +28,6 @@ else ()
     message(STATUS "Compiler ${CMAKE_CXX_COMPILER_ID}: using portable C++23 defaults only")
 endif ()
 
-# ── Architecture flags ─────────────────────────────────────────────────────────
 include(CheckCXXCompilerFlag)
 if (RMC_COMPILER_MSVC)
     check_cxx_compiler_flag(/arch:AVX2 HAVE_AVX2)
@@ -53,11 +50,8 @@ else ()
     endif ()
 endif ()
 
-# ── Dependencies ───────────────────────────────────────────────────────────────
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
-
 find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
-        random
         log
         log_setup
         program_options
@@ -66,7 +60,6 @@ find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
         system
 )
 
-# ── MKL backend for Eigen ──────────────────────────────────────────────────────
 add_library(eigen_backend INTERFACE)
 if (ENABLE_MKL)
     find_package(MKL CONFIG QUIET)
@@ -97,7 +90,6 @@ else ()
     target_compile_definitions(eigen_backend INTERFACE EIGEN_NO_MKL)
 endif ()
 
-# ── OpenMP ─────────────────────────────────────────────────────────────────────
 if (RMC_COMPILER_CLANG)
     foreach (_root /opt/rocm/lib/llvm /opt/rocm-7.0.2/lib/llvm /usr/lib/llvm-18 /usr/lib/llvm-17 /usr/local)
         if (EXISTS "${_root}/lib/libomp.so")
@@ -118,8 +110,7 @@ endif ()
 
 find_package(Threads REQUIRED)
 
-# ── Library ────────────────────────────────────────────────────────────────────
-add_library(RMC STATIC
+add_library(RMC SHARED
         src/core/Structure.cpp
         src/constraints/PairDistributionConstraint.cpp
         src/constraints/PairCorrelationConstraint.cpp
@@ -137,7 +128,6 @@ target_link_libraries(RMC PUBLIC
         Eigen3::Eigen
         eigen_backend
         Boost::headers
-        Boost::random
         Boost::log
         Boost::log_setup
         Boost::serialization
@@ -158,7 +148,6 @@ elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     target_compile_options(RMC PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
 endif ()
 
-# ── Executable ─────────────────────────────────────────────────────────────────
 add_executable(RMC_run src/main.cpp)
 target_link_libraries(RMC_run PRIVATE RMC Boost::program_options)
 if (RMC_COMPILER_MSVC)
@@ -171,11 +160,9 @@ if (RMC_COMPILER_CLANG)
     target_compile_options(RMC_run PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
 endif ()
 
-# ── Tests ──────────────────────────────────────────────────────────────────────
 include(CTest)
 if (BUILD_TESTING AND RMC_BUILD_TESTS)
     find_package(Catch2 3 REQUIRED)
-
     add_executable(RMC_tests
             tests/test_boundary_conditions.cpp
             tests/test_generators.cpp
@@ -184,7 +171,6 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_engine.cpp
     )
     target_link_libraries(RMC_tests PRIVATE RMC Catch2::Catch2WithMain)
-
     if (RMC_COMPILER_MSVC)
         target_compile_options(RMC_tests PRIVATE
                 /W4 /permissive- /Zc:__cplusplus /external:W0 /external:anglebrackets)
@@ -198,7 +184,6 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
     elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
         target_compile_options(RMC_tests PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
     endif ()
-
     include(Catch)
     catch_discover_tests(RMC_tests DISCOVERY_MODE PRE_TEST)
 endif ()

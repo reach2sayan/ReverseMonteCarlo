@@ -1,16 +1,16 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <fullrmc/constraints/AngleConstraint.hpp>
-#include <fullrmc/constraints/BondConstraint.hpp>
-#include <fullrmc/constraints/ConstraintCollection.hpp>
-#include <fullrmc/constraints/CoordinationConstraint.hpp>
-#include <fullrmc/constraints/DihedralAngleConstraint.hpp>
-#include <fullrmc/constraints/DistanceConstraint.hpp>
-#include <fullrmc/constraints/PairDistributionConstraint.hpp>
+#include <RMC/constraints/AngleConstraint.hpp>
+#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/ConstraintCollection.hpp>
+#include <RMC/constraints/CoordinationConstraint.hpp>
+#include <RMC/constraints/DihedralAngleConstraint.hpp>
+#include <RMC/constraints/DistanceConstraint.hpp>
+#include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <numbers>
 #include <numeric>
 
-using namespace fullrmc;
+using namespace RMC;
 using Catch::Matchers::WithinAbs;
 
 static constexpr real_t EPS = 1e-8;

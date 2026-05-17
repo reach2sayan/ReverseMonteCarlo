@@ -1,11 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
-#include <fullrmc/selectors/OrderedSelector.hpp>
-#include <fullrmc/selectors/RandomSelector.hpp>
-#include <fullrmc/selectors/SmartRandomSelector.hpp>
+#include <RMC/selectors/OrderedSelector.hpp>
+#include <RMC/selectors/RandomSelector.hpp>
+#include <RMC/selectors/SmartRandomSelector.hpp>
 #include <cstddef>
 #include <unordered_map>
 
-using namespace fullrmc;
+using namespace RMC;
 
 TEST_CASE("RandomSelector - always returns valid index", "[selectors]") {
     IGroupSelector sel = RandomSelector{42};

@@ -1,10 +1,10 @@
 #include <boost/assert.hpp>
 #include <cmath>
-#include <fullrmc/constraints/PairDistributionConstraint.hpp>
+#include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <numbers>
 #include <stdexcept>
 
-namespace fullrmc {
+namespace RMC {
 
 void PairDistributionConstraint::set_experimental_data(const mat_t &data) {
   BOOST_ASSERT_MSG(data.cols() >= 2,
@@ -80,4 +80,4 @@ PairDistributionConstraint::compute_error(const coords_t &coords,
   return (scale * computed_G_ - exp_G_).squaredNorm();
 }
 
-} // namespace fullrmc
+} // namespace RMC

@@ -1,9 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <fullrmc/core/BoundaryConditions.hpp>
+#include <RMC/core/BoundaryConditions.hpp>
 #include <cmath>
 
-using namespace fullrmc;
+using namespace RMC;
 using Catch::Matchers::WithinAbs;
 
 static constexpr real_t EPS = 1e-10;

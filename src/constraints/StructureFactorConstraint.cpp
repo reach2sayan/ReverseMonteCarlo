@@ -1,9 +1,9 @@
 #include <boost/assert.hpp>
 #include <cmath>
-#include <fullrmc/constraints/StructureFactorConstraint.hpp>
+#include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <stdexcept>
 
-namespace fullrmc {
+namespace RMC {
 
 void StructureFactorConstraint::set_experimental_data(const mat_t &data) {
   BOOST_ASSERT_MSG(data.cols() >= 2,
@@ -56,4 +56,4 @@ double StructureFactorConstraint::compute_error(
   return (scale * computed_S_ - exp_S_).squaredNorm();
 }
 
-} // namespace fullrmc
+} // namespace RMC

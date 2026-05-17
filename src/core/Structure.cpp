@@ -1,7 +1,7 @@
-#include <fullrmc/core/Structure.hpp>
+#include <RMC/core/Structure.hpp>
 #include <stdexcept>
 
-namespace fullrmc {
+namespace RMC {
 
 void AtomicStructure::save_snapshot(std::span<const std::size_t> indices) {
   snapshot_indices_.assign(indices.begin(), indices.end());
@@ -18,4 +18,4 @@ void AtomicStructure::restore_snapshot(std::span<const std::size_t>) {
   coordinates(idx, Eigen::all) = snapshot_coords_;
 }
 
-} // namespace fullrmc
+} // namespace RMC

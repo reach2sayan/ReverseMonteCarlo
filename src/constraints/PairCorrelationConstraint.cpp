@@ -1,10 +1,10 @@
 #include <boost/assert.hpp>
 #include <cmath>
-#include <fullrmc/constraints/PairCorrelationConstraint.hpp>
+#include <RMC/constraints/PairCorrelationConstraint.hpp>
 #include <numbers>
 #include <stdexcept>
 
-namespace fullrmc {
+namespace RMC {
 
 void PairCorrelationConstraint::set_experimental_data(const mat_t &data) {
   BOOST_ASSERT_MSG(data.cols() >= 2,
@@ -82,4 +82,4 @@ PairCorrelationConstraint::compute_error(const coords_t &coords,
   return (scale * computed_F_ - exp_F_).squaredNorm();
 }
 
-} // namespace fullrmc
+} // namespace RMC

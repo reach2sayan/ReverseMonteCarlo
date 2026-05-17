@@ -1,13 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <fullrmc/Engine.hpp>
-#include <fullrmc/constraints/BondConstraint.hpp>
-#include <fullrmc/constraints/DistanceConstraint.hpp>
-#include <fullrmc/selectors/OrderedSelector.hpp>
+#include <RMC/Engine.hpp>
+#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/DistanceConstraint.hpp>
+#include <RMC/selectors/OrderedSelector.hpp>
 #include <cmath>
 #include <numeric>
 
-using namespace fullrmc;
+using namespace RMC;
 using Catch::Matchers::WithinAbs;
 
 static AtomicStructure make_linear_chain(int N, double spacing) {

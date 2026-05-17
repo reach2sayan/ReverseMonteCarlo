@@ -2,12 +2,12 @@
 #include <boost/leaf/result.hpp>
 #include <charconv>
 #include <fstream>
-#include <fullrmc/io/PdbReader.hpp>
+#include <RMC/io/PdbReader.hpp>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 
-namespace fullrmc::io {
+namespace RMC::io {
 
 namespace {
 
@@ -174,4 +174,4 @@ Result<void> write_pdb(const AtomicStructure &s,
   return {};
 }
 
-} // namespace fullrmc::io
+} // namespace RMC::io
