@@ -1,7 +1,7 @@
 #pragma once
-#include <cmath>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Types.hpp>
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -108,7 +108,7 @@ private:
     constexpr bool should_reject() const noexcept override {
       return data_.should_reject(make_token());
     }
-    std::string name() const override { return data_.name(); }
+    constexpr std::string name() const override { return data_.name(); }
     constexpr void
     set_boundary_conditions(const BoundaryConditions &bc) override {
       data_.set_boundary_conditions(make_token(), bc);
@@ -122,9 +122,6 @@ private:
   std::unique_ptr<ConstraintConcept> self_;
 };
 
-// CRTP mixin — inherit to get all token-gated methods implemented via a single
-// compute_error(coords, moved) -> double that Derived must provide.
-// Derived must also provide: std::string name() const
 template <typename Derived> class ConstraintBase {
 protected:
   const BoundaryConditions *bc_{nullptr};
@@ -145,35 +142,39 @@ public:
     bc_ = &bc;
   }
 
-  void compute_before_move(IConstraint::Token, const coords_t &coords,
-                           std::span<const std::size_t> moved) {
+  constexpr void compute_before_move(IConstraint::Token, const coords_t &coords,
+                                     std::span<const std::size_t> moved) {
     err_before_ = static_cast<Derived *>(this)->compute_error(coords, moved);
   }
-  void compute_after_move(IConstraint::Token, const coords_t &coords,
-                          std::span<const std::size_t> moved) {
+  constexpr void compute_after_move(IConstraint::Token, const coords_t &coords,
+                                    std::span<const std::size_t> moved) {
     err_after_ = static_cast<Derived *>(this)->compute_error(coords, moved);
   }
-  void accept(IConstraint::Token) noexcept { err_before_ = err_after_; }
-  void reject(IConstraint::Token) noexcept {}
+  constexpr void accept(IConstraint::Token) noexcept {
+    err_before_ = err_after_;
+  }
+  constexpr void reject(IConstraint::Token) noexcept {}
 
-  [[nodiscard]] double standard_error(IConstraint::Token) const noexcept {
+  [[nodiscard]] constexpr double
+  standard_error(IConstraint::Token) const noexcept {
     return err_after_;
   }
-  [[nodiscard]] bool should_reject(IConstraint::Token) const noexcept {
+  [[nodiscard]] constexpr bool
+  should_reject(IConstraint::Token) const noexcept {
     return flexible ? (err_after_ > err_before_ + tolerance)
                     : (err_after_ > err_before_);
   }
 
 protected:
-  [[nodiscard]] double distance_sq(const coords_t &c, std::size_t i,
-                                   std::size_t j) const noexcept {
+  [[nodiscard]] constexpr double distance_sq(const coords_t &c, std::size_t i,
+                                             std::size_t j) const noexcept {
     vec3_t d = c.row(j).transpose() - c.row(i).transpose();
     if (bc_)
       d = bc_min_image(*bc_, d);
     return d.squaredNorm();
   }
-  [[nodiscard]] double distance(const coords_t &c, std::size_t i,
-                                std::size_t j) const noexcept {
+  [[nodiscard]] constexpr double distance(const coords_t &c, std::size_t i,
+                                          std::size_t j) const noexcept {
     return std::sqrt(distance_sq(c, i, j));
   }
 };

@@ -1,9 +1,9 @@
 #pragma once
 #include <Eigen/Core>
+#include <RMC/selectors/GroupSelector.hpp>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/count.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
-#include <RMC/selectors/GroupSelector.hpp>
 #include <random>
 
 namespace RMC {
@@ -15,14 +15,14 @@ namespace RMC {
 //                  w[i] /= bias_factor  if rejected
 // Weights are renormalised to sum to 1 after each update.
 struct SmartRandomSelector : SelectorBase<SmartRandomSelector> {
-  real_t bias_factor{1.1};
+  const double bias_factor{1.1};
   mutable std::mt19937 rng;
 
 private:
   Eigen::VectorXd weights_;
 
 public:
-  explicit SmartRandomSelector(real_t bf = 1.1, std::uint32_t seed = 42)
+  explicit SmartRandomSelector(double bf = 1.1, std::uint32_t seed = 42)
       : bias_factor(bf), rng(seed) {}
 
   void initialise(std::size_t n_groups) {
@@ -48,7 +48,7 @@ public:
       weights_[static_cast<Eigen::Index>(group_idx)] /= bias_factor;
     }
 
-    real_t total = weights_.sum();
+    double total = weights_.sum();
     if (total < 1e-300) {
       weights_.setConstant(1.0 / static_cast<double>(weights_.size()));
     } else {
