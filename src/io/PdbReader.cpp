@@ -14,8 +14,6 @@ namespace {
 // ATOM/HETATM field offsets (PDB fixed-format columns, 0-based).
 // See:
 // https://www.wwpdb.org/documentation/file-format-content/format33/sect9.html
-constexpr int SERIAL_START = 6;
-constexpr int SERIAL_LEN = 5;
 constexpr int NAME_START = 12;
 constexpr int NAME_LEN = 4;
 constexpr int RESNAME_START = 17;
