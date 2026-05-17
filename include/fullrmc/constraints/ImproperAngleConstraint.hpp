@@ -14,8 +14,8 @@ public:
     double lo, hi;
   };
 
-  void add_improper(std::size_t i, std::size_t j, std::size_t k, std::size_t l, double lo_rad,
-                    double hi_rad) {
+  void add_improper(std::size_t i, std::size_t j, std::size_t k, std::size_t l,
+                    double lo_rad, double hi_rad) {
     quads_.push_back({i, j, k, l, lo_rad, hi_rad});
   }
 
@@ -23,8 +23,9 @@ public:
     return "ImproperAngleConstraint";
   }
 
-  [[nodiscard]] double compute_error(const coords_t &coords,
-                                     std::span<const std::size_t> /*moved*/) const {
+  [[nodiscard]] double
+  compute_error(const coords_t &coords,
+                std::span<const std::size_t> /*moved*/) const {
     double err = 0.0;
     for (auto &q : quads_) {
       double phi = improper(coords, q.i, q.j, q.k, q.l);

@@ -27,11 +27,6 @@ concept BoundaryConditionsConcept = requires(T bc, const vec3_t &v) {
   { bc.volume() } -> std::convertible_to<double>;
 };
 
-template <typename T>
-concept MoveGeneratorConcept =
-    requires(T g, coords_t &c, std::span<const int> idx) {
-      { g.generate(c, idx) } -> std::same_as<void>;
-    };
 
 template <typename T>
 concept GroupSelectorConcept = requires(T s, std::size_t n) {

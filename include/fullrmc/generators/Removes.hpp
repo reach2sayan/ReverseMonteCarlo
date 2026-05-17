@@ -1,6 +1,6 @@
 #pragma once
-#include <fullrmc/generators/MoveGenerator.hpp>
 #include <fullrmc/core/AtomsCollector.hpp>
+#include <fullrmc/generators/MoveGenerator.hpp>
 #include <memory>
 
 namespace fullrmc {
@@ -9,17 +9,17 @@ namespace fullrmc {
 // The Engine commits or rolls back the removal after constraint evaluation.
 // Coordinates are NOT modified; constraints must skip removed atoms.
 struct RemoveGenerator : MoveGeneratorBase<RemoveGenerator> {
-    std::shared_ptr<AtomsCollector> collector;
+  std::shared_ptr<AtomsCollector> collector;
+  constexpr RemoveGenerator() = default;
+  constexpr explicit RemoveGenerator(std::shared_ptr<AtomsCollector> c)
+      : collector(std::move(c)) {}
 
-    RemoveGenerator() = default;
-    explicit RemoveGenerator(std::shared_ptr<AtomsCollector> c)
-        : collector(std::move(c)) {}
-
-    void generate_impl(coords_t& /*coords*/,
-                       std::span<const std::size_t> indices) {
-        if (collector)
-            collector->stage_removal(indices);
+  constexpr void generate(IMoveGenerator::Token, coords_t &,
+                          std::span<const std::size_t> indices) {
+    if (collector) {
+      collector->stage_removal(indices);
     }
+  }
 };
 
 } // namespace fullrmc

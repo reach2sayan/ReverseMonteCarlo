@@ -22,7 +22,7 @@ void Engine::build_atomic_groups(double min_amp, double max_amp,
     Group g;
     g.name = "atom_" + std::to_string(i);
     g.indices = {static_cast<std::size_t>(i)};
-    g.generator = std::make_shared<TranslationGenerator>(
+    g.generator = TranslationGenerator(
         min_amp, max_amp, seed + static_cast<std::uint32_t>(i));
     groups_.push_back(std::move(g));
   }
