@@ -16,7 +16,6 @@ private:
 };
 } // namespace detail
 
-// Satisfied by any type that implements the passkey-gated generate interface.
 template <typename T>
 concept CMoveGenerator =
     requires(T &gen, detail::GeneratorToken tok, coords_t &coords,
@@ -29,38 +28,36 @@ concept CMoveGenerator =
 // can defer to the generator instead of using constraints_.should_reject().
 template <typename T>
 concept CMoveGeneratorWithRejectionOverride =
-    CMoveGenerator<T> &&
-    requires(const T &gen) {
+    CMoveGenerator<T> && requires(const T &gen) {
       { gen.rejection_override() } -> std::convertible_to<std::optional<bool>>;
     };
 
 class IMoveGenerator {
 public:
-  // Public alias so concrete generators can name the token type in their
-  // signatures without knowing about the detail namespace.
   using Token = detail::GeneratorToken;
 
   template <CMoveGenerator T>
-  IMoveGenerator(T x)
+  constexpr IMoveGenerator(T x)
       : self_(std::make_unique<MoveGeneratorModel<T>>(std::move(x))) {}
-  IMoveGenerator(const IMoveGenerator &s) : self_{s.self_->clone()} {}
-  IMoveGenerator(IMoveGenerator &&s) noexcept : self_{std::move(s.self_)} {}
-  IMoveGenerator &operator=(const IMoveGenerator &s) {
+  constexpr IMoveGenerator(const IMoveGenerator &s) : self_{s.self_->clone()} {}
+  constexpr IMoveGenerator(IMoveGenerator &&s) noexcept
+      : self_{std::move(s.self_)} {}
+  constexpr IMoveGenerator &operator=(const IMoveGenerator &s) {
     self_ = s.self_->clone();
     return *this;
   }
-  IMoveGenerator &operator=(IMoveGenerator &&s) noexcept {
+  constexpr IMoveGenerator &operator=(IMoveGenerator &&s) noexcept {
     self_ = std::move(s.self_);
     return *this;
   }
 
-  void generate(coords_t &coords, std::span<const std::size_t> indices) {
+  constexpr void generate(coords_t &coords,
+                          std::span<const std::size_t> indices) {
     self_->generate(coords, indices);
   }
 
-  // Returns the generator's own accept/reject decision, or nullopt to use the
-  // standard Metropolis criterion from constraints_.should_reject().
-  [[nodiscard]] std::optional<bool> rejection_override() const noexcept {
+  [[nodiscard]] constexpr std::optional<bool>
+  rejection_override() const noexcept {
     return self_->rejection_override();
   }
 
@@ -76,18 +73,19 @@ private:
   };
   template <CMoveGenerator T>
   struct MoveGeneratorModel final : MoveGeneratorConcept {
-    explicit MoveGeneratorModel(T x) : data_(std::move(x)) {}
-    void generate(coords_t &coords,
-                  std::span<const std::size_t> indices) override {
+    constexpr explicit MoveGeneratorModel(T x) : data_(std::move(x)) {}
+    constexpr void generate(coords_t &coords,
+                            std::span<const std::size_t> indices) override {
       data_.generate(make_token(), coords, indices);
     }
-    std::optional<bool> rejection_override() const noexcept override {
-      if constexpr (CMoveGeneratorWithRejectionOverride<T>)
+    constexpr std::optional<bool> rejection_override() const noexcept override {
+      if constexpr (CMoveGeneratorWithRejectionOverride<T>) {
         return data_.rejection_override();
-      else
+      } else {
         return std::nullopt;
+      }
     }
-    std::unique_ptr<MoveGeneratorConcept> clone() const override {
+    constexpr std::unique_ptr<MoveGeneratorConcept> clone() const override {
       return std::make_unique<MoveGeneratorModel<T>>(data_);
     }
     T data_;

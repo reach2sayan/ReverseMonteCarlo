@@ -82,8 +82,8 @@ TEST_CASE("SwapGenerator - exchanges positions correctly", "[generators]") {
 }
 
 TEST_CASE("CombinedMoveGenerator - applies both generators", "[generators]") {
-    IMoveGenerator gen = CombinedMoveGenerator({TranslationGenerator(0.2, 0.2, 10),
-                                                RotationGenerator(0.0, 0.0, 10)});
+    IMoveGenerator gen = CombinedMoveGenerator{TranslationGenerator(0.2, 0.2, 10),
+                                               RotationGenerator(0.0, 0.0, 10)};
 
     coords_t c = make_coords({{0,0,0}});
     coords_t orig = c;

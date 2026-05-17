@@ -37,13 +37,12 @@ struct LangevinTranslationGenerator
 
     std::normal_distribution<double> nd(0.0, 1.0);
     const double half_eps_sq = 0.5 * step_size * step_size;
-
     for (Eigen::Index ai = 0; ai < k; ++ai) {
       const auto atom =
           static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
-      for (int ax = 0; ax < 3; ++ax) {
-        coords(atom, ax) += -half_eps_sq * g[3 * ai + ax] + step_size * nd(rng);
-      }
+      coords.row(atom).transpose() +=
+          -half_eps_sq * g.segment<3>(3 * ai) +
+          step_size * vec3_t::NullaryExpr([&] { return nd(rng); });
     }
   }
 };

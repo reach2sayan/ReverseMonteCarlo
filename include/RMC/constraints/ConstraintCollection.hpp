@@ -52,14 +52,14 @@ public:
         [](double acc, const auto &c) { return acc + c.standard_error(); });
   }
 
-  [[nodiscard]] std::size_t size() const noexcept {
+  [[nodiscard]] constexpr std::size_t size() const noexcept {
     return constraints_.size();
   }
 
-  [[nodiscard]] IConstraint &operator[](std::size_t i) {
+  [[nodiscard]] constexpr IConstraint &operator[](std::size_t i) {
     return constraints_[i];
   }
-  [[nodiscard]] const IConstraint &operator[](std::size_t i) const {
+  [[nodiscard]] constexpr const IConstraint &operator[](std::size_t i) const {
     return constraints_[i];
   }
 
