@@ -1,8 +1,9 @@
 #pragma once
 #include <fullrmc/selectors/RandomSelector.hpp>
 #include <boost/accumulators/accumulators.hpp>
-#include <boost/accumulators/statistics/mean.hpp>
 #include <boost/accumulators/statistics/count.hpp>
+#include <boost/accumulators/statistics/mean.hpp>
+#include <boost/random/discrete_distribution.hpp>
 #include <Eigen/Core>
 
 namespace fullrmc {

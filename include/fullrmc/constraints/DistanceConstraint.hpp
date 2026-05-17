@@ -70,6 +70,7 @@ protected:
 };
 
 class InterMolecularDistanceConstraint : public DistanceConstraintBase {
+public:
   [[nodiscard]] std::string name() const override {
     return "InterMolecularDistanceConstraint";
   }
@@ -83,6 +84,7 @@ protected:
 };
 
 class IntraMolecularDistanceConstraint : public DistanceConstraintBase {
+public:
   [[nodiscard]] std::string name() const override {
     return "IntraMolecularDistanceConstraint";
   }

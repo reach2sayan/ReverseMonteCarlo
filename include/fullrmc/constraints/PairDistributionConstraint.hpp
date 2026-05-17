@@ -1,6 +1,5 @@
 #pragma once
 #include <Eigen/Core>
-#include <boost/histogram.hpp>
 #include <cmath>
 #include <fullrmc/constraints/Constraint.hpp>
 #include <numbers>
@@ -46,10 +45,6 @@ public:
 private:
   [[nodiscard]] double weight_for(const std::string &a,
                                   const std::string &b) const noexcept;
-  void fill_histogram(
-      const coords_t &coords,
-      boost::histogram::histogram<std::tuple<boost::histogram::axis::regular<>>>
-          &h) const;
 
   vec_t exp_r_;
   vec_t exp_G_;

@@ -1,13 +1,16 @@
 #pragma once
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <boost/leaf/result.hpp>
 #include <concepts>
 #include <cstdint>
-#include <expected>
 #include <span>
 #include <string>
 
 namespace fullrmc {
+
+using index_t = std::size_t;
+using real_t  = double;
 
 using vec3_t = Eigen::Vector3d;
 using mat3_t = Eigen::Matrix3d;
@@ -46,8 +49,8 @@ concept ConstraintConcept =
       { c.reject() } -> std::same_as<void>;
     };
 
-// ---- Error type for I/O ----
-using Error = std::string;
-template <typename T> using Result = std::expected<T, Error>;
+// ---- I/O result type ----
+// String errors are loaded as boost::leaf payloads (std::string).
+template <typename T> using Result = boost::leaf::result<T>;
 
 } // namespace fullrmc

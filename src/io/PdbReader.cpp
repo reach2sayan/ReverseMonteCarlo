@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <boost/leaf/result.hpp>
 #include <charconv>
 #include <fstream>
 #include <fullrmc/io/PdbReader.hpp>
@@ -54,7 +55,7 @@ double parse_real(std::string_view sv) {
 Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
   std::ifstream file(path);
   if (!file)
-    return std::unexpected("Cannot open PDB file: " + path.string());
+    return boost::leaf::new_error(std::string{"Cannot open PDB file: " + path.string()});
 
   AtomicStructure s;
   std::vector<std::array<double, 3>> xyz;
@@ -122,7 +123,7 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
           (it != ATOMIC_NUMBERS.end()) ? it->second : 0;
 
     } catch (const std::exception &e) {
-      return std::unexpected(std::string("PDB parse error: ") + e.what());
+      return boost::leaf::new_error(std::string{"PDB parse error: "} + e.what());
     }
   }
 
@@ -141,7 +142,7 @@ Result<void> write_pdb(const AtomicStructure &s,
                        const std::filesystem::path &path) {
   std::ofstream f(path);
   if (!f)
-    return std::unexpected("Cannot write PDB: " + path.string());
+    return boost::leaf::new_error(std::string{"Cannot write PDB: " + path.string()});
 
   for (Eigen::Index i = 0; i < s.coordinates.rows(); ++i) {
     const std::string &name = (i < static_cast<Eigen::Index>(s.names.size()))

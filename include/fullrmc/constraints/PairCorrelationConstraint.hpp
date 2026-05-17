@@ -1,5 +1,4 @@
 #pragma once
-#include <boost/histogram.hpp>
 #include <cmath>
 #include <fullrmc/constraints/Constraint.hpp>
 #include <numbers>

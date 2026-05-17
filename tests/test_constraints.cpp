@@ -8,6 +8,7 @@
 #include <fullrmc/constraints/PairDistributionConstraint.hpp>
 #include <fullrmc/constraints/ConstraintCollection.hpp>
 #include <numbers>
+#include <numeric>
 #include <vector>
 
 using namespace fullrmc;

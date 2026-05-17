@@ -58,6 +58,8 @@ void StructureFactorConstraint::initialise() {
 
 double StructureFactorConstraint::compute_error(
     const coords_t &coords, std::span<const std::size_t> moved) const {
+  if (bc_)
+    pdf_->set_boundary_conditions(*bc_);
   // Compute G(r) via the embedded PDF constraint.
   pdf_->compute_after_move(coords, moved);
   const vec_t &G_r = pdf_->computed_G();

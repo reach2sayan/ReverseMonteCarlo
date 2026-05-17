@@ -1,4 +1,5 @@
 #include <fullrmc/io/DataReader.hpp>
+#include <boost/leaf/result.hpp>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -8,7 +9,7 @@ namespace fullrmc::io {
 
 Result<mat_t> read_xy_data(const std::filesystem::path& path) {
     std::ifstream f(path);
-    if (!f) return std::unexpected("Cannot open data file: " + path.string());
+    if (!f) return boost::leaf::new_error(std::string{"Cannot open data file: " + path.string()});
 
     std::vector<std::array<double,2>> rows;
     std::string line;

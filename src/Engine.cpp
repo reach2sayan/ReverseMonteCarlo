@@ -130,9 +130,9 @@ void Engine::step() {
   // 10. Checkpoint.
   if (checkpoint_path_ && n_steps_accepted_ > 0 &&
       n_steps_accepted_ % checkpoint_every_ == 0) {
-    auto result = io::save_checkpoint(structure_, stats(), *checkpoint_path_);
-    if (!result)
-      BOOST_LOG_TRIVIAL(warning) << "Checkpoint failed: " << result.error();
+    if (auto result = io::save_checkpoint(structure_, stats(), *checkpoint_path_);
+        !result)
+      BOOST_LOG_TRIVIAL(warning) << "Checkpoint save failed";
   }
 }
 

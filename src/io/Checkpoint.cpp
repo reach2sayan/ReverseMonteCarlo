@@ -1,4 +1,5 @@
 #include <fullrmc/io/Checkpoint.hpp>
+#include <boost/leaf/result.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/serialization/vector.hpp>
@@ -32,7 +33,7 @@ Result<void> save_checkpoint(const AtomicStructure& s,
                                const std::filesystem::path& path) {
     try {
         std::ofstream f(path, std::ios::binary);
-        if (!f) return std::unexpected("Cannot write checkpoint: " + path.string());
+        if (!f) return boost::leaf::new_error(std::string{"Cannot write checkpoint: " + path.string()});
         boost::archive::binary_oarchive ar(f);
         ar & s.coordinates;
         ar & stats.steps_total;
@@ -41,7 +42,7 @@ Result<void> save_checkpoint(const AtomicStructure& s,
         ar & stats.last_total_err;
         return {};
     } catch (const std::exception& e) {
-        return std::unexpected(std::string("Checkpoint write error: ") + e.what());
+        return boost::leaf::new_error(std::string{"Checkpoint write error: "} + e.what());
     }
 }
 
@@ -49,7 +50,7 @@ Result<EngineStats> load_checkpoint(AtomicStructure& s,
                                      const std::filesystem::path& path) {
     try {
         std::ifstream f(path, std::ios::binary);
-        if (!f) return std::unexpected("Cannot read checkpoint: " + path.string());
+        if (!f) return boost::leaf::new_error(std::string{"Cannot read checkpoint: " + path.string()});
         boost::archive::binary_iarchive ar(f);
         ar & s.coordinates;
         EngineStats stats;
@@ -59,7 +60,7 @@ Result<EngineStats> load_checkpoint(AtomicStructure& s,
         ar & stats.last_total_err;
         return stats;
     } catch (const std::exception& e) {
-        return std::unexpected(std::string("Checkpoint read error: ") + e.what());
+        return boost::leaf::new_error(std::string{"Checkpoint read error: "} + e.what());
     }
 }
 

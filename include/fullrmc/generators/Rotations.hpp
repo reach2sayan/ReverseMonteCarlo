@@ -21,10 +21,10 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
 
     void generate_impl(coords_t& coords,
                        std::span<const std::size_t> indices) {
-        boost::random::uniform_real_distribution<double> angle_dist(min_angle, max_angle);
+        double angle = (min_angle < max_angle)
+            ? boost::random::uniform_real_distribution<double>(min_angle, max_angle)(rng)
+            : min_angle;
         boost::random::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-
-        double angle = angle_dist(rng);
         if (sign_dist(rng) < 0.0) angle = -angle;
 
         vec3_t axis  = random_unit_vector();
@@ -62,10 +62,10 @@ struct RotationAboutAxisGenerator : MoveGeneratorBase<RotationAboutAxisGenerator
 
     void generate_impl(coords_t& coords,
                        std::span<const std::size_t> indices) {
-        boost::random::uniform_real_distribution<double> angle_dist(min_angle, max_angle);
+        double angle = (min_angle < max_angle)
+            ? boost::random::uniform_real_distribution<double>(min_angle, max_angle)(rng)
+            : min_angle;
         boost::random::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-
-        double angle = angle_dist(rng);
         if (sign_dist(rng) < 0.0) angle = -angle;
 
         vec3_t pivot = centroid(coords, indices);

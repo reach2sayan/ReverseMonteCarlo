@@ -7,17 +7,15 @@ namespace fullrmc {
 
 class PeriodicBC {
 public:
-  constexpr explicit PeriodicBC(const mat3_t &box) { set_box(box); }
-  constexpr void set_box(const mat3_t &box) {
+  explicit PeriodicBC(const mat3_t &box) { set_box(box); }
+  void set_box(const mat3_t &box) {
     box_ = box;
     inv_box_ = box.inverse();
     volume_ = std::abs(box.determinant());
   }
 
-  [[nodiscard]] constexpr const mat3_t &box() const noexcept { return box_; }
-  [[nodiscard]] constexpr const mat3_t &inv_box() const noexcept {
-    return inv_box_;
-  }
+  [[nodiscard]] const mat3_t &box() const noexcept { return box_; }
+  [[nodiscard]] const mat3_t &inv_box() const noexcept { return inv_box_; }
 
   // Wrap a Cartesian position back into the unit cell [0,1)^3 in fractional
   // coords.
@@ -44,27 +42,25 @@ private:
 class InfiniteBC {
 public:
   constexpr explicit InfiniteBC(double volume = 1.0) : volume_(volume) {}
-  [[nodiscard]] constexpr vec3_t wrap(const vec3_t &r) const noexcept {
-    return r;
-  }
-  [[nodiscard]] constexpr vec3_t min_image(const vec3_t &delta) const noexcept {
+  [[nodiscard]] vec3_t wrap(const vec3_t &r) const noexcept { return r; }
+  [[nodiscard]] vec3_t min_image(const vec3_t &delta) const noexcept {
     return delta;
   }
   [[nodiscard]] constexpr double volume() const noexcept { return volume_; }
-  void constexpr set_volume(double v) noexcept { volume_ = v; }
+  constexpr void set_volume(double v) noexcept { volume_ = v; }
 
 private:
   double volume_;
 };
 
 using BoundaryConditions = std::variant<PeriodicBC, InfiniteBC>;
-constexpr vec3_t bc_wrap(const BoundaryConditions &bc, const vec3_t &r) {
+inline vec3_t bc_wrap(const BoundaryConditions &bc, const vec3_t &r) {
   return std::visit([&](const auto &b) { return b.wrap(r); }, bc);
 }
-constexpr vec3_t bc_min_image(const BoundaryConditions &bc, const vec3_t &d) {
+inline vec3_t bc_min_image(const BoundaryConditions &bc, const vec3_t &d) {
   return std::visit([&](const auto &b) { return b.min_image(d); }, bc);
 }
-constexpr double bc_volume(const BoundaryConditions &bc) {
+inline double bc_volume(const BoundaryConditions &bc) {
   return std::visit([](const auto &b) { return b.volume(); }, bc);
 }
 

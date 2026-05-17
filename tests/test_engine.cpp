@@ -73,22 +73,19 @@ TEST_CASE("Engine - hard distance constraint limits proximity", "[engine]") {
 }
 
 TEST_CASE("Engine - snapshot restore after rejection", "[engine]") {
-    // Single atom; constraint that always rejects (min_distance > any possible distance).
-    AtomicStructure s = make_linear_chain(2, 1.0); // 1 Å apart → below any 3 Å min
+    // Use BondConstraint with lo==hi==initial_distance so err_before==0 and
+    // any non-trivial displacement raises err_after > 0, guaranteeing rejection.
+    AtomicStructure s = make_linear_chain(2, 1.0); // atoms 1 Å apart
     Engine engine(std::move(s), InfiniteBC(1e6));
-    engine.build_atomic_groups(0.5, 0.5, 7);
+    engine.build_atomic_groups(0.5, 0.5, 7); // fixed 0.5 Å step
 
-    auto c = std::make_unique<InterMolecularDistanceConstraint>();
-    c->set_minimum_distance("Ar", "Ar", 100.0); // impossible constraint
-    c->set_structure(&engine.structure().elements,
-                      &engine.structure().molecule_ids);
+    auto c = std::make_unique<BondConstraint>();
+    c->add_bond(0, 1, 1.0, 1.0); // exact bond → any move worsens error
     engine.add_constraint(std::move(c));
 
-    // Capture initial positions.
     coords_t before = engine.structure().coordinates;
     engine.run(100);
 
-    // All moves rejected → coordinates must match initial.
     const coords_t& after = engine.structure().coordinates;
     REQUIRE_THAT((after - before).norm(), WithinAbs(0.0, 1e-10));
     REQUIRE(engine.stats().steps_accepted == 0);

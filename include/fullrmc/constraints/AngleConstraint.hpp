@@ -1,6 +1,4 @@
 #pragma once
-#include "Constraint.hpp"
-
 #include <cmath>
 #include <fullrmc/constraints/Constraint.hpp>
 #include <vector>

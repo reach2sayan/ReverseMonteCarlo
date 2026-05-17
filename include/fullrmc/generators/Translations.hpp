@@ -21,8 +21,10 @@ struct TranslationGenerator : MoveGeneratorBase<TranslationGenerator> {
       : min_amp(mn), max_amp(mx), rng(seed) {}
 
   void generate_impl(coords_t &coords, std::span<const std::size_t> indices) {
-    boost::random::uniform_real_distribution<double> amp_dist(min_amp, max_amp);
-    vec3_t delta = random_unit_vector() * amp_dist(rng);
+    double amp = (min_amp < max_amp)
+        ? boost::random::uniform_real_distribution<double>(min_amp, max_amp)(rng)
+        : min_amp;
+    vec3_t delta = random_unit_vector() * amp;
     for (auto i : indices)
       coords.row(i) += delta.transpose();
   }
@@ -53,9 +55,10 @@ struct TranslationAlongAxisGenerator
       : axis(ax.normalized()), min_amp(mn), max_amp(mx), rng(seed) {}
 
   void generate_impl(coords_t &coords, std::span<const std::size_t> indices) {
-    boost::random::uniform_real_distribution<double> amp_dist(min_amp, max_amp);
+    double magnitude = (min_amp < max_amp)
+        ? boost::random::uniform_real_distribution<double>(min_amp, max_amp)(rng)
+        : min_amp;
     boost::random::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-    double magnitude = amp_dist(rng);
     if (sign_dist(rng) < 0.0)
       magnitude = -magnitude;
     vec3_t delta = axis * magnitude;
@@ -77,14 +80,16 @@ struct TranslationTowardsCentreGenerator
                                     std::uint32_t seed = 42)
       : centre(c), min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate_impl(coords_t &coords, std::span<const index_t> indices) {
-    boost::random::uniform_real_distribution<double> amp_dist(min_amp, max_amp);
+  void generate_impl(coords_t &coords, std::span<const std::size_t> indices) {
+    double amp = (min_amp < max_amp)
+        ? boost::random::uniform_real_distribution<double>(min_amp, max_amp)(rng)
+        : min_amp;
     vec3_t gc = centroid(coords, indices);
     vec3_t dir = (centre - gc);
     double dist = dir.norm();
     if (dist < 1e-12)
       return;
-    vec3_t delta = (dir / dist) * amp_dist(rng);
+    vec3_t delta = (dir / dist) * amp;
     for (auto i : indices)
       coords.row(i) += delta.transpose();
   }

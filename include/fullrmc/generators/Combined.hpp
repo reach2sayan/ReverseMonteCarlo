@@ -15,7 +15,7 @@ struct CombinedMoveGenerator : MoveGeneratorBase<CombinedMoveGenerator> {
         : generators(std::move(gens)) {}
 
     void generate_impl(coords_t& coords,
-                       std::span<const index_t> indices) {
+                       std::span<const std::size_t> indices) {
         for (auto& g : generators)
             g->generate(coords, indices);
     }
