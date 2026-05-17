@@ -1,0 +1,29 @@
+# CMake build artefacts
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled output
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.exe
+
+# IDE folders
+.vscode/
+.idea/
+*.user
+*.suo
+*.vcxproj.user
+
+# Misc
+*.DS_Store
+Thumbs.db
