@@ -11,21 +11,21 @@ namespace fullrmc {
 // std_err = Σ violations where violation > 0 means bond is outside [lo, hi].
 class BondConstraint : public ConstraintBase<BondConstraint> {
 public:
-    struct Bound { real_t lo, hi; };
+    struct Bound { double lo, hi; };
     // Pair key is always (min(i,j), max(i,j)).
-    using PairKey = std::pair<index_t, index_t>;
+    using PairKey = std::pair<std::size_t, std::size_t>;
 
-    void add_bond(index_t i, index_t j, real_t lo, real_t hi) {
+    void add_bond(std::size_t i, std::size_t j, double lo, double hi) {
         bonds_[{std::min(i,j), std::max(i,j)}] = {lo, hi};
     }
 
     [[nodiscard]] std::string name() const override { return "BondConstraint"; }
 
-    [[nodiscard]] real_t compute_error(const coords_t& coords,
-                                        std::span<const index_t> /*moved*/) const {
-        real_t err = 0.0;
+    [[nodiscard]] double compute_error(const coords_t& coords,
+                                        std::span<const std::size_t> /*moved*/) const {
+        double err = 0.0;
         for (auto& [key, bnd] : bonds_) {
-            real_t d = distance(coords, key.first, key.second);
+            double d = distance(coords, key.first, key.second);
             if      (d < bnd.lo) err += (bnd.lo - d);
             else if (d > bnd.hi) err += (d - bnd.hi);
         }

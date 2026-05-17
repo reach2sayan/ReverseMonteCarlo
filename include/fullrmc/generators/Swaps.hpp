@@ -12,16 +12,16 @@ namespace fullrmc {
 // Typically used for identity swaps of solvent molecules.
 struct SwapGenerator : MoveGeneratorBase<SwapGenerator> {
     // Each entry is a list of atom indices for one candidate group.
-    std::vector<std::vector<index_t>> candidates;
+    std::vector<std::vector<std::size_t>> candidates;
     mutable boost::random::mt19937 rng;
 
     SwapGenerator() = default;
-    explicit SwapGenerator(std::vector<std::vector<index_t>> cands,
+    explicit SwapGenerator(std::vector<std::vector<std::size_t>> cands,
                             std::uint32_t seed = 42)
         : candidates(std::move(cands)), rng(seed) {}
 
     void generate_impl(coords_t& coords,
-                       std::span<const index_t> indices) {
+                       std::span<const std::size_t> indices) {
         if (candidates.empty()) return;
 
         boost::random::uniform_int_distribution<std::size_t>

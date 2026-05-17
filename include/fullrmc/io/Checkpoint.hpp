@@ -11,7 +11,7 @@ struct EngineStats {
     std::uint64_t steps_total   {0};
     std::uint64_t steps_accepted{0};
     std::uint64_t steps_tried   {0};
-    real_t        last_total_err{0.0};
+    double        last_total_err{0.0};
 };
 
 // Save coordinates + stats to a binary archive (Boost.Serialization).

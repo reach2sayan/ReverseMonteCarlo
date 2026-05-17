@@ -1,7 +1,6 @@
 #pragma once
 #include <fullrmc/core/Types.hpp>
 #include <filesystem>
-
 namespace fullrmc::io {
 
 // Read a whitespace/comma-separated two-column data file (e.g. r vs G(r),

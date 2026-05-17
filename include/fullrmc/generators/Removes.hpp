@@ -16,7 +16,7 @@ struct RemoveGenerator : MoveGeneratorBase<RemoveGenerator> {
         : collector(std::move(c)) {}
 
     void generate_impl(coords_t& /*coords*/,
-                       std::span<const index_t> indices) {
+                       std::span<const std::size_t> indices) {
         if (collector)
             collector->stage_removal(indices);
     }
