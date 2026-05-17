@@ -169,6 +169,7 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_selectors.cpp
             tests/test_constraints.cpp
             tests/test_engine.cpp
+            tests/test_examples.cpp
     )
     target_link_libraries(RMC_tests PRIVATE RMC Catch2::Catch2WithMain)
     if (RMC_COMPILER_MSVC)

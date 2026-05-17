@@ -10,8 +10,8 @@ namespace RMC {
 // Coordinates are NOT modified; constraints must skip removed atoms.
 struct RemoveGenerator : MoveGeneratorBase<RemoveGenerator> {
   std::shared_ptr<AtomsCollector> collector;
-  constexpr RemoveGenerator() = default;
-  constexpr explicit RemoveGenerator(std::shared_ptr<AtomsCollector> c)
+  RemoveGenerator() = default;
+  explicit RemoveGenerator(std::shared_ptr<AtomsCollector> c)
       : collector(std::move(c)) {}
 
   constexpr void generate(IMoveGenerator::Token, coords_t &,

@@ -109,8 +109,9 @@ private:
   }
 
   constexpr void settle(TrialCtx &c) {
-    // Let gradient-based generators (HMC/leapfrog) supply their own accept/reject;
-    // fall back to the standard Metropolis criterion from constraints otherwise.
+    // Let gradient-based generators (HMC/leapfrog) supply their own
+    // accept/reject; fall back to the standard Metropolis criterion from
+    // constraints otherwise.
     bool rejected;
     if (auto override_rej = c.group->generator->rejection_override()) {
       rejected = *override_rej;
@@ -159,11 +160,11 @@ private:
   }
 
   constexpr void apply_pbc(std::span<const std::size_t> moved) {
-    for (auto i : moved) {
+    std::ranges::for_each(moved, [&](auto i) {
       vec3_t r = structure_.coordinates.row(i).transpose();
       r = bc_wrap(bc_, r);
       structure_.coordinates.row(i) = r.transpose();
-    }
+    });
   }
 
   AtomicStructure structure_;
