@@ -23,9 +23,8 @@ struct GradientOracle {
                                     double fd_step = default_fd_step) {
     const std::size_t k = indices.size();
     vec_t grad(static_cast<Eigen::Index>(3 * k));
-
     for (const auto [ai, atom] : indices | std::views::enumerate) {
-      for (Eigen::Index ax = 0; ax < 3; ++ax) {
+      for (Eigen::Index ax : {0, 1, 2}) {
         auto x = coords(atom, ax);
 
         coords(atom, ax) = x + fd_step;
@@ -77,7 +76,6 @@ struct GradientOracle {
 
     // Restore original positions
     coords(idx, Eigen::all) = saved;
-
     return (err_plus - err_minus) / (2.0 * fd_step);
   }
 };
