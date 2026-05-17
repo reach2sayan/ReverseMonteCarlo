@@ -54,10 +54,10 @@ TEST_CASE("Engine - hard distance constraint limits proximity", "[engine]") {
     Engine engine(std::move(s), InfiniteBC(1e6));
     engine.build_atomic_groups(0.0, 0.5, 99);
 
-    auto c = std::make_unique<InterMolecularDistanceConstraint>();
-    c->set_minimum_distance("Ar", "Ar", 2.0);
-    c->set_structure(&engine.structure().elements,
-                      &engine.structure().molecule_ids);
+    InterMolecularDistanceConstraint c;
+    c.set_minimum_distance("Ar", "Ar", 2.0);
+    c.set_structure(&engine.structure().elements,
+                    &engine.structure().molecule_ids);
     engine.add_constraint(std::move(c));
 
     engine.run(2000);
@@ -79,8 +79,8 @@ TEST_CASE("Engine - snapshot restore after rejection", "[engine]") {
     Engine engine(std::move(s), InfiniteBC(1e6));
     engine.build_atomic_groups(0.5, 0.5, 7); // fixed 0.5 Å step
 
-    auto c = std::make_unique<BondConstraint>();
-    c->add_bond(0, 1, 1.0, 1.0); // exact bond → any move worsens error
+    BondConstraint c;
+    c.add_bond(0, 1, 1.0, 1.0); // exact bond → any move worsens error
     engine.add_constraint(std::move(c));
 
     coords_t before = engine.structure().coordinates;

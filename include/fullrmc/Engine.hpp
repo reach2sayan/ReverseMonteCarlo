@@ -41,7 +41,7 @@ public:
                            std::uint32_t seed = 42);
 
   void set_selector(std::unique_ptr<IGroupSelector> s);
-  void add_constraint(std::unique_ptr<IConstraint> c);
+  void add_constraint(IConstraint c);
 
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);

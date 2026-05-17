@@ -11,10 +11,8 @@ namespace fullrmc {
 
 using index_t = std::size_t;
 using real_t  = double;
-
 using vec3_t = Eigen::Vector3d;
 using mat3_t = Eigen::Matrix3d;
-// N-atom coordinate matrix: row i = (x,y,z) of atom i
 using coords_t = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>;
 using vec_t = Eigen::VectorXd;
 using mat_t = Eigen::MatrixXd;
@@ -44,8 +42,6 @@ concept ConstraintConcept =
       { c.reject() } -> std::same_as<void>;
     };
 
-// ---- I/O result type ----
-// String errors are loaded as boost::leaf payloads (std::string).
 template <typename T> using Result = boost::leaf::result<T>;
 
 } // namespace fullrmc

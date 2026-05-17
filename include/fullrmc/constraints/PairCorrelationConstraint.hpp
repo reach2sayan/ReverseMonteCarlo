@@ -22,7 +22,7 @@ public:
   void set_number_density(double rho0) noexcept { rho0_ = rho0; }
   void initialise();
 
-  [[nodiscard]] std::string name() const override {
+  [[nodiscard]] std::string name() const {
     return "PairCorrelationConstraint";
   }
 

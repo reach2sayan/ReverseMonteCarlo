@@ -43,7 +43,6 @@ std::string trim(std::string_view sv) {
 }
 
 double parse_real(std::string_view sv) {
-  // trim, then stod for portability
   std::string s(trim(sv));
   return std::stod(s);
 }
@@ -52,9 +51,10 @@ double parse_real(std::string_view sv) {
 
 Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
   std::ifstream file(path);
-  if (!file)
-    return boost::leaf::new_error(std::string{"Cannot open PDB file: " + path.string()});
-
+  if (!file) {
+    return boost::leaf::new_error(
+        std::string{"Cannot open PDB file: " + path.string()});
+  }
   AtomicStructure s;
   std::vector<std::array<double, 3>> xyz;
 
@@ -64,12 +64,14 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
   std::string prev_chain;
 
   while (std::getline(file, line)) {
-    if (line.size() < 54)
+    if (line.size() < 54) {
       continue;
+    }
     bool is_atom = (line.substr(0, 4) == "ATOM");
     bool is_het = (line.substr(0, 6) == "HETATM");
-    if (!is_atom && !is_het)
+    if (!is_atom && !is_het) {
       continue;
+    }
 
     try {
       double x = parse_real(line.substr(X_START, COORD_LEN));
@@ -95,8 +97,9 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
       // Capitalize first letter, lowercase rest.
       if (!element.empty()) {
         element[0] = static_cast<char>(std::toupper(element[0]));
-        for (std::size_t k = 1; k < element.size(); ++k)
+        for (std::size_t k = 1; k < element.size(); ++k) {
           element[k] = static_cast<char>(std::tolower(element[k]));
+        }
       }
 
       std::string chain(1, line[CHAINID]);
@@ -121,7 +124,8 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
           (it != ATOMIC_NUMBERS.end()) ? it->second : 0;
 
     } catch (const std::exception &e) {
-      return boost::leaf::new_error(std::string{"PDB parse error: "} + e.what());
+      return boost::leaf::new_error(std::string{"PDB parse error: "} +
+                                    e.what());
     }
   }
 
@@ -140,7 +144,8 @@ Result<void> write_pdb(const AtomicStructure &s,
                        const std::filesystem::path &path) {
   std::ofstream f(path);
   if (!f)
-    return boost::leaf::new_error(std::string{"Cannot write PDB: " + path.string()});
+    return boost::leaf::new_error(
+        std::string{"Cannot write PDB: " + path.string()});
 
   for (Eigen::Index i = 0; i < s.coordinates.rows(); ++i) {
     const std::string &name = (i < static_cast<Eigen::Index>(s.names.size()))

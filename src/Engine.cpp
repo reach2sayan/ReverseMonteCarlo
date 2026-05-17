@@ -32,7 +32,8 @@ void Engine::set_selector(std::unique_ptr<IGroupSelector> s) {
   selector_ = std::move(s);
 }
 
-void Engine::add_constraint(std::unique_ptr<IConstraint> c) {
+void Engine::add_constraint(IConstraint c) {
+  c.set_boundary_conditions(bc_);
   constraints_.add(std::move(c));
 }
 

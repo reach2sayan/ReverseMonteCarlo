@@ -18,7 +18,7 @@ public:
     quads_.push_back({i, j, k, l, lo_rad, hi_rad});
   }
 
-  [[nodiscard]] constexpr std::string name() const override {
+  [[nodiscard]] constexpr std::string name() const {
     return "DihedralAngleConstraint";
   }
 

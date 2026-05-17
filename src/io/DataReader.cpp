@@ -1,32 +1,38 @@
-#include <fullrmc/io/DataReader.hpp>
+#include <array>
 #include <boost/leaf/result.hpp>
 #include <fstream>
+#include <fullrmc/io/DataReader.hpp>
 #include <sstream>
 #include <vector>
-#include <array>
 
 namespace fullrmc::io {
 
-Result<mat_t> read_xy_data(const std::filesystem::path& path) {
-    std::ifstream f(path);
-    if (!f) return boost::leaf::new_error(std::string{"Cannot open data file: " + path.string()});
-
-    std::vector<std::array<double,2>> rows;
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        std::istringstream ss(line);
-        double x, y;
-        if (!(ss >> x >> y)) continue;
-        rows.push_back({x, y});
+Result<mat_t> read_xy_data(const std::filesystem::path &path) {
+  std::ifstream f(path);
+  if (!f) {
+    return boost::leaf::new_error(
+        std::string{"Cannot open data file: " + path.string()});
+  }
+  std::vector<std::array<double, 2>> rows;
+  std::string line;
+  while (std::getline(f, line)) {
+    if (line.empty() || line[0] == '#') {
+      continue;
     }
-
-    mat_t m(static_cast<Eigen::Index>(rows.size()), 2);
-    for (Eigen::Index i = 0; i < static_cast<Eigen::Index>(rows.size()); ++i) {
-        m(i, 0) = rows[static_cast<std::size_t>(i)][0];
-        m(i, 1) = rows[static_cast<std::size_t>(i)][1];
+    std::istringstream ss(line);
+    double x, y;
+    if (!(ss >> x >> y)) {
+      continue;
     }
-    return m;
+    rows.push_back({x, y});
+  }
+
+  Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor>>
+      rows_map(reinterpret_cast<const double *>(rows.data()),
+               static_cast<Eigen::Index>(rows.size()), 2);
+
+  mat_t m = rows_map;
+  return m;
 }
 
 } // namespace fullrmc::io

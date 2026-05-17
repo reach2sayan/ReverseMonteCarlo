@@ -32,7 +32,7 @@ public:
   // set_experimental_data().
   void initialise();
 
-  [[nodiscard]] std::string name() const override {
+  [[nodiscard]] std::string name() const {
     return "PairDistributionConstraint";
   }
 

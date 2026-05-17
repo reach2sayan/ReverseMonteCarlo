@@ -21,7 +21,7 @@ public:
     bonds_[{std::min(i, j), std::max(i, j)}] = {lo, hi};
   }
 
-  [[nodiscard]] std::string name() const override { return "BondConstraint"; }
+  [[nodiscard]] std::string name() const { return "BondConstraint"; }
 
   [[nodiscard]] double
   compute_error(const coords_t &coords,

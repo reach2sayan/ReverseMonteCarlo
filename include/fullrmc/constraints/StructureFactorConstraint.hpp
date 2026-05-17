@@ -15,6 +15,18 @@ class StructureFactorConstraint
     : public ConstraintBase<StructureFactorConstraint> {
 public:
   void set_experimental_data(const mat_t &data); // columns: Q, S(Q)
+
+  // Propagate bc to the embedded PDF constraint immediately.
+  void set_boundary_conditions(IConstraint::Token tok,
+                               const BoundaryConditions &bc) noexcept {
+    ConstraintBase::set_boundary_conditions(tok, bc);
+    pdf_.set_boundary_conditions(bc);
+  }
+  void set_boundary_conditions(const BoundaryConditions &bc) noexcept {
+    ConstraintBase::set_boundary_conditions(bc);
+    pdf_.set_boundary_conditions(bc);
+  }
+
   void set_elements(const std::vector<std::string> *elements) noexcept {
     elements_ = elements;
   }
@@ -22,7 +34,7 @@ public:
   void set_weight(const std::string &el1, const std::string &el2, double w);
   void initialise(); // builds Gr2Sq matrix
 
-  [[nodiscard]] std::string name() const override {
+  [[nodiscard]] std::string name() const {
     return "StructureFactorConstraint";
   }
 
@@ -41,8 +53,8 @@ private:
   double rho0_{0.1};
   int n_r_bins_{400};
 
-  // Shared PDF calculation for G(r) intermediate.
-  std::unique_ptr<PairDistributionConstraint> pdf_;
+  // Embedded PDF constraint used to compute the G(r) intermediate.
+  PairDistributionConstraint pdf_;
   std::unordered_map<std::string, double> weights_;
   const std::vector<std::string> *elements_ = nullptr;
 };

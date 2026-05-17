@@ -9,7 +9,6 @@
 
 // Teach Boost.Serialization how to handle Eigen dense matrices.
 namespace boost::serialization {
-
 template <class Archive, class Scalar, int Rows, int Cols, int Options,
           int MaxRows, int MaxCols>
 void serialize(Archive &ar,
@@ -17,11 +16,13 @@ void serialize(Archive &ar,
                const unsigned int /*version*/) {
   Eigen::Index rows = m.rows(), cols = m.cols();
   ar & rows & cols;
-  if constexpr (Archive::is_loading::value)
+  if constexpr (Archive::is_loading::value) {
     m.resize(rows, cols);
-  if (m.size() > 0)
+  }
+  if (m.size() > 0) {
     ar &boost::serialization::make_array(m.data(),
                                          static_cast<std::size_t>(m.size()));
+  }
 }
 
 } // namespace boost::serialization
@@ -32,9 +33,10 @@ Result<void> save_checkpoint(const AtomicStructure &s, const EngineStats &stats,
                              const std::filesystem::path &path) {
   try {
     std::ofstream f(path, std::ios::binary);
-    if (!f)
+    if (!f) {
       return boost::leaf::new_error(
           std::string{"Cannot write checkpoint: " + path.string()});
+    }
     boost::archive::binary_oarchive ar(f);
     ar & s.coordinates;
     ar & stats.steps_total;
@@ -52,9 +54,10 @@ Result<EngineStats> load_checkpoint(AtomicStructure &s,
                                     const std::filesystem::path &path) {
   try {
     std::ifstream f(path, std::ios::binary);
-    if (!f)
+    if (!f) {
       return boost::leaf::new_error(
           std::string{"Cannot read checkpoint: " + path.string()});
+    }
     boost::archive::binary_iarchive ar(f);
     ar & s.coordinates;
     EngineStats stats;

@@ -19,7 +19,7 @@ public:
     triplets_.push_back({i, j, k, lo_rad, hi_rad});
   }
 
-  [[nodiscard]] std::string name() const override { return "AngleConstraint"; }
+  [[nodiscard]] std::string name() const { return "AngleConstraint"; }
 
   [[nodiscard]] double
   compute_error(const coords_t &coords,

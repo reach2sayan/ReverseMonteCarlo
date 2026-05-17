@@ -70,10 +70,7 @@ private:
   std::unique_ptr<MoveGeneratorConcept> self_;
 };
 
-// CRTP mixin — inherit to document that Derived satisfies CMoveGenerator.
 template <typename Derived> struct MoveGeneratorBase {};
-
-// Utility: compute centroid of the given atom indices.
 inline vec3_t centroid(const coords_t &coords,
                        std::span<const std::size_t> indices) noexcept {
   Eigen::Map<const Eigen::Array<std::size_t, Eigen::Dynamic, 1>> idx(

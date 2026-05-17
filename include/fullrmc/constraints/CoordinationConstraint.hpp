@@ -28,7 +28,7 @@ public:
     elements_ = elements;
   }
 
-  [[nodiscard]] std::string name() const override {
+  [[nodiscard]] std::string name() const {
     return "CoordinationConstraint";
   }
 
