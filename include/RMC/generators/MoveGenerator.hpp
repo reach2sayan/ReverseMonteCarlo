@@ -2,6 +2,7 @@
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Types.hpp>
 #include <memory>
+#include <optional>
 
 namespace RMC {
 
@@ -21,6 +22,16 @@ concept CMoveGenerator =
     requires(T &gen, detail::GeneratorToken tok, coords_t &coords,
              std::span<const std::size_t> indices) {
       gen.generate(tok, coords, indices);
+    };
+
+// Optional extension: generator implements its own accept/reject (e.g. HMC).
+// If satisfied, IMoveGenerator exposes rejection_override() so Engine::settle()
+// can defer to the generator instead of using constraints_.should_reject().
+template <typename T>
+concept CMoveGeneratorWithRejectionOverride =
+    CMoveGenerator<T> &&
+    requires(const T &gen) {
+      { gen.rejection_override() } -> std::convertible_to<std::optional<bool>>;
     };
 
 class IMoveGenerator {
@@ -47,11 +58,20 @@ public:
     self_->generate(coords, indices);
   }
 
+  // Returns the generator's own accept/reject decision, or nullopt to use the
+  // standard Metropolis criterion from constraints_.should_reject().
+  [[nodiscard]] std::optional<bool> rejection_override() const noexcept {
+    return self_->rejection_override();
+  }
+
 private:
   static Token make_token() noexcept { return {}; }
   struct MoveGeneratorConcept {
     virtual ~MoveGeneratorConcept() = default;
     virtual void generate(coords_t &, std::span<const std::size_t>) = 0;
+    virtual std::optional<bool> rejection_override() const noexcept {
+      return std::nullopt;
+    }
     virtual std::unique_ptr<MoveGeneratorConcept> clone() const = 0;
   };
   template <CMoveGenerator T>
@@ -60,6 +80,12 @@ private:
     void generate(coords_t &coords,
                   std::span<const std::size_t> indices) override {
       data_.generate(make_token(), coords, indices);
+    }
+    std::optional<bool> rejection_override() const noexcept override {
+      if constexpr (CMoveGeneratorWithRejectionOverride<T>)
+        return data_.rejection_override();
+      else
+        return std::nullopt;
     }
     std::unique_ptr<MoveGeneratorConcept> clone() const override {
       return std::make_unique<MoveGeneratorModel<T>>(data_);

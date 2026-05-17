@@ -109,7 +109,14 @@ private:
   }
 
   constexpr void settle(TrialCtx &c) {
-    const bool rejected = constraints_.should_reject();
+    // Let gradient-based generators (HMC/leapfrog) supply their own accept/reject;
+    // fall back to the standard Metropolis criterion from constraints otherwise.
+    bool rejected;
+    if (auto override_rej = c.group->generator->rejection_override()) {
+      rejected = *override_rej;
+    } else {
+      rejected = constraints_.should_reject();
+    }
     if (!rejected && !collector_.pending().empty()) {
       collector_.commit_removal();
     } else {
