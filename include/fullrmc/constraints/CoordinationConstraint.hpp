@@ -19,12 +19,13 @@ public:
     int max_cn{12};
   };
 
-  void add_shell(std::size_t centre, const std::string &nb_elem, double r_min,
-                 double r_max, int min_cn, int max_cn) {
+  constexpr void add_shell(std::size_t centre, const std::string &nb_elem,
+                           double r_min, double r_max, int min_cn, int max_cn) {
     shells_.push_back({centre, nb_elem, r_min, r_max, min_cn, max_cn});
   }
 
-  void set_elements(const std::vector<std::string> *elements) noexcept {
+  constexpr void
+  set_elements(const std::vector<std::string> *elements) noexcept {
     elements_ = elements;
   }
 
@@ -40,19 +41,23 @@ public:
     for (auto &sh : shells_) {
       int cn = 0;
       for (std::size_t j = 0; j < N; ++j) {
-        if (j == sh.centre_idx)
+        if (j == sh.centre_idx) {
           continue;
-        if (elements_ && (*elements_)[j] != sh.neighbour_elem)
+        }
+        if (elements_ && (*elements_)[j] != sh.neighbour_elem) {
           continue;
+        }
         double d = distance(coords, static_cast<std::size_t>(sh.centre_idx),
                             static_cast<std::size_t>(j));
-        if (d >= sh.r_min && d <= sh.r_max)
+        if (d >= sh.r_min && d <= sh.r_max) {
           ++cn;
+        }
       }
-      if (cn < sh.min_cn)
+      if (cn < sh.min_cn) {
         err += static_cast<double>(sh.min_cn - cn);
-      else if (cn > sh.max_cn)
+      } else if (cn > sh.max_cn) {
         err += static_cast<double>(cn - sh.max_cn);
+      }
     }
     return err;
   }

@@ -16,7 +16,6 @@ class DistanceConstraintBase : public ConstraintBase<DistanceConstraintBase> {
 public:
   // Key: sorted pair of element symbols, e.g. {"H","O"}.
   using ElemPair = std::pair<std::string, std::string>;
-
   constexpr void set_minimum_distance(const std::string &el1,
                                       const std::string &el2, double d_min) {
     auto key = el1 < el2 ? ElemPair{el1, el2} : ElemPair{el2, el1};

@@ -14,8 +14,8 @@ public:
     double lo, hi;
   };
 
-  void add_angle(std::size_t i, std::size_t j, std::size_t k, double lo_rad,
-                 double hi_rad) {
+  constexpr void add_angle(std::size_t i, std::size_t j, std::size_t k,
+                           double lo_rad, double hi_rad) {
     triplets_.push_back({i, j, k, lo_rad, hi_rad});
   }
 
@@ -35,10 +35,11 @@ public:
       double cos_a = v1.dot(v2) / (v1.norm() * v2.norm() + 1e-30);
       cos_a = std::clamp(cos_a, -1.0, 1.0);
       double angle = std::acos(cos_a);
-      if (angle < t.lo)
+      if (angle < t.lo) {
         err += (t.lo - angle);
-      else if (angle > t.hi)
+      } else if (angle > t.hi) {
         err += (angle - t.hi);
+      }
     }
     return err;
   }

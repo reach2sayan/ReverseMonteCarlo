@@ -13,8 +13,8 @@ public:
     double lo, hi;
   };
 
-  constexpr void add_dihedral(std::size_t i, std::size_t j, std::size_t k, std::size_t l,
-                    double lo_rad, double hi_rad) {
+  constexpr void add_dihedral(std::size_t i, std::size_t j, std::size_t k,
+                              std::size_t l, double lo_rad, double hi_rad) {
     quads_.push_back({i, j, k, l, lo_rad, hi_rad});
   }
 
