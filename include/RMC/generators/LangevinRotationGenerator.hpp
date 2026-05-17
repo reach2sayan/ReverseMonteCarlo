@@ -1,0 +1,51 @@
+#pragma once
+#include <Eigen/Geometry>
+#include <RMC/constraints/ConstraintCollection.hpp>
+#include <RMC/generators/GradientOracle.hpp>
+#include <RMC/generators/MoveGenerator.hpp>
+#include <boost/assert.hpp>
+#include <random>
+
+namespace RMC {
+
+// MALA-style rotation: parameterize as angle θ about a random axis through the
+// group centroid. θ' = -(ε²/2)·(∂χ²/∂θ) + ε·η, η ~ N(0,1).
+// Only 2 constraint evaluations for the gradient (vs 6k for translation).
+// The random axis is re-sampled each call; the drift steers the angle magnitude
+// and sign, not the axis direction.
+struct LangevinRotationGenerator
+    : MoveGeneratorBase<LangevinRotationGenerator> {
+
+  double step_size{0.01}; // ε (radians)
+  ConstraintCollection *constraints{nullptr};
+  mutable std::mt19937 rng;
+
+  LangevinRotationGenerator() = default;
+  LangevinRotationGenerator(double eps, ConstraintCollection &c,
+                            std::uint32_t seed = 42)
+      : step_size(eps), constraints(&c), rng(seed) {}
+
+  void generate(IMoveGenerator::Token, coords_t &coords,
+                std::span<const std::size_t> indices) {
+    BOOST_ASSERT_MSG(constraints,
+                     "LangevinRotationGenerator: constraints pointer is null");
+
+    std::normal_distribution<double> nd(0.0, 1.0);
+    vec3_t axis(nd(rng), nd(rng), nd(rng));
+    const double n = axis.norm();
+    axis = (n < 1e-12) ? vec3_t{vec3_t::UnitZ()} : axis / n;
+    const vec3_t pivot = centroid(coords, indices);
+    const double g_theta = GradientOracle::rotation_gradient(
+        coords, indices, axis, pivot, *constraints);
+    const double theta =
+        -(0.5 * step_size * step_size) * g_theta + step_size * nd(rng);
+
+    Eigen::AngleAxisd rot(theta, axis);
+    coords(indices, Eigen::all).rowwise() -= pivot.transpose();
+    coords(indices, Eigen::all) =
+        (rot * coords(indices, Eigen::all).transpose()).transpose();
+    coords(indices, Eigen::all).rowwise() += pivot.transpose();
+  }
+};
+
+} // namespace RMC
