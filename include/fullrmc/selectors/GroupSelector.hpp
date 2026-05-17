@@ -28,20 +28,24 @@ public:
   using Token = detail::SelectorToken;
 
   template <CGroupSelector T>
-  IGroupSelector(T x) : self_(std::make_unique<SelectorModel<T>>(std::move(x))) {}
-  IGroupSelector(const IGroupSelector &s) : self_{s.self_->clone()} {}
-  IGroupSelector(IGroupSelector &&s) noexcept : self_{std::move(s.self_)} {}
-  IGroupSelector &operator=(const IGroupSelector &s) {
+  constexpr IGroupSelector(T x)
+      : self_(std::make_unique<SelectorModel<T>>(std::move(x))) {}
+  constexpr IGroupSelector(const IGroupSelector &s) : self_{s.self_->clone()} {}
+  constexpr IGroupSelector(IGroupSelector &&s) noexcept
+      : self_{std::move(s.self_)} {}
+  constexpr IGroupSelector &operator=(const IGroupSelector &s) {
     self_ = s.self_->clone();
     return *this;
   }
-  IGroupSelector &operator=(IGroupSelector &&s) noexcept {
+  constexpr IGroupSelector &operator=(IGroupSelector &&s) noexcept {
     self_ = std::move(s.self_);
     return *this;
   }
 
-  std::size_t select(std::size_t n_groups) { return self_->select(n_groups); }
-  void feedback(std::size_t group_idx, bool accepted) {
+  constexpr std::size_t select(std::size_t n_groups) {
+    return self_->select(n_groups);
+  }
+  constexpr void feedback(std::size_t group_idx, bool accepted) {
     self_->feedback(group_idx, accepted);
   }
 
@@ -56,14 +60,14 @@ private:
   };
 
   template <CGroupSelector T> struct SelectorModel final : SelectorConcept {
-    explicit SelectorModel(T x) : data_(std::move(x)) {}
-    std::size_t select(std::size_t n) override {
+    constexpr explicit SelectorModel(T x) : data_(std::move(x)) {}
+    constexpr std::size_t select(std::size_t n) override {
       return data_.select(make_token(), n);
     }
-    void feedback(std::size_t gi, bool acc) override {
+    constexpr void feedback(std::size_t gi, bool acc) override {
       data_.feedback(make_token(), gi, acc);
     }
-    std::unique_ptr<SelectorConcept> clone() const override {
+    constexpr std::unique_ptr<SelectorConcept> clone() const override {
       return std::make_unique<SelectorModel<T>>(data_);
     }
     T data_;
@@ -72,7 +76,6 @@ private:
   std::unique_ptr<SelectorConcept> self_;
 };
 
-// CRTP mixin — inherit to document that Derived satisfies CGroupSelector.
 template <typename Derived> struct SelectorBase {};
 
 } // namespace fullrmc

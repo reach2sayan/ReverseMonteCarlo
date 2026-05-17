@@ -27,17 +27,15 @@ using StepCallback =
 class Engine {
 public:
   explicit Engine(AtomicStructure structure, BoundaryConditions bc);
-
-  // Add a group (takes ownership of generator via Group::generator).
   constexpr void add_group(Group g) { groups_.push_back(std::move(g)); }
-
-  // Build groups automatically: one group per atom with default
-  // TranslationGenerator.
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
 
-  void set_selector(IGroupSelector s);
-  void add_constraint(IConstraint c);
+  constexpr void set_selector(IGroupSelector s) { selector_ = std::move(s); }
+  constexpr void add_constraint(IConstraint c) {
+    c.set_boundary_conditions(bc_);
+    constraints_.add(std::move(c));
+  }
 
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
@@ -55,7 +53,12 @@ public:
   [[nodiscard]] constexpr const BoundaryConditions &boundary() const noexcept {
     return bc_;
   }
-  [[nodiscard]] io::EngineStats stats() const noexcept;
+  [[nodiscard]] constexpr io::EngineStats stats() const noexcept {
+    return io::EngineStats{.steps_total = n_steps_total_,
+                           .steps_accepted = n_steps_accepted_,
+                           .steps_tried = n_steps_tried_,
+                           .last_total_err = constraints_.total_error()};
+  }
   [[nodiscard]] constexpr ConstraintCollection &constraints() noexcept {
     return constraints_;
   }

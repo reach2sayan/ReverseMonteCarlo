@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <boost/log/trivial.hpp>
 #include <fullrmc/Engine.hpp>
 #include <fullrmc/generators/Translations.hpp>
@@ -10,28 +11,16 @@ Engine::Engine(AtomicStructure structure, BoundaryConditions bc)
     : structure_(std::move(structure)), bc_(std::move(bc)),
       selector_(RandomSelector{}) {}
 
-
 void Engine::build_atomic_groups(double min_amp, double max_amp,
                                  std::uint32_t seed) {
   groups_.clear();
-  const std::size_t N = structure_.size();
-  for (std::size_t i = 0; i < N; ++i) {
-    Group g;
-    g.name = "atom_" + std::to_string(i);
-    g.indices = {static_cast<std::size_t>(i)};
-    g.generator = TranslationGenerator(
+  for (std::size_t i = 0; i < structure_.size(); ++i) {
+    auto default_generator = TranslationGenerator(
         min_amp, max_amp, seed + static_cast<std::uint32_t>(i));
-    groups_.push_back(std::move(g));
+    groups_.emplace_back(Group{.name = "atom_" + std::to_string(i),
+                               .indices = {static_cast<std::size_t>(i)},
+                               .generator = std::move(default_generator)});
   }
-}
-
-void Engine::set_selector(IGroupSelector s) {
-  selector_ = std::move(s);
-}
-
-void Engine::add_constraint(IConstraint c) {
-  c.set_boundary_conditions(bc_);
-  constraints_.add(std::move(c));
 }
 
 void Engine::set_checkpoint(std::filesystem::path path, std::uint64_t every) {
@@ -44,22 +33,15 @@ void Engine::set_step_callback(StepCallback cb, std::uint64_t log_every) {
   log_every_ = log_every;
 }
 
-io::EngineStats Engine::stats() const noexcept {
-  return {n_steps_total_, n_steps_accepted_, n_steps_tried_,
-          constraints_.total_error()};
-}
-
 void Engine::run(std::uint64_t n_steps) {
-  if (groups_.empty())
-    throw std::runtime_error("Engine::run: no groups defined");
-  for (std::uint64_t i = 0; i < n_steps; ++i)
+  BOOST_ASSERT_MSG(!groups_.empty(), "Engine::run: no groups defined");
+  for (std::uint64_t i = 0; i < n_steps; ++i) {
     step();
+  }
 }
 
 void Engine::run_until(double target_chi2, std::uint64_t max_steps) {
-  if (groups_.empty())
-    throw std::runtime_error("Engine::run_until: no groups defined");
-
+  BOOST_ASSERT_MSG(!groups_.empty(), "Engine::run_until: no groups defined");
   std::uint64_t s = 0;
   while (constraints_.total_error() > target_chi2) {
     step();
@@ -125,7 +107,8 @@ void Engine::step() {
   // 10. Checkpoint.
   if (checkpoint_path_ && n_steps_accepted_ > 0 &&
       n_steps_accepted_ % checkpoint_every_ == 0) {
-    if (auto result = io::save_checkpoint(structure_, stats(), *checkpoint_path_);
+    if (auto result =
+            io::save_checkpoint(structure_, stats(), *checkpoint_path_);
         !result)
       BOOST_LOG_TRIVIAL(warning) << "Checkpoint save failed";
   }
