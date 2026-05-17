@@ -14,8 +14,8 @@ public:
     volume_ = std::abs(box.determinant());
   }
 
-  [[nodiscard]] const mat3_t &box() const noexcept { return box_; }
-  [[nodiscard]] const mat3_t &inv_box() const noexcept { return inv_box_; }
+  [[nodiscard]] constexpr const mat3_t &box() const noexcept { return box_; }
+  [[nodiscard]] constexpr const mat3_t &inv_box() const noexcept { return inv_box_; }
 
   // Wrap a Cartesian position back into the unit cell [0,1)^3 in fractional
   // coords.
@@ -31,8 +31,7 @@ public:
     return box_ * frac;
   }
 
-  [[nodiscard]] double volume() const noexcept { return volume_; }
-
+  [[nodiscard]] constexpr double volume() const noexcept { return volume_; }
 private:
   mat3_t box_;
   mat3_t inv_box_;

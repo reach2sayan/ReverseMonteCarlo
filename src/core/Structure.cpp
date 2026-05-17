@@ -7,7 +7,6 @@ void AtomicStructure::save_snapshot(std::span<const std::size_t> indices) {
   snapshot_indices_.assign(indices.begin(), indices.end());
   Eigen::Map<const Eigen::Array<std::size_t, Eigen::Dynamic, 1>> idx(
       indices.data(), static_cast<Eigen::Index>(indices.size()));
-
   snapshot_coords_ = coordinates(idx, Eigen::all);
 }
 

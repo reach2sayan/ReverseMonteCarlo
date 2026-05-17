@@ -17,7 +17,7 @@ struct AtomicStructure {
   std::vector<std::string> residues;
   std::vector<std::size_t> molecule_ids; // groups atoms into molecules
 
-  [[nodiscard]] std::size_t size() const noexcept {
+  [[nodiscard]] constexpr std::size_t size() const noexcept {
     return static_cast<std::size_t>(coordinates.rows());
   }
 
