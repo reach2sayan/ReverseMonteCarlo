@@ -25,7 +25,7 @@ public:
   explicit SmartRandomSelector(double bf = 1.1, std::uint32_t seed = 42)
       : bias_factor(bf), rng(seed) {}
 
-  void initialise(std::size_t n_groups) {
+  FORCE_INLINE void initialise(std::size_t n_groups) {
     weights_ = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_groups),
                                          1.0 / static_cast<double>(n_groups));
   }
@@ -34,7 +34,7 @@ public:
     if (static_cast<std::size_t>(weights_.size()) != n_groups) {
       initialise(n_groups);
     }
-    std::vector<real_t> w(weights_.data(), weights_.data() + weights_.size());
+    std::vector w(weights_.data(), weights_.data() + weights_.size());
     std::discrete_distribution<std::size_t> dist(w.begin(), w.end());
     return dist(rng);
   }

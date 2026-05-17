@@ -166,14 +166,15 @@ public:
   }
 
 protected:
-  [[nodiscard]] constexpr double distance_sq(const coords_t &c, std::size_t i,
+  [[nodiscard]] constexpr FORCE_INLINE double distance_sq(const coords_t &c, std::size_t i,
                                              std::size_t j) const noexcept {
     vec3_t d = c.row(j).transpose() - c.row(i).transpose();
-    if (bc_)
+    if (bc_) {
       d = bc_min_image(*bc_, d);
+    }
     return d.squaredNorm();
   }
-  [[nodiscard]] constexpr double distance(const coords_t &c, std::size_t i,
+  [[nodiscard]] constexpr FORCE_INLINE double distance(const coords_t &c, std::size_t i,
                                           std::size_t j) const noexcept {
     return std::sqrt(distance_sq(c, i, j));
   }

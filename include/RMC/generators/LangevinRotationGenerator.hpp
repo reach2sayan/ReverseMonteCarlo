@@ -33,7 +33,7 @@ struct LangevinRotationGenerator
     std::normal_distribution<double> nd(0.0, 1.0);
     vec3_t axis(nd(rng), nd(rng), nd(rng));
     const double n = axis.norm();
-    axis = (n < 1e-12) ? vec3_t{vec3_t::UnitZ()} : axis / n;
+    axis = (n < 1e-12) ? vec3_t::UnitZ() : (axis / n).eval();
     const vec3_t pivot = centroid(coords, indices);
     const double g_theta = GradientOracle::rotation_gradient(
         coords, indices, axis, pivot, *constraints);

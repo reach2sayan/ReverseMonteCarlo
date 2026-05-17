@@ -18,10 +18,10 @@ struct RandomSelector : SelectorBase<RandomSelector> {
 
 struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
   mutable std::mt19937 rng;
-  std::vector<real_t> weights;
+  std::vector<double> weights;
 
   WeightedRandomSelector() = default;
-  explicit WeightedRandomSelector(std::vector<real_t> w,
+  explicit WeightedRandomSelector(std::vector<double> w,
                                   std::uint32_t seed = 42)
       : rng(seed), weights(std::move(w)) {}
 

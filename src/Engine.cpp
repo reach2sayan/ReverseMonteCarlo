@@ -37,8 +37,9 @@ constexpr void Engine::run_until(double target_chi2, std::uint64_t max_steps) {
   while (constraints_.total_error() > target_chi2) {
     step();
     ++s;
-    if (max_steps > 0 && s >= max_steps)
+    if (max_steps > 0 && s >= max_steps) {
       break;
+    }
   }
 }
 

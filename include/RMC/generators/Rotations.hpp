@@ -24,14 +24,12 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
             ? std::uniform_real_distribution<double>(min_angle, max_angle)(rng)
             : min_angle;
     std::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-    if (sign_dist(rng) < 0.0) {
-      angle = -angle;
-    }
-
+    angle = std::copysign(angle, sign_dist(rng));
     vec3_t axis = random_unit_vector();
     vec3_t pivot = centroid(coords, indices);
-
     Eigen::AngleAxisd rot(angle, axis);
+
+#pragma omp parallel for
     for (auto i : indices) {
       vec3_t r = coords.row(i).transpose() - pivot;
       vec3_t r2 = rot * r;
@@ -40,7 +38,7 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
   }
 
 private:
-  vec3_t random_unit_vector() {
+  FORCE_INLINE vec3_t random_unit_vector() {
     std::normal_distribution<double> nd(0.0, 1.0);
     vec3_t v = vec3_t::NullaryExpr([&] { return nd(rng); });
     const double n = v.norm();
@@ -68,12 +66,12 @@ struct RotationAboutAxisGenerator
             ? std::uniform_real_distribution<double>(min_angle, max_angle)(rng)
             : min_angle;
     std::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-    if (sign_dist(rng) < 0.0) {
-      angle = -angle;
-    }
+    const double s = std::copysign(1.0, sign_dist(rng));
+    angle *= s;
 
     vec3_t pivot = centroid(coords, indices);
     Eigen::AngleAxisd rot(angle, axis);
+#pragma omp parallel for
     for (auto i : indices) {
       vec3_t r = coords.row(i).transpose() - pivot;
       coords.row(i) = (rot * r + pivot).transpose();
