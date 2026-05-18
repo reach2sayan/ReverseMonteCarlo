@@ -10,13 +10,19 @@ namespace RMC {
 //
 // After each move: w[i] *= bias_factor  if accepted
 //                  w[i] /= bias_factor  if rejected
-// Weights are renormalised to sum to 1 after each update.
+//
+// Sampling uses a linear cumulative scan (O(N)) with O(1) weight updates,
+// avoiding the O(N) discrete_distribution rebuild that would otherwise occur
+// every step.
 struct SmartRandomSelector : SelectorBase<SmartRandomSelector> {
   const double bias_factor{1.1};
   mutable std::mt19937 rng;
 
 private:
   Eigen::VectorXd weights_;
+  mutable double weight_sum_{0.0};
+  mutable std::size_t steps_since_renorm_{0};
+  static constexpr std::size_t kRenormInterval = 1024;
 
 public:
   explicit SmartRandomSelector(double bf = 1.1, std::uint32_t seed = 42)
@@ -25,46 +31,53 @@ public:
   void initialise(std::size_t n_groups) {
     weights_ = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_groups),
                                          1.0 / static_cast<double>(n_groups));
-    rebuild_cache();
+    weight_sum_ = 1.0;
+    steps_since_renorm_ = 0;
   }
 
   std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
-    if (static_cast<std::size_t>(weights_.size()) != n_groups) {
+    if (static_cast<std::size_t>(weights_.size()) != n_groups)
       initialise(n_groups);
+
+    const double target =
+        std::uniform_real_distribution<double>(0.0, weight_sum_)(rng);
+    double cumsum = 0.0;
+    for (Eigen::Index i = 0; i < weights_.size(); ++i) {
+      cumsum += weights_[i];
+      if (cumsum >= target)
+        return static_cast<std::size_t>(i);
     }
-    if (dist_dirty_) {
-      rebuild_cache();
-    }
-    return dist_cache_(rng);
+    return static_cast<std::size_t>(weights_.size() - 1);
   }
 
   void feedback(IGroupSelector::Token, std::size_t group_idx, bool accepted) {
     if (weights_.size() == 0)
       return;
-    if (accepted) {
-      weights_[static_cast<Eigen::Index>(group_idx)] *= bias_factor;
-    } else {
-      weights_[static_cast<Eigen::Index>(group_idx)] /= bias_factor;
-    }
+    const auto idx = static_cast<Eigen::Index>(group_idx);
+    const double old_w = weights_[idx];
+    const double new_w =
+        accepted ? old_w * bias_factor : old_w / bias_factor;
+    weights_[idx] = new_w;
+    weight_sum_ += new_w - old_w;
 
-    double total = weights_.sum();
-    if (total < 1e-300) {
-      weights_.setConstant(1.0 / static_cast<double>(weights_.size()));
-    } else {
-      weights_ /= total;
+    // Periodic renormalisation to prevent floating-point drift.
+    if (++steps_since_renorm_ >= kRenormInterval) {
+      weight_sum_ = weights_.sum();
+      if (weight_sum_ < 1e-300) {
+        weights_.setConstant(1.0 / static_cast<double>(weights_.size()));
+        weight_sum_ = 1.0;
+      } else {
+        weights_ /= weight_sum_;
+        weight_sum_ = 1.0;
+      }
+      steps_since_renorm_ = 0;
     }
-    dist_dirty_ = true;
   }
 
-  [[nodiscard]] Eigen::VectorXd weights() const { return weights_; }
-
-private:
-  mutable std::discrete_distribution<std::size_t> dist_cache_;
-  mutable bool dist_dirty_{true};
-  void rebuild_cache() {
-    dist_cache_ = std::discrete_distribution<std::size_t>(
-        weights_.data(), weights_.data() + weights_.size());
-    dist_dirty_ = false;
+  [[nodiscard]] Eigen::VectorXd weights() const {
+    if (weight_sum_ > 0.0 && weight_sum_ != 1.0)
+      return weights_ / weight_sum_;
+    return weights_;
   }
 };
 

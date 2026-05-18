@@ -1,7 +1,6 @@
 #pragma once
 #include <Eigen/Geometry>
 #include <RMC/generators/MoveGenerator.hpp>
-#include <numbers>
 #include <random>
 
 namespace RMC {
@@ -27,12 +26,10 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
     angle = std::copysign(angle, sign_dist(rng));
     vec3_t axis = random_unit_vector();
     vec3_t pivot = centroid(coords, indices);
-    Eigen::AngleAxisd rot(angle, axis);
-
+    const Eigen::Matrix3d R = Eigen::AngleAxisd(angle, axis).toRotationMatrix();
     for (auto i : indices) {
-      vec3_t r = coords.row(i).transpose() - pivot;
-      vec3_t r2 = rot * r;
-      coords.row(i) = (r2 + pivot).transpose();
+      vec3_t r = coords.row(static_cast<Eigen::Index>(i)).transpose() - pivot;
+      coords.row(static_cast<Eigen::Index>(i)) = (R * r + pivot).transpose();
     }
   }
 
@@ -69,10 +66,10 @@ struct RotationAboutAxisGenerator
     angle *= s;
 
     vec3_t pivot = centroid(coords, indices);
-    Eigen::AngleAxisd rot(angle, axis);
+    const Eigen::Matrix3d R = Eigen::AngleAxisd(angle, axis).toRotationMatrix();
     for (auto i : indices) {
-      vec3_t r = coords.row(i).transpose() - pivot;
-      coords.row(i) = (rot * r + pivot).transpose();
+      vec3_t r = coords.row(static_cast<Eigen::Index>(i)).transpose() - pivot;
+      coords.row(static_cast<Eigen::Index>(i)) = (R * r + pivot).transpose();
     }
   }
 };
