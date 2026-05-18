@@ -2,6 +2,7 @@
 #include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
 #include <boost/assert.hpp>
+#include <boost/random/uniform_int_distribution.hpp>
 #include <ranges>
 #include <stdexcept>
 #include <vector>
@@ -25,7 +26,7 @@ struct SwapGenerator : MoveGeneratorBase<SwapGenerator> {
     if (candidates.empty()) {
       return;
     }
-    const auto &other = candidates[std::uniform_int_distribution<std::size_t>{
+    const auto &other = candidates[boost::random::uniform_int_distribution<std::size_t>{
         0, candidates.size() - 1}(rng.engine())];
     BOOST_ASSERT_MSG(other.size() == indices.size(),
                      "SwapGenerator: group size mismatch");

@@ -1,0 +1,46 @@
+# Valgrind suppression file for RMC
+#
+# Build without -march=native before running valgrind:
+#   cmake -B build-valgrind -DENABLE_NATIVE_ARCH=OFF
+#   cmake --build build-valgrind
+#   valgrind --suppressions=valgrind.supp --leak-check=full ./build-valgrind/RMC_tests
+#
+# ── boost::context / coroutines2 ─────────────────────────────────────────────
+#
+# Each RngBatchBuffer coroutine owns a 128 KB heap-allocated stack.  When the
+# coroutine is suspended the only pointer to that stack lives *inside* the
+# saved register state on that same stack, so Valgrind's leak scanner can't
+# reach it and marks it "possibly lost".  The stacks are freed correctly when
+# the pull_coroutine objects are destroyed.
+
+{
+   RMC_rng_uniform_coroutine_stack
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:boost::coroutines2::detail::pull_coroutine*
+   fun:RMC::RngBatchBuffer<std::uniform_real_distribution*
+}
+
+{
+   RMC_rng_normal_coroutine_stack
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:boost::coroutines2::detail::pull_coroutine*
+   fun:RMC::RngBatchBuffer<std::normal_distribution*
+}
+
+# ── Eigen matrix data ────────────────────────────────────────────────────────
+#
+# Eigen::Matrix data pointers are held inside Matrix objects that live on the
+# coroutine stack or on a test-local stack.  Valgrind loses sight of those
+# stacks for the same reason as above and flags the heap data as possibly lost.
+
+{
+   RMC_eigen_resize_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:Eigen::PlainObjectBase*resize*
+}

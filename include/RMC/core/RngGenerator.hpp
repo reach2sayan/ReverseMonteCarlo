@@ -5,9 +5,11 @@
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include <boost/coroutine2/all.hpp>
 #pragma GCC diagnostic pop
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/normal_distribution.hpp>
+#include <boost/random/uniform_real_distribution.hpp>
 #include <cstddef>
 #include <cstdint>
-#include <random>
 #include <span>
 
 namespace RMC {
@@ -35,7 +37,7 @@ template <typename Dist, std::size_t N = 1024> class RngBatchBuffer {
 
   static auto make_gen(std::uint32_t s) {
     return typename coro_t::pull_type{[s](typename coro_t::push_type &sink) {
-      std::mt19937 eng{s};
+      boost::random::mt19937 eng{s};
       Dist dist{};
       std::array<T, N> buf;
       while (true) {
@@ -70,8 +72,8 @@ public:
 // Convenience façade exposing three independent random streams:
 //   uniform()        → [0, 1)   batched via coroutine
 //   uniform(lo, hi)  → [lo, hi) scaled from the [0,1) buffer
-//   normal()         → N(0, 1)  batched via coroutine
-//   engine()         → raw std::mt19937 for ad-hoc distributions
+//   normal()         → N(0, 1)  batched via coroutine (Ziggurat)
+//   engine()         → raw boost::random::mt19937 for ad-hoc distributions
 //                      (uniform_int, discrete, etc.)
 //
 // Seeds are offset by 1/2 so the three streams are statistically independent.
@@ -95,13 +97,14 @@ public:
   }
   double normal() { return normal_buf_.next(); }
 
-  std::mt19937 &engine() noexcept { return engine_; }
+  boost::random::mt19937 &engine() noexcept { return engine_; }
 
 private:
   std::uint32_t seed_;
-  RngBatchBuffer<std::uniform_real_distribution<double>, N> uniform_buf_;
-  RngBatchBuffer<std::normal_distribution<double>, N> normal_buf_;
-  std::mt19937 engine_;
+  RngBatchBuffer<boost::random::uniform_real_distribution<double>, N>
+      uniform_buf_;
+  RngBatchBuffer<boost::random::normal_distribution<double>, N> normal_buf_;
+  boost::random::mt19937 engine_;
 };
 
 } // namespace RMC
