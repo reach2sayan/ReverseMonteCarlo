@@ -24,9 +24,9 @@ struct RecursiveGroupSelector : SelectorBase<RecursiveGroupSelector> {
   RecursiveMode mode{RecursiveMode::Refine};
   int max_retries{5};
 
-  constexpr explicit RecursiveGroupSelector(IGroupSelector inner,
-                                  RecursiveMode m = RecursiveMode::Refine,
-                                  int retries = 5)
+  constexpr explicit RecursiveGroupSelector(
+      IGroupSelector inner, RecursiveMode m = RecursiveMode::Refine,
+      int retries = 5)
       : mode(m), max_retries(retries), inner_(std::move(inner)) {}
 
   constexpr std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
@@ -39,7 +39,8 @@ struct RecursiveGroupSelector : SelectorBase<RecursiveGroupSelector> {
     return last_gi_;
   }
 
-  constexpr void feedback(IGroupSelector::Token /*tok*/, std::size_t gi, bool accepted) {
+  constexpr void feedback(IGroupSelector::Token /*tok*/, std::size_t gi,
+                          bool accepted) {
     inner_.feedback(gi, accepted);
     const bool trigger = (mode == RecursiveMode::Refine) ? accepted : !accepted;
     const bool cancel = !trigger;
