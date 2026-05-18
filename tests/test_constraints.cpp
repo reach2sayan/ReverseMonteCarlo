@@ -126,7 +126,8 @@ TEST_CASE("PairDistributionConstraint - large error for random structure vs "
 }
 
 // ---- PairCorrelationConstraint (via PairFunctionConstraint<PCF>) ----
-TEST_CASE("PairCorrelationConstraint - finite non-negative error", "[constraints]") {
+TEST_CASE("PairCorrelationConstraint - finite non-negative error",
+          "[constraints]") {
   PairCorrelationConstraint pcc;
   mat_t exp(50, 2);
   for (int i = 0; i < 50; ++i) {
@@ -149,7 +150,8 @@ TEST_CASE("PairCorrelationConstraint - finite non-negative error", "[constraints
   REQUIRE(err >= 0.0);
 }
 
-TEST_CASE("PDF and PCF give different errors on same structure", "[constraints]") {
+TEST_CASE("PDF and PCF give different errors on same structure",
+          "[constraints]") {
   // Non-zero experimental data so the scale-factor optimisation doesn't
   // trivially zero out both errors.
   auto make_exp = []() {
@@ -195,10 +197,10 @@ TEST_CASE("PairFunctionConstraint - exclude_intra skips same-molecule pairs",
   }
 
   coords_t c(4, 3);
-  c << 0.0, 0.0, 0.0,  // atom 0, mol 0
-       1.0, 0.0, 0.0,  // atom 1, mol 0  (intra dist = 1.0)
-       5.0, 0.0, 0.0,  // atom 2, mol 1  (inter dist from atom 0 = 5.0)
-       6.0, 0.0, 0.0;  // atom 3, mol 1
+  c << 0.0, 0.0, 0.0, // atom 0, mol 0
+      1.0, 0.0, 0.0,  // atom 1, mol 0  (intra dist = 1.0)
+      5.0, 0.0, 0.0,  // atom 2, mol 1  (inter dist from atom 0 = 5.0)
+      6.0, 0.0, 0.0;  // atom 3, mol 1
 
   std::vector<std::size_t> mol_ids = {0, 0, 1, 1};
   std::vector<index_t> all = {0, 1, 2, 3};
@@ -212,7 +214,7 @@ TEST_CASE("PairFunctionConstraint - exclude_intra skips same-molecule pairs",
   }
   without_intra.set_exclude_intra(true);
 
-  real_t err_with    = with_intra.compute_error(c, all);
+  real_t err_with = with_intra.compute_error(c, all);
   real_t err_without = without_intra.compute_error(c, all);
   REQUIRE(err_with != err_without);
 }
@@ -226,7 +228,10 @@ TEST_CASE("ConstraintCollection - cheap constraint runs before expensive one",
   {
     PairDistributionConstraint pdc;
     mat_t exp(10, 2);
-    for (int i = 0; i < 10; ++i) { exp(i,0) = 0.1*(i+1); exp(i,1) = 0.0; }
+    for (int i = 0; i < 10; ++i) {
+      exp(i, 0) = 0.1 * (i + 1);
+      exp(i, 1) = 0.0;
+    }
     pdc.set_experimental_data(exp);
     pdc.set_number_density(0.03);
     pdc.initialise();
@@ -235,14 +240,15 @@ TEST_CASE("ConstraintCollection - cheap constraint runs before expensive one",
   {
     BondConstraint b;
     b.add_bond(0, 1, 1.0, 2.0);
-    col.add(std::move(b));   // cheap added second
+    col.add(std::move(b)); // cheap added second
   }
   // After sorted insert: bond (cost 1.0) must be at index 0.
   REQUIRE(col[0].name() == "BondConstraint");
   REQUIRE(col[1].name() == "PairDistributionConstraint");
 }
 
-TEST_CASE("ConstraintCollection - short-circuit skips expensive constraint after cheap rejection",
+TEST_CASE("ConstraintCollection - short-circuit skips expensive constraint "
+          "after cheap rejection",
           "[constraints]") {
   // Bond violates → PDF should not be computed (error stays at 0 / err_before).
   ConstraintCollection col;
@@ -254,7 +260,10 @@ TEST_CASE("ConstraintCollection - short-circuit skips expensive constraint after
   {
     PairDistributionConstraint pdc;
     mat_t exp(10, 2);
-    for (int i = 0; i < 10; ++i) { exp(i,0) = 0.1*(i+1); exp(i,1) = 0.0; }
+    for (int i = 0; i < 10; ++i) {
+      exp(i, 0) = 0.1 * (i + 1);
+      exp(i, 1) = 0.0;
+    }
     pdc.set_experimental_data(exp);
     pdc.set_number_density(0.03);
     pdc.initialise();
@@ -262,7 +271,7 @@ TEST_CASE("ConstraintCollection - short-circuit skips expensive constraint after
   }
 
   coords_t good = make2(0.0, 1.5);
-  coords_t bad  = make2(0.0, 0.3);
+  coords_t bad = make2(0.0, 0.3);
   std::vector<index_t> all = {0, 1};
 
   col.compute_before_move(good, all);
@@ -273,7 +282,8 @@ TEST_CASE("ConstraintCollection - short-circuit skips expensive constraint after
   REQUIRE(col.should_reject());
   const double pdf_before = col[1].standard_error();
   col.reject();
-  // After reject, PDF error must equal what it was before (no stale after-value).
+  // After reject, PDF error must equal what it was before (no stale
+  // after-value).
   REQUIRE_THAT(col[1].standard_error(), WithinAbs(pdf_before, EPS));
 }
 

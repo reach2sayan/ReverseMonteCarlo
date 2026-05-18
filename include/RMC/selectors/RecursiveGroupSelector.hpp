@@ -5,7 +5,8 @@
 namespace RMC {
 
 enum class RecursiveMode {
-  Refine,  // retry same group while moves are ACCEPTED (exploit productive region)
+  Refine,  // retry same group while moves are ACCEPTED (exploit productive
+           // region)
   Explore, // retry same group while moves are REJECTED (find a good move)
 };
 
@@ -38,16 +39,16 @@ struct RecursiveGroupSelector : SelectorBase<RecursiveGroupSelector> {
     return last_gi_;
   }
 
-  void feedback(IGroupSelector::Token tok, std::size_t gi, bool accepted) {
+  void feedback(IGroupSelector::Token /*tok*/, std::size_t gi, bool accepted) {
     inner_.feedback(gi, accepted);
 
     const bool trigger = (mode == RecursiveMode::Refine) ? accepted : !accepted;
     const bool cancel = !trigger;
-
-    if (trigger && retries_left_ == 0)
+    if (trigger && retries_left_ == 0) {
       retries_left_ = max_retries;
-    else if (cancel)
+    } else if (cancel) {
       retries_left_ = 0;
+    }
   }
 
 private:

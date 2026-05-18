@@ -4,9 +4,9 @@
 #include <boost/leaf/result.hpp>
 #include <concepts>
 #include <cstdint>
+#include <ranges>
 #include <span>
 #include <string>
-#include <ranges>
 
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline

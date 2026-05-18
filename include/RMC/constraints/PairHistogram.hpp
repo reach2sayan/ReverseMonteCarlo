@@ -36,40 +36,42 @@ using PairWeightTable = boost::container::flat_map<PairIdKey, double>;
 // Each pair (i<j) contributes 2*w to hist[bin].
 // If molecule_ids is non-empty and exclude_intra is true, same-molecule pairs
 // are skipped (useful for modelling molecular liquids).
-inline void
-accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
-                          const BoundaryConditions *bc,
-                          const std::vector<uint8_t> &elem_id,
-                          const PairWeightTable &weight_table, double r_min,
-                          double r_max, double bin_width, int n_bins,
-                          std::span<const std::size_t> molecule_ids = {},
-                          bool exclude_intra = false) {
+inline void accumulate_pair_histogram(
+    vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
+    const std::vector<uint8_t> &elem_id, const PairWeightTable &weight_table,
+    double r_min, double r_max, double bin_width, int n_bins,
+    std::span<const std::size_t> molecule_ids = {},
+    bool exclude_intra = false) {
   const Eigen::Index N = coords.rows();
   const bool weighted = !weight_table.empty();
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
 
   for (auto [i, j] : upper_triangle_pairs(N)) {
-    if (filter_intra &&
-        molecule_ids[static_cast<std::size_t>(i)] ==
-            molecule_ids[static_cast<std::size_t>(j)])
+    if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
+                            molecule_ids[static_cast<std::size_t>(j)]) {
       continue;
+    }
 
     vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-    if (bc)
+    if (bc) {
       delta = bc_min_image(*bc, delta);
+    }
     const double d = delta.norm();
-    if (d < r_min || d >= r_max)
+    if (d < r_min || d >= r_max) {
       continue;
+    }
     const int bin = static_cast<int>((d - r_min) / bin_width);
-    if (bin < 0 || bin >= n_bins)
+    if (bin < 0 || bin >= n_bins) {
       continue;
+    }
 
     double w = 1.0;
     if (weighted) {
       PairIdKey key{elem_id[static_cast<std::size_t>(i)],
                     elem_id[static_cast<std::size_t>(j)]};
-      if (auto it = weight_table.find(key); it != weight_table.end())
+      if (auto it = weight_table.find(key); it != weight_table.end()) {
         w = it->second;
+      }
     }
     hist(bin) += 2.0 * w;
   }
@@ -116,15 +118,14 @@ public:
     elements_ = e;
   }
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
-  constexpr void
-  set_molecule_ids(std::span<const std::size_t> ids) noexcept {
+  constexpr void set_molecule_ids(std::span<const std::size_t> ids) noexcept {
     molecule_ids_ = ids;
   }
   constexpr void set_exclude_intra(bool v) noexcept { exclude_intra_ = v; }
-
-  // Accessor used by StructureFactorConstraint.
-  [[nodiscard]] const vec_t &computed_G() const noexcept { return computed_; }
-  [[nodiscard]] const vec_t &experimental_data() const noexcept {
+  [[nodiscard]] constexpr const vec_t &computed_G() const noexcept {
+    return computed_;
+  }
+  [[nodiscard]] constexpr const vec_t &experimental_data() const noexcept {
     return exp_data_;
   }
 
@@ -146,22 +147,23 @@ class PairFunctionConstraint
 public:
   using ConstraintBase<PairFunctionConstraint<Mode>>::bc_;
 
+  using PairConstraintBase::initialise;
   using PairConstraintBase::set_elements;
   using PairConstraintBase::set_exclude_intra;
   using PairConstraintBase::set_experimental_data;
   using PairConstraintBase::set_molecule_ids;
   using PairConstraintBase::set_number_density;
   using PairConstraintBase::set_weight;
-  using PairConstraintBase::initialise;
 
   // set_boundary_conditions must be forwarded from ConstraintBase.
   using ConstraintBase<PairFunctionConstraint<Mode>>::set_boundary_conditions;
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
-    if constexpr (Mode == PairNorm::PDF)
+    if constexpr (Mode == PairNorm::PDF) {
       return "PairDistributionConstraint";
-    else
+    } else {
       return "PairCorrelationConstraint";
+    }
   }
 
   [[nodiscard]] static constexpr double
@@ -186,8 +188,8 @@ public:
           4.0 * std::numbers::pi * r * rho0_ *
           (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
     } else {
-      for (int k = 0; k < n_bins_; ++k)
-        computed_(k) = computed_(k) / (shell_vols_(k) * rho0_ * N) - 1.0;
+      computed_.array() /= shell_vols_.array() * rho0_ * N;
+      computed_.array() -= 1.0;
     }
 
     const double denom = computed_.squaredNorm();

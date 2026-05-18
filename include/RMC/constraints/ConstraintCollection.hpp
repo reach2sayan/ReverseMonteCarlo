@@ -13,9 +13,10 @@ public:
     if (bc_.has_value())
       c.set_boundary_conditions(bc_.value());
     const double cost = c.computation_cost();
-    auto it = std::lower_bound(
-        constraints_.begin(), constraints_.end(), cost,
-        [](const IConstraint &x, double v) { return x.computation_cost() < v; });
+    auto it = std::lower_bound(constraints_.begin(), constraints_.end(), cost,
+                               [](const IConstraint &x, double v) {
+                                 return x.computation_cost() < v;
+                               });
     constraints_.insert(it, std::move(c));
   }
 
