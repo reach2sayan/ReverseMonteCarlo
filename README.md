@@ -2,7 +2,9 @@
 
 C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(r), S(Q)), the engine iteratively perturbs atomic positions via Metropolis acceptance until computed data matches experiment.
 
-Requires CMake ≥ 3.28, a C++23 compiler (GCC ≥ 13, Clang ≥ 17), Eigen ≥ 3.4, and Boost ≥ 1.83. Catch2 ≥ 3 is needed for tests only.
+**Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 13, Clang ≥ 17) · Eigen ≥ 3.4 · Boost ≥ 1.83 · Catch2 ≥ 3 (tests only)
+
+## Build
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -10,95 +12,92 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-If Boost is not on the default path, point CMake at it:
+If Boost is not on the default path: `-DBOOST_ROOT=/opt/boost`  
+To enable AddressSanitizer + UBSan: `-DENABLE_SANITIZERS=ON`
 
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=/opt/boost
-```
-
-To enable AddressSanitizer + UBSan:
-
-```bash
-cmake -B build -DENABLE_SANITIZERS=ON
-```
-
----
-
-The CLI takes a PDB input and one or more experimental data files:
+## CLI
 
 ```bash
 ./build/RMC_run \
-    --pdb input.pdb \
-    --pdf experimental_gr.dat \
-    --rho0 0.033 \
-    --box "20.0 20.0 20.0" \
-    --steps 100000 \
-    --out refined.pdb \
+    --pdb   input.pdb          \
+    --pdf   experimental_gr.dat \
+    --rho0  0.033              \
+    --box   "20.0 20.0 20.0"  \
+    --steps 100000             \
+    --out   refined.pdb        \
     --smart
 ```
 
-```
---pdb / -p      Input structure (PDB)
---pdf / -d      Experimental G(r), two-column text
---sq  / -q      Experimental S(Q), two-column text
---rho0          Number density in atoms/Å³ (default 0.1)
---box           "a b c" for orthogonal periodic box, or "inf" (default)
---steps / -n    Number of MC trial moves (default 100 000)
---out / -o      Output PDB (default refined.pdb)
---checkpoint    Save/restore binary checkpoint every 5 000 accepted moves
---smart         Adaptive selector — groups that accept more get picked more often
---seed          RNG seed (default 42)
---verbose / -v  Debug logging
-```
+| Flag | Default | Description |
+|---|---|---|
+| `--pdb` / `-p` | — | Input structure (PDB) |
+| `--pdf` / `-d` | — | Experimental G(r), two-column text |
+| `--sq` / `-q` | — | Experimental S(Q), two-column text |
+| `--rho0` | `0.1` | Number density in atoms/Å³ |
+| `--box` | `inf` | `"a b c"` for orthogonal periodic box, or `inf` |
+| `--steps` / `-n` | `100000` | MC trial moves |
+| `--out` / `-o` | `refined.pdb` | Output PDB |
+| `--checkpoint` / `-c` | — | Save/restore checkpoint every 5 000 accepted moves |
+| `--smart` | off | Adaptive selector — successful groups get picked more often |
+| `--seed` | `42` | RNG seed |
+| `--verbose` / `-v` | off | Debug logging |
 
----
+## Library API
 
-The library API is built around four concepts: structure, boundary conditions, groups, and constraints.
+### Structure
 
-**Structure** holds the N×3 coordinate matrix and atom metadata:
+Load from PDB:
 
 ```cpp
 #include <RMC/io/PdbReader.hpp>
+
 auto result = RMC::io::read_pdb("input.pdb");
 RMC::AtomicStructure s = *result;
 ```
 
-Or construct directly:
+Or construct directly (coordinates are an N×3 Eigen matrix, row i = atom i):
 
 ```cpp
 RMC::AtomicStructure s;
 s.coordinates.resize(3, 3);
 s.coordinates << 0,0,0,  1,0,0,  0,1,0;
-s.elements   = {"O", "H", "H"};
-s.names      = {"O1", "H1", "H2"};
-s.residues   = {"WAT", "WAT", "WAT"};
+s.elements     = {"O", "H", "H"};
+s.names        = {"O1", "H1", "H2"};
+s.residues     = {"WAT", "WAT", "WAT"};
 s.molecule_ids = {0, 0, 0};
 ```
 
-**Boundary conditions** are either periodic (triclinic) or infinite:
+### Boundary conditions
 
 ```cpp
-// Orthogonal 20 Å box
+#include <RMC/core/BoundaryConditions.hpp>
+
+// Orthogonal box
 RMC::mat3_t box = RMC::mat3_t::Identity() * 20.0;
 RMC::BoundaryConditions bc = RMC::PeriodicBC(box);
 
-// Triclinic
+// Triclinic box
 RMC::mat3_t box;
-box << a1,a2,a3, b1,b2,b3, c1,c2,c3;
+box << a1,a2,a3,
+       b1,b2,b3,
+       c1,c2,c3;
 RMC::BoundaryConditions bc = RMC::PeriodicBC(box);
 
 // No periodicity
 RMC::BoundaryConditions bc = RMC::InfiniteBC(volume_Å3);
 ```
 
-**Engine** ties everything together:
+### Engine
 
 ```cpp
 #include <RMC/Engine.hpp>
+
 RMC::Engine engine(std::move(s), bc);
 ```
 
-**Groups** define which atoms move together and how:
+### Groups
+
+A group is a set of atom indices that move together. Attach a generator to control the move type:
 
 ```cpp
 #include <RMC/generators/Translations.hpp>
@@ -106,21 +105,31 @@ RMC::Engine engine(std::move(s), bc);
 
 RMC::Group g;
 g.name    = "water_1";
-g.indices = {0, 1, 2};               // atom indices
-g.generator.emplace(RMC::TranslationGenerator(
-    /*min_amp*/ 0.01, /*max_amp*/ 0.2, /*seed*/ 42));
+g.indices = {0, 1, 2};
+g.generator.emplace(RMC::TranslationGenerator(/*min*/ 0.01, /*max*/ 0.2, /*seed*/ 42));
 engine.add_group(std::move(g));
 ```
 
-For many identical groups (one per atom, one per molecule), `build_atomic_groups` auto-creates them:
+To auto-create one group per atom with a `TranslationGenerator`:
 
 ```cpp
-engine.build_atomic_groups(/*min_amp*/ 0.0, /*max_amp*/ 0.2, /*seed*/ 42);
+engine.build_atomic_groups(/*min*/ 0.0, /*max*/ 0.2, /*seed*/ 42);
 ```
 
-Available generators: `TranslationGenerator`, `RotationGenerator`, `SwapGenerator`, `LangevinTranslationGenerator`, `LeapfrogTranslationGenerator`, `LangevinRotationGenerator`, `CombinedGenerator`, `RemoveGenerator`.
+| Generator | Header |
+|---|---|
+| `TranslationGenerator` | `generators/Translations.hpp` |
+| `RotationGenerator` | `generators/Rotations.hpp` |
+| `SwapGenerator` | `generators/Swaps.hpp` |
+| `LangevinTranslationGenerator` | `generators/LangevinTranslationGenerator.hpp` |
+| `LeapfrogTranslationGenerator` | `generators/LeapfrogTranslationGenerator.hpp` |
+| `LangevinRotationGenerator` | `generators/LangevinRotationGenerator.hpp` |
+| `CombinedGenerator` | `generators/Combined.hpp` |
+| `RemoveGenerator` | `generators/Removes.hpp` |
 
-**Constraints** score each proposed move:
+### Constraints
+
+Each constraint scores a proposed move; the engine accepts or rejects based on the aggregate error change.
 
 ```cpp
 #include <RMC/constraints/BondConstraint.hpp>
@@ -128,12 +137,14 @@ Available generators: `TranslationGenerator`, `RotationGenerator`, `SwapGenerato
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
 
+// Bond length [r_min, r_max] in Å
 RMC::BondConstraint bc;
-bc.add_bond(/*i*/ 0, /*j*/ 1, /*r_min*/ 0.8, /*r_max*/ 1.1);
+bc.add_bond(0, 1, /*r_min*/ 0.8, /*r_max*/ 1.1);
 engine.add_constraint(std::move(bc));
 
+// Bond angle [min, max] in radians
 RMC::AngleConstraint ac;
-ac.add_angle(1, 0, 2, /*min_rad*/ 1.4, /*max_rad*/ 2.1);
+ac.add_angle(1, 0, 2, /*min*/ 1.4, /*max*/ 2.1);
 engine.add_constraint(std::move(ac));
 
 // Intermolecular hard-sphere distance
@@ -142,7 +153,7 @@ dc.set_minimum_distance("O", "O", 2.4);
 dc.set_structure(engine.structure().elements, engine.structure().molecule_ids);
 engine.add_constraint(std::move(dc));
 
-// PDF g(r) against experimental data
+// Pair distribution function G(r) vs experiment
 RMC::PairDistributionConstraint pdf;
 pdf.set_experimental("gr.dat");
 pdf.set_structure(engine.structure());
@@ -150,42 +161,59 @@ pdf.set_rho0(0.033);
 engine.add_constraint(std::move(pdf));
 ```
 
-Full constraint list: `BondConstraint`, `AngleConstraint`, `DihedralAngleConstraint`, `ImproperAngleConstraint`, `IntraMolecularDistanceConstraint`, `InterMolecularDistanceConstraint`, `CoordinationConstraint`, `PairDistributionConstraint`, `PairCorrelationConstraint`, `StructureFactorConstraint`.
+| Constraint | Header |
+|---|---|
+| `BondConstraint` | `constraints/BondConstraint.hpp` |
+| `AngleConstraint` | `constraints/AngleConstraint.hpp` |
+| `DihedralAngleConstraint` | `constraints/DihedralAngleConstraint.hpp` |
+| `ImproperAngleConstraint` | `constraints/ImproperAngleConstraint.hpp` |
+| `IntraMolecularDistanceConstraint` | `constraints/DistanceConstraint.hpp` |
+| `InterMolecularDistanceConstraint` | `constraints/DistanceConstraint.hpp` |
+| `CoordinationConstraint` | `constraints/CoordinationConstraint.hpp` |
+| `PairDistributionConstraint` | `constraints/PairDistributionConstraint.hpp` |
+| `PairCorrelationConstraint` | `constraints/PairCorrelationConstraint.hpp` |
+| `StructureFactorConstraint` | `constraints/StructureFactorConstraint.hpp` |
 
-**Group selector** controls which group is picked each step (default is `RandomSelector`):
+### Selectors
+
+Controls which group is picked each step. Default is `RandomSelector`.
 
 ```cpp
 #include <RMC/selectors/SmartRandomSelector.hpp>
+
+// Adaptive: groups with higher acceptance rate are chosen more often
 engine.set_selector(RMC::SmartRandomSelector(/*bias_factor*/ 1.1, /*seed*/ 42));
+
+// Weighted: explicit per-group probabilities
+engine.set_selector(RMC::WeightedRandomSelector(weights, /*seed*/ 42));
 ```
 
-Available selectors: `RandomSelector`, `OrderedSelector`, `WeightedRandomSelector`, `SmartRandomSelector`, `RecursiveGroupSelector`.
+Available: `RandomSelector` · `OrderedSelector` · `WeightedRandomSelector` · `SmartRandomSelector` · `RecursiveGroupSelector`
 
-**Running** the engine:
+### Running
 
 ```cpp
+// Fixed number of steps
 engine.run(100'000);
 
-// Or with a per-step callback for logging
-engine.set_step_callback([](uint64_t total, uint64_t accepted, uint64_t tried, double err) {
-    std::cout << total << " steps, " << err << " error\n";
-}, /*log_every*/ 1000);
-
-// Or stop when chi² drops below a threshold
+// Stop when total error drops below a threshold
 engine.run_until(/*target_chi2*/ 0.01, /*max_steps*/ 1'000'000);
-```
 
-Checkpointing:
+// Progress callback (fires every log_every steps)
+engine.set_step_callback(
+    [](uint64_t total, uint64_t accepted, uint64_t tried, double err) {
+        std::cout << total << " steps  accepted=" << accepted << "  err=" << err << "\n";
+    }, /*log_every*/ 1000);
 
-```cpp
+// Periodic checkpointing
 engine.set_checkpoint("run.ckpt", /*every_n_accepted*/ 5000);
 ```
 
-Reading stats back:
+Stats at any point:
 
 ```cpp
 auto st = engine.stats();
-// st.steps_total, st.steps_accepted, st.steps_tried, st.last_total_err
+// st.steps_total · st.steps_accepted · st.steps_tried · st.last_total_err
 ```
 
-The refined coordinates sit in `engine.structure().coordinates` (N×3 Eigen matrix, row i = atom i).
+Refined coordinates: `engine.structure().coordinates` — N×3 Eigen matrix, row i = atom i.
