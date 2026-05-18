@@ -1,9 +1,6 @@
 #pragma once
 #include <Eigen/Core>
 #include <RMC/selectors/GroupSelector.hpp>
-#include <boost/accumulators/accumulators.hpp>
-#include <boost/accumulators/statistics/count.hpp>
-#include <boost/accumulators/statistics/mean.hpp>
 #include <random>
 
 namespace RMC {
@@ -25,38 +22,50 @@ public:
   explicit SmartRandomSelector(double bf = 1.1, std::uint32_t seed = 42)
       : bias_factor(bf), rng(seed) {}
 
-  FORCE_INLINE void initialise(std::size_t n_groups) {
+  void initialise(std::size_t n_groups) {
     weights_ = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_groups),
                                          1.0 / static_cast<double>(n_groups));
+    rebuild_cache();
   }
 
   std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
     if (static_cast<std::size_t>(weights_.size()) != n_groups) {
       initialise(n_groups);
     }
-    std::vector w(weights_.data(), weights_.data() + weights_.size());
-    std::discrete_distribution<std::size_t> dist(w.begin(), w.end());
-    return dist(rng);
+    if (dist_dirty_) {
+      dist_cache_ = std::discrete_distribution<std::size_t>(
+          weights_.data(), weights_.data() + weights_.size());
+      dist_dirty_ = false;
+    }
+    return dist_cache_(rng);
   }
 
   void feedback(IGroupSelector::Token, std::size_t group_idx, bool accepted) {
-    if (weights_.size() == 0) {
+    if (weights_.size() == 0)
       return;
-    } else if (accepted) {
+    if (accepted)
       weights_[static_cast<Eigen::Index>(group_idx)] *= bias_factor;
-    } else {
+    else
       weights_[static_cast<Eigen::Index>(group_idx)] /= bias_factor;
-    }
 
     double total = weights_.sum();
-    if (total < 1e-300) {
+    if (total < 1e-300)
       weights_.setConstant(1.0 / static_cast<double>(weights_.size()));
-    } else {
+    else
       weights_ /= total;
-    }
+    dist_dirty_ = true;
   }
 
   [[nodiscard]] Eigen::VectorXd weights() const { return weights_; }
+
+private:
+  mutable std::discrete_distribution<std::size_t> dist_cache_;
+  mutable bool dist_dirty_{true};
+  void rebuild_cache() {
+    dist_cache_ = std::discrete_distribution<std::size_t>(
+        weights_.data(), weights_.data() + weights_.size());
+    dist_dirty_ = false;
+  }
 };
 
 } // namespace RMC

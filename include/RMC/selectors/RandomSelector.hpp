@@ -1,5 +1,6 @@
 #pragma once
 #include <RMC/selectors/GroupSelector.hpp>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -23,10 +24,13 @@ struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
   WeightedRandomSelector() = default;
   explicit WeightedRandomSelector(std::vector<double> w,
                                   std::uint32_t seed = 42)
-      : rng(seed), weights(std::move(w)) {}
+      : rng(seed), weights(std::move(w)) {
+    rebuild_cache();
+  }
 
-  constexpr void set_weights(std::span<const real_t> w) {
+  void set_weights(std::span<const real_t> w) {
     weights.assign(w.begin(), w.end());
+    rebuild_cache();
   }
 
   std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
@@ -34,12 +38,17 @@ struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
       std::uniform_int_distribution<std::size_t> u(0, n_groups - 1);
       return u(rng);
     }
-    std::discrete_distribution<std::size_t> dist(weights.begin(),
-                                                 weights.end());
-    return dist(rng);
+    return (*dist_cache_)(rng);
   }
   constexpr void feedback(IGroupSelector::Token, std::size_t /*group_idx*/,
                           bool /*accepted*/) noexcept {}
+
+private:
+  mutable std::optional<std::discrete_distribution<std::size_t>> dist_cache_;
+  void rebuild_cache() {
+    if (!weights.empty())
+      dist_cache_.emplace(weights.begin(), weights.end());
+  }
 };
 
 } // namespace RMC

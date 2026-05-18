@@ -24,15 +24,16 @@ struct GradientOracle {
     const std::size_t k = indices.size();
     vec_t grad(static_cast<Eigen::Index>(3 * k));
     for (const auto [ai, atom] : indices | std::views::enumerate) {
+      std::span<const std::size_t> single{&atom, 1};
       for (Eigen::Index ax : {0, 1, 2}) {
         auto x = coords(atom, ax);
 
         coords(atom, ax) = x + fd_step;
-        constraints.compute_after_move(coords, indices);
+        constraints.compute_after_move(coords, single);
         const double err_plus = constraints.total_error();
 
         coords(atom, ax) = x - fd_step;
-        constraints.compute_after_move(coords, indices);
+        constraints.compute_after_move(coords, single);
         const double err_minus = constraints.total_error();
 
         coords(atom, ax) = x;

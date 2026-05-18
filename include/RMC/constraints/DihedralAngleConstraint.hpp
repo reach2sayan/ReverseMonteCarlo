@@ -1,11 +1,15 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
 #include <cmath>
+#include <unordered_map>
 #include <vector>
 
 namespace RMC {
 
 // Enforces dihedral-angle bounds for atom quadruplets (i–j–k–l).
+//
+// Incremental: on a single-atom move, only quads touching that atom are
+// recomputed using cached per-quad error contributions.
 class DihedralAngleConstraint : public ConstraintBase<DihedralAngleConstraint> {
 public:
   struct Quad {
@@ -13,37 +17,37 @@ public:
     double lo, hi;
   };
 
-  constexpr void add_dihedral(std::size_t i, std::size_t j, std::size_t k,
-                              std::size_t l, double lo_rad, double hi_rad) {
+  void add_dihedral(std::size_t i, std::size_t j, std::size_t k, std::size_t l,
+                    double lo_rad, double hi_rad) {
     quads_.push_back({i, j, k, l, lo_rad, hi_rad});
+    initialised_ = false;
   }
 
   [[nodiscard]] std::string name() const { return "DihedralAngleConstraint"; }
 
-  [[nodiscard]] double
-  compute_error(const coords_t &coords,
-                std::span<const std::size_t> /*moved*/) const {
-    double err = 0.0;
-    std::ranges::for_each(quads_, [&](const Quad &q) {
-      double phi = dihedral(coords, q.i, q.j, q.k, q.l);
-      if (phi < q.lo) {
-        err += (q.lo - phi);
-      } else if (phi > q.hi) {
-        err += (phi - q.hi);
+  [[nodiscard]] double compute_error(const coords_t &coords,
+                                     std::span<const std::size_t> moved) const {
+    if (!initialised_ || moved.empty())
+      return full_recompute(coords);
+    for (std::size_t atom : moved) {
+      auto it = atom_to_quads_.find(atom);
+      if (it == atom_to_quads_.end())
+        continue;
+      for (std::size_t qi : it->second) {
+        double new_err = quad_error(coords, quads_[qi]);
+        cached_total_ += new_err - quad_err_[qi];
+        quad_err_[qi] = new_err;
       }
-    });
-    return err;
+    }
+    return cached_total_;
   }
 
 private:
-  std::vector<Quad> quads_;
-
-  [[nodiscard]] double dihedral(const coords_t &c, std::size_t i, std::size_t j,
-                                std::size_t k, std::size_t l) const noexcept {
+  double quad_error(const coords_t &c, const Quad &q) const noexcept {
     auto get = [&](std::size_t a) -> vec3_t { return c.row(a).transpose(); };
-    vec3_t b1 = get(j) - get(i);
-    vec3_t b2 = get(k) - get(j);
-    vec3_t b3 = get(l) - get(k);
+    vec3_t b1 = get(q.j) - get(q.i);
+    vec3_t b2 = get(q.k) - get(q.j);
+    vec3_t b3 = get(q.l) - get(q.k);
     if (bc_) {
       b1 = bc_min_image(*bc_, b1);
       b2 = bc_min_image(*bc_, b2);
@@ -51,10 +55,39 @@ private:
     }
     vec3_t n1 = b1.cross(b2);
     vec3_t n2 = b2.cross(b3);
-    double x = n1.dot(n2);
-    double y = (n1.cross(n2)).dot(b2.normalized());
-    return std::atan2(y, x);
+    double phi = std::atan2((n1.cross(n2)).dot(b2.normalized()), n1.dot(n2));
+    if (phi < q.lo)
+      return q.lo - phi;
+    if (phi > q.hi)
+      return phi - q.hi;
+    return 0.0;
   }
+
+  double full_recompute(const coords_t &coords) const {
+    cached_total_ = 0.0;
+    atom_to_quads_.clear();
+    quad_err_.assign(quads_.size(), 0.0);
+    for (std::size_t qi = 0; qi < quads_.size(); ++qi) {
+      const auto &q = quads_[qi];
+      double err = quad_error(coords, q);
+      cached_total_ += err;
+      quad_err_[qi] = err;
+      atom_to_quads_[q.i].push_back(qi);
+      atom_to_quads_[q.j].push_back(qi);
+      atom_to_quads_[q.k].push_back(qi);
+      atom_to_quads_[q.l].push_back(qi);
+    }
+    initialised_ = true;
+    return cached_total_;
+  }
+
+  std::vector<Quad> quads_;
+
+  mutable bool initialised_{false};
+  mutable double cached_total_{0.0};
+  mutable std::vector<double> quad_err_;
+  mutable std::unordered_map<std::size_t, std::vector<std::size_t>>
+      atom_to_quads_;
 };
 
 } // namespace RMC
