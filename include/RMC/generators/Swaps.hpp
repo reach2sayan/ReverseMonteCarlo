@@ -29,7 +29,6 @@ struct SwapGenerator : MoveGeneratorBase<SwapGenerator> {
     const auto &other = candidates[pick(rng)];
     BOOST_ASSERT_MSG(other.size() == indices.size(),
                      "SwapGenerator: group size mismatch");
-#pragma omp parallel for
     for (auto [iindex, otherindex] : std::views::zip(indices, other)) {
       coords.row(static_cast<Eigen::Index>(iindex))
           .swap(coords.row(static_cast<Eigen::Index>(otherindex)));

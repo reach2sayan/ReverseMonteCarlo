@@ -29,7 +29,6 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
     vec3_t pivot = centroid(coords, indices);
     Eigen::AngleAxisd rot(angle, axis);
 
-#pragma omp parallel for
     for (auto i : indices) {
       vec3_t r = coords.row(i).transpose() - pivot;
       vec3_t r2 = rot * r;
@@ -71,7 +70,6 @@ struct RotationAboutAxisGenerator
 
     vec3_t pivot = centroid(coords, indices);
     Eigen::AngleAxisd rot(angle, axis);
-#pragma omp parallel for
     for (auto i : indices) {
       vec3_t r = coords.row(i).transpose() - pivot;
       coords.row(i) = (rot * r + pivot).transpose();
