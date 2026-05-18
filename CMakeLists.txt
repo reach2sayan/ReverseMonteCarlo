@@ -17,6 +17,9 @@ option(ENABLE_MKL "Use Intel MKL backend for Eigen" ON)
 if (NOT BOOST_ROOT AND EXISTS "/opt/boost")
     set(BOOST_ROOT "/opt/boost" CACHE PATH "Boost root directory" FORCE)
 endif ()
+if (BOOST_ROOT)
+    list(PREPEND CMAKE_PREFIX_PATH "${BOOST_ROOT}")
+endif ()
 
 set(RMC_KNOWN_COMPILER OFF)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
@@ -61,7 +64,6 @@ find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
         program_options
         serialization
         container
-        system
         context
 )
 
@@ -136,7 +138,6 @@ target_link_libraries(RMC PUBLIC
         Boost::log_setup
         Boost::serialization
         Boost::container
-        Boost::system
         Boost::context
         Threads::Threads
 )
