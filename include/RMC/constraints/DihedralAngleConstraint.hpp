@@ -25,7 +25,9 @@ public:
     cache_.invalidate();
   }
 
-  [[nodiscard]] std::string name() const { return "DihedralAngleConstraint"; }
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
+    return "DihedralAngleConstraint";
+  }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
@@ -50,12 +52,7 @@ private:
     const vec3_t n2 = b2.cross(b3);
     const double phi =
         std::atan2((n1.cross(n2)).dot(b2.normalized()), n1.dot(n2));
-    if (phi < q.lo) {
-      return q.lo - phi;
-    } else if (phi > q.hi) {
-      return phi - q.hi;
-    }
-    return 0.0;
+    return range_violation(phi, q.lo, q.hi);
   }
   std::vector<Quad> quads_;
   mutable ItemCache<Quad> cache_;

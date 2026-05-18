@@ -25,7 +25,9 @@ public:
     cache_.invalidate();
   }
 
-  [[nodiscard]] std::string name() const { return "AngleConstraint"; }
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
+    return "AngleConstraint";
+  }
   [[nodiscard]] constexpr double
   compute_error(const coords_t &coords,
                 std::span<const std::size_t> moved) const {
@@ -38,7 +40,8 @@ public:
   }
 
 private:
-  double triplet_error(const coords_t &coords, const Triplet &t) const noexcept {
+  double triplet_error(const coords_t &coords,
+                       const Triplet &t) const noexcept {
     vec3_t v1 = (coords.row(t.i) - coords.row(t.j)).transpose();
     vec3_t v2 = (coords.row(t.k) - coords.row(t.j)).transpose();
     if (bc_) {
@@ -47,12 +50,7 @@ private:
     }
     const double cos_a = v1.dot(v2) / (v1.norm() * v2.norm() + 1e-30);
     const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
-    if (angle < t.lo) {
-      return t.lo - angle;
-    } else if (angle > t.hi) {
-      return angle - t.hi;
-    }
-    return 0.0;
+    return range_violation(angle, t.lo, t.hi);
   }
 
   std::vector<Triplet> triplets_;

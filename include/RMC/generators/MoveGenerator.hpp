@@ -97,10 +97,7 @@ private:
 template <typename Derived> struct MoveGeneratorBase {};
 FORCE_INLINE vec3_t centroid(const coords_t &coords,
                              std::span<const std::size_t> indices) noexcept {
-  vec3_t c = vec3_t::Zero();
-  for (auto i : indices)
-    c += coords.row(static_cast<Eigen::Index>(i)).transpose();
-  return c / static_cast<double>(indices.size());
+  return coords(indices, Eigen::all).colwise().mean();
 }
 
 } // namespace RMC

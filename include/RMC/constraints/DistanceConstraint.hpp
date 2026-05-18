@@ -15,9 +15,9 @@ enum class DistanceScope : std::uint8_t { Inter, Intra };
 // The scope policy (inter- vs intra-molecular) is a compile-time template
 // parameter resolved via if constexpr — no virtual dispatch, no vptr.
 //
-// Incremental: PairCache stores per-pair contributions with forward and backward
-// refs, so a single-atom move at k recomputes only the O(N) pairs involving k,
-// not O(N²) pairs total.
+// Incremental: PairCache stores per-pair contributions with forward and
+// backward refs, so a single-atom move at k recomputes only the O(N) pairs
+// involving k, not O(N²) pairs total.
 template <DistanceScope S>
 class DistanceConstraint : public ConstraintBase<DistanceConstraint<S>> {
   struct ElemPair {
@@ -46,7 +46,7 @@ public:
     cache_.invalidate();
   }
 
-  [[nodiscard]] std::string name() const {
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
     if constexpr (S == DistanceScope::Inter)
       return "InterMolecularDistanceConstraint";
     else
@@ -59,11 +59,13 @@ public:
     return cache_.compute(
         N,
         [&](std::size_t i, std::size_t j) -> std::optional<double> {
-          if (!in_scope(i, j))
+          if (!in_scope(i, j)) {
             return std::nullopt;
+          }
           auto it = d_min_.find(make_key(i, j));
-          if (it == d_min_.end())
+          if (it == d_min_.end()) {
             return std::nullopt;
+          }
           return it->second;
         },
         [&](std::size_t i, std::size_t j) {
@@ -73,16 +75,20 @@ public:
   }
 
 private:
-  [[nodiscard]] constexpr bool in_scope(std::size_t i, std::size_t j) const noexcept {
-    if (mol_ids_.empty())
+  [[nodiscard]] constexpr FORCE_INLINE bool
+  in_scope(std::size_t i, std::size_t j) const noexcept {
+    if (mol_ids_.empty()) {
       return true;
-    if constexpr (S == DistanceScope::Inter)
+    }
+    if constexpr (S == DistanceScope::Inter) {
       return mol_ids_[i] != mol_ids_[j];
-    else
+    } else {
       return mol_ids_[i] == mol_ids_[j];
+    }
   }
 
-  [[nodiscard]] ElemPair make_key(std::size_t i, std::size_t j) const {
+  [[nodiscard]] constexpr ElemPair make_key(std::size_t i,
+                                            std::size_t j) const {
     return {elements_[i], elements_[j]};
   }
 

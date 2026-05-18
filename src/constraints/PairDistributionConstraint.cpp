@@ -41,38 +41,32 @@ PairDistributionConstraint::compute_error(const coords_t &coords,
   computed_G_.setZero();
   const Eigen::Index N = coords.rows();
 
-  // Accumulate weighted pair counts per bin (thread-local buffers, then merge).
-#pragma omp parallel
-  {
-    vec_t local_G = vec_t::Zero(n_bins_);
-#pragma omp for schedule(dynamic, 64) nowait
-    for (Eigen::Index i = 0; i < N; ++i) {
-      for (Eigen::Index j = i + 1; j < N; ++j) {
-        vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-        if (bc_) {
-          delta = bc_min_image(*bc_, delta);
-        }
-        const double d = delta.norm();
-        if (d < r_min_ || d >= r_max_) {
-          continue;
-        }
-        const int bin = static_cast<int>((d - r_min_) / bin_width_);
-        if (bin < 0 || bin >= n_bins_) {
-          continue;
-        }
-        double w = 1.0;
-        if (!elements_.empty()) {
-          const auto &ei = elements_[static_cast<std::size_t>(i)];
-          const auto &ej = elements_[static_cast<std::size_t>(j)];
-          w = weight_for(ei, ej);
-        }
-        local_G(bin) += 2.0 * w; // pair i–j and j–i
+  vec_t local_G = vec_t::Zero(n_bins_);
+  for (Eigen::Index i = 0; i < N; ++i) {
+    for (Eigen::Index j = i + 1; j < N; ++j) {
+      vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
+      if (bc_) {
+        delta = bc_min_image(*bc_, delta);
       }
+      const double d = delta.norm();
+      if (d < r_min_ || d >= r_max_) {
+        continue;
+      }
+      const int bin = static_cast<int>((d - r_min_) / bin_width_);
+      if (bin < 0 || bin >= n_bins_) {
+        continue;
+      }
+      double w = 1.0;
+      if (!elements_.empty()) {
+        const auto &ei = elements_[static_cast<std::size_t>(i)];
+        const auto &ej = elements_[static_cast<std::size_t>(j)];
+        w = weight_for(ei, ej);
+      }
+      local_G(bin) += 2.0 * w; // pair i–j and j–i
     }
-#pragma omp critical
-    {
-      computed_G_ += local_G;
-    }
+  }
+  {
+    computed_G_ += local_G;
   }
 
   // Normalise to g(r), then compute G(r) = 4πr·ρ₀·(g(r) − 1).

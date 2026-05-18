@@ -22,7 +22,9 @@ public:
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
   void initialise();
 
-  [[nodiscard]] std::string name() const { return "PairCorrelationConstraint"; }
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
+    return "PairCorrelationConstraint";
+  }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;

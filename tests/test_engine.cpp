@@ -57,8 +57,7 @@ TEST_CASE("Engine - hard distance constraint limits proximity", "[engine]") {
 
   InterMolecularDistanceConstraint c;
   c.set_minimum_distance("Ar", "Ar", 2.0);
-  c.set_structure(engine.structure().elements,
-                  engine.structure().molecule_ids);
+  c.set_structure(engine.structure().elements, engine.structure().molecule_ids);
   engine.add_constraint(std::move(c));
 
   engine.run(2000);

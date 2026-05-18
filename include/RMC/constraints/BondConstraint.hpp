@@ -25,20 +25,16 @@ public:
     cache_.invalidate();
   }
 
-  [[nodiscard]] std::string name() const { return "BondConstraint"; }
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
+    return "BondConstraint";
+  }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
     return cache_.compute(
-        bonds_,
-        [](const BondItem &b) { return std::array{b.i, b.j}; },
+        bonds_, [](const BondItem &b) { return std::array{b.i, b.j}; },
         [this](const coords_t &c, const BondItem &b) {
-          const double d = distance(c, b.i, b.j);
-          if (d < b.lo)
-            return b.lo - d;
-          if (d > b.hi)
-            return d - b.hi;
-          return 0.0;
+          return range_violation(distance(c, b.i, b.j), b.lo, b.hi);
         },
         coords, moved);
   }

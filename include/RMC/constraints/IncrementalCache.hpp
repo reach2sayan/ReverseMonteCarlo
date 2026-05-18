@@ -125,7 +125,8 @@ struct PairCache {
   }
 
   template <typename DistFn>
-  double update(std::span<const std::size_t> moved, DistFn dist) const noexcept {
+  double update(std::span<const std::size_t> moved,
+                DistFn dist) const noexcept {
     for (std::size_t k : moved) {
       // 1. Recompute all forward pairs (k, j) with j > k.
       double c_k = 0.0;
@@ -139,15 +140,24 @@ struct PairCache {
 
       // 2. Update backward pairs (i, k) with i < k.
       //    Skip i if it is also in moved — its forward pass handles pair (i,k).
-      for (const auto &[i, pos] :
-           bwd[k] | std::views::filter([&](const auto &br) {
-             return std::ranges::find(moved, br.i) == moved.end();
-           })) {
-        auto &p = fwd[i][pos];
-        const double d = dist(i, k);
+      //    For the common single-atom case all i < k, so the filter is a no-op;
+      //    skip std::ranges::find entirely to avoid per-pair overhead.
+      auto update_bwd = [&](const BackRef &br) {
+        auto &p = fwd[br.i][br.pos];
+        const double d = dist(br.i, k);
         const double nc = (d < p.threshold) ? (p.threshold - d) : 0.0;
-        atom_contrib(static_cast<Eigen::Index>(i)) += nc - p.contrib;
+        atom_contrib(static_cast<Eigen::Index>(br.i)) += nc - p.contrib;
         p.contrib = nc;
+      };
+      if (moved.size() == 1) {
+        std::ranges::for_each(bwd[k], [&](const auto &br) { update_bwd(br); });
+      } else {
+        auto existing_backward_pairs =
+            bwd[k] | std::views::filter([&](const auto &br) {
+              return std::ranges::find(moved, br.i) == moved.end();
+            });
+        std::ranges::for_each(existing_backward_pairs,
+                              [&](const auto &br) { update_bwd(br); });
       }
     }
     return atom_contrib.sum();

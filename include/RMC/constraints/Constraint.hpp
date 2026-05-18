@@ -4,6 +4,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace RMC {
 
@@ -28,7 +29,7 @@ concept CConstraint =
       c.reject(tok);
       { c.standard_error(tok) } -> std::convertible_to<double>;
       { c.should_reject(tok) } -> std::convertible_to<bool>;
-      { c.name() } -> std::convertible_to<std::string>;
+      { c.name() } -> std::convertible_to<std::string_view>;
       c.set_boundary_conditions(tok, bc);
     };
 
@@ -66,7 +67,9 @@ public:
   [[nodiscard]] constexpr bool should_reject() const noexcept {
     return self_->should_reject();
   }
-  [[nodiscard]] constexpr std::string name() const { return self_->name(); }
+  [[nodiscard]] constexpr std::string_view name() const noexcept {
+    return self_->name();
+  }
   constexpr void set_boundary_conditions(const BoundaryConditions &bc) {
     self_->set_boundary_conditions(bc);
   }
@@ -84,7 +87,7 @@ private:
     virtual constexpr void reject() noexcept = 0;
     [[nodiscard]] virtual double standard_error() const noexcept = 0;
     [[nodiscard]] virtual bool should_reject() const noexcept = 0;
-    [[nodiscard]] virtual std::string name() const = 0;
+    [[nodiscard]] virtual std::string_view name() const noexcept = 0;
     virtual void set_boundary_conditions(const BoundaryConditions &) = 0;
     virtual std::unique_ptr<ConstraintConcept> clone() const = 0;
   };
@@ -108,7 +111,9 @@ private:
     constexpr bool should_reject() const noexcept override {
       return data_.should_reject(make_token());
     }
-    constexpr std::string name() const override { return data_.name(); }
+    constexpr std::string_view name() const noexcept override {
+      return data_.name();
+    }
     constexpr void
     set_boundary_conditions(const BoundaryConditions &bc) override {
       data_.set_boundary_conditions(make_token(), bc);
@@ -121,6 +126,14 @@ private:
 
   std::unique_ptr<ConstraintConcept> self_;
 };
+
+// Penalty for a value outside [lo, hi]: distance to the nearest endpoint.
+[[nodiscard]] FORCE_INLINE constexpr double
+range_violation(double x, double lo, double hi) noexcept {
+  if (x < lo) return lo - x;
+  if (x > hi) return x - hi;
+  return 0.0;
+}
 
 template <typename Derived> class ConstraintBase {
 protected:
@@ -166,16 +179,16 @@ public:
   }
 
 protected:
-  [[nodiscard]] constexpr FORCE_INLINE double distance_sq(const coords_t &c, std::size_t i,
-                                             std::size_t j) const noexcept {
+  [[nodiscard]] constexpr FORCE_INLINE double
+  distance_sq(const coords_t &c, std::size_t i, std::size_t j) const noexcept {
     vec3_t d = c.row(j).transpose() - c.row(i).transpose();
     if (bc_) {
       d = bc_min_image(*bc_, d);
     }
     return d.squaredNorm();
   }
-  [[nodiscard]] constexpr FORCE_INLINE double distance(const coords_t &c, std::size_t i,
-                                          std::size_t j) const noexcept {
+  [[nodiscard]] constexpr FORCE_INLINE double
+  distance(const coords_t &c, std::size_t i, std::size_t j) const noexcept {
     return std::sqrt(distance_sq(c, i, j));
   }
 };

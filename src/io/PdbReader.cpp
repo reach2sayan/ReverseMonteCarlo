@@ -162,11 +162,11 @@ Result<void> write_pdb(const AtomicStructure &s,
                           ? s.molecule_ids[static_cast<std::size_t>(i)]
                           : 1;
 
-    f << std::format("ATOM  {:5d} {:<4.4} {:<3.3} A{:4d}    {:8.3f}{:8.3f}{:8.3f}"
-                     "  1.00  0.00          {:>2.2}\n",
-                     static_cast<int>(i + 1), name, res, static_cast<int>(mol),
-                     s.coordinates(i, 0), s.coordinates(i, 1),
-                     s.coordinates(i, 2), elem);
+    f << std::format(
+        "ATOM  {:5d} {:<4.4} {:<3.3} A{:4d}    {:8.3f}{:8.3f}{:8.3f}"
+        "  1.00  0.00          {:>2.2}\n",
+        static_cast<int>(i + 1), name, res, static_cast<int>(mol),
+        s.coordinates(i, 0), s.coordinates(i, 1), s.coordinates(i, 2), elem);
   }
   f << "END\n";
   return {};

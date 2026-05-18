@@ -29,13 +29,14 @@ struct TranslationGenerator : MoveGeneratorBase<TranslationGenerator> {
   }
 
 private:
-  vec3_t random_unit_vector() {
+  FORCE_INLINE vec3_t random_unit_vector() {
     // Marsaglia (1972) uniform sphere sampling
     std::normal_distribution<double> nd(0.0, 1.0);
     vec3_t v(nd(rng), nd(rng), nd(rng));
     double n = v.norm();
-    if (n < 1e-12)
+    if (n < 1e-12) {
       return vec3_t::UnitX();
+    }
     return v / n;
   }
 };

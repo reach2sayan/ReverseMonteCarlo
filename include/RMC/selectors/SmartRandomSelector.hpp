@@ -36,27 +36,29 @@ public:
   }
 
   std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
-    if (static_cast<std::size_t>(weights_.size()) != n_groups)
+    if (static_cast<std::size_t>(weights_.size()) != n_groups) {
       initialise(n_groups);
+    }
 
     const double target =
         std::uniform_real_distribution<double>(0.0, weight_sum_)(rng);
     double cumsum = 0.0;
     for (Eigen::Index i = 0; i < weights_.size(); ++i) {
       cumsum += weights_[i];
-      if (cumsum >= target)
+      if (cumsum >= target) {
         return static_cast<std::size_t>(i);
+      }
     }
     return static_cast<std::size_t>(weights_.size() - 1);
   }
 
   void feedback(IGroupSelector::Token, std::size_t group_idx, bool accepted) {
-    if (weights_.size() == 0)
+    if (weights_.size() == 0) {
       return;
+    }
     const auto idx = static_cast<Eigen::Index>(group_idx);
     const double old_w = weights_[idx];
-    const double new_w =
-        accepted ? old_w * bias_factor : old_w / bias_factor;
+    const double new_w = accepted ? old_w * bias_factor : old_w / bias_factor;
     weights_[idx] = new_w;
     weight_sum_ += new_w - old_w;
 
@@ -74,10 +76,9 @@ public:
     }
   }
 
-  [[nodiscard]] Eigen::VectorXd weights() const {
-    if (weight_sum_ > 0.0 && weight_sum_ != 1.0)
-      return weights_ / weight_sum_;
-    return weights_;
+  [[nodiscard]] FORCE_INLINE Eigen::VectorXd weights() const {
+    return (weight_sum_ > 0.0 && weight_sum_ != 1.0) ? weights_ / weight_sum_
+                                                     : weights_;
   }
 };
 

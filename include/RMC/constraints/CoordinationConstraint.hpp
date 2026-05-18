@@ -34,7 +34,9 @@ public:
     elements_ = elements;
   }
 
-  [[nodiscard]] std::string name() const { return "CoordinationConstraint"; }
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
+    return "CoordinationConstraint";
+  }
 
   // Override ConstraintBase defaults so each step is O(N) not O(N²).
   void compute_before_move(IConstraint::Token, const coords_t &coords,
@@ -44,9 +46,10 @@ public:
     old_cn_ = cn_;
     last_moved_.assign(moved.begin(), moved.end());
     saved_positions_.clear();
-    for (auto k : last_moved_)
+    for (auto k : last_moved_) {
       saved_positions_.push_back(
           coords.row(static_cast<Eigen::Index>(k)).transpose());
+    }
     err_before_ = error_from_cn();
   }
 
@@ -57,7 +60,9 @@ public:
     err_after_ = error_from_cn();
   }
 
-  void accept(IConstraint::Token tok) noexcept { ConstraintBase::accept(tok); }
+  constexpr void accept(IConstraint::Token tok) noexcept {
+    ConstraintBase::accept(tok);
+  }
 
   void reject(IConstraint::Token tok) noexcept {
     ConstraintBase::reject(tok);
@@ -116,8 +121,7 @@ private:
     for (std::size_t ki = 0; ki < moved.size(); ++ki) {
       const std::size_t k = moved[ki];
       const vec3_t &old_k = saved_positions_[ki];
-      const vec3_t new_k =
-          coords.row(static_cast<Eigen::Index>(k)).transpose();
+      const vec3_t new_k = coords.row(static_cast<Eigen::Index>(k)).transpose();
 
       for (std::size_t si = 0; si < ns; ++si) {
         const auto &sh = shells_[si];

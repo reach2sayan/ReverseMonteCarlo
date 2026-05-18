@@ -39,7 +39,9 @@ public:
   }
   void initialise(); // builds Gr2Sq matrix
 
-  [[nodiscard]] std::string name() const { return "StructureFactorConstraint"; }
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
+    return "StructureFactorConstraint";
+  }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;
