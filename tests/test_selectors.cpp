@@ -1,5 +1,6 @@
 #include <RMC/selectors/OrderedSelector.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
+#include <RMC/selectors/RecursiveGroupSelector.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
@@ -59,4 +60,70 @@ TEST_CASE("SmartRandomSelector - rejection decreases weight", "[selectors]") {
   for (int i = 0; i < 1000; ++i)
     ++counts[sel.select(3)];
   REQUIRE(counts[0] < 300);
+}
+
+// ---- RecursiveGroupSelector ----
+TEST_CASE("RecursiveGroupSelector Refine - retries same group after acceptance",
+          "[selectors]") {
+  // Inner selector always picks group 0 first via OrderedSelector.
+  // After accepting, the same group should be returned for max_retries more steps.
+  IGroupSelector sel = RecursiveGroupSelector{OrderedSelector{},
+                                              RecursiveMode::Refine, /*max_retries=*/3};
+
+  std::size_t first = sel.select(5); // picks 0 from OrderedSelector
+  sel.feedback(first, /*accepted=*/true);
+
+  // Next 3 selects should return the same group.
+  for (int i = 0; i < 3; ++i)
+    REQUIRE(sel.select(5) == first);
+
+  // After retries exhausted, delegates back to inner selector (next group = 1).
+  std::size_t after = sel.select(5);
+  REQUIRE(after != first);
+}
+
+TEST_CASE("RecursiveGroupSelector Refine - rejection cancels retry",
+          "[selectors]") {
+  IGroupSelector sel = RecursiveGroupSelector{OrderedSelector{},
+                                              RecursiveMode::Refine, /*max_retries=*/5};
+
+  std::size_t first = sel.select(5);
+  sel.feedback(first, /*accepted=*/true);  // start retry lock
+
+  std::size_t second = sel.select(5);
+  REQUIRE(second == first); // still locked
+
+  sel.feedback(second, /*accepted=*/false); // rejection cancels lock
+  std::size_t third = sel.select(5);
+  REQUIRE(third != first); // inner selector now in control
+}
+
+TEST_CASE("RecursiveGroupSelector Explore - retries same group after rejection",
+          "[selectors]") {
+  IGroupSelector sel = RecursiveGroupSelector{OrderedSelector{},
+                                              RecursiveMode::Explore, /*max_retries=*/3};
+
+  std::size_t first = sel.select(5);
+  sel.feedback(first, /*accepted=*/false); // rejected → start retry lock
+
+  for (int i = 0; i < 3; ++i)
+    REQUIRE(sel.select(5) == first);
+
+  // After retries exhausted, moves to next group.
+  REQUIRE(sel.select(5) != first);
+}
+
+TEST_CASE("RecursiveGroupSelector Explore - acceptance cancels retry",
+          "[selectors]") {
+  IGroupSelector sel = RecursiveGroupSelector{OrderedSelector{},
+                                              RecursiveMode::Explore, /*max_retries=*/5};
+
+  std::size_t first = sel.select(5);
+  sel.feedback(first, /*accepted=*/false); // start retry lock
+
+  std::size_t second = sel.select(5);
+  REQUIRE(second == first);
+
+  sel.feedback(second, /*accepted=*/true); // acceptance cancels lock
+  REQUIRE(sel.select(5) != first);
 }

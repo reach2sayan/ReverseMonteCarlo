@@ -1,6 +1,7 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
 #include <cmath>
+#include <unordered_map>
 #include <vector>
 
 namespace RMC {
@@ -13,6 +14,9 @@ namespace RMC {
 //   - Shell centred at k: full recompute (O(N))
 //   - All other shells: ±1 update based on k entering/leaving (O(N_shells))
 // Total cost per step: O(N) instead of O(N²).
+//
+// Element filtering uses integer IDs built at first use — avoids std::string
+// comparisons in the inner loop.
 class CoordinationConstraint : public ConstraintBase<CoordinationConstraint> {
 public:
   struct Shell {
@@ -24,18 +28,25 @@ public:
     int max_cn{12};
   };
 
-  constexpr void add_shell(std::size_t centre, const std::string &nb_elem,
-                           double r_min, double r_max, int min_cn, int max_cn) {
+  void add_shell(std::size_t centre, const std::string &nb_elem, double r_min,
+                 double r_max, int min_cn, int max_cn) {
     shells_.push_back({centre, nb_elem, r_min, r_max, min_cn, max_cn});
     cn_ready_ = false;
+    ids_ready_ = false;
   }
 
-  constexpr void set_elements(std::span<const std::string> elements) noexcept {
+  void set_elements(std::span<const std::string> elements) noexcept {
     elements_ = elements;
+    ids_ready_ = false;
+    cn_ready_ = false;
   }
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     return "CoordinationConstraint";
+  }
+  [[nodiscard]] static constexpr double
+  computation_cost(IConstraint::Token) noexcept {
+    return 10.0;
   }
 
   // Override ConstraintBase defaults so each step is O(N) not O(N²).
@@ -46,10 +57,9 @@ public:
     old_cn_ = cn_;
     last_moved_.assign(moved.begin(), moved.end());
     saved_positions_.clear();
-    for (auto k : last_moved_) {
+    for (auto k : last_moved_)
       saved_positions_.push_back(
           coords.row(static_cast<Eigen::Index>(k)).transpose());
-    }
     err_before_ = error_from_cn();
   }
 
@@ -60,9 +70,7 @@ public:
     err_after_ = error_from_cn();
   }
 
-  constexpr void accept(IConstraint::Token tok) noexcept {
-    ConstraintBase::accept(tok);
-  }
+  void accept(IConstraint::Token tok) noexcept { ConstraintBase::accept(tok); }
 
   void reject(IConstraint::Token tok) noexcept {
     ConstraintBase::reject(tok);
@@ -81,13 +89,41 @@ private:
   std::vector<Shell> shells_;
   std::span<const std::string> elements_;
 
+  // Integer element IDs — built lazily, avoids string comparisons in hot paths.
+  mutable std::vector<uint8_t> elem_id_; // elem_id_[i] = ID of atom i's element
+  mutable std::vector<uint8_t>
+      shell_nb_id_; // shell_nb_id_[si] = ID of shell si's neighbour_elem
+  mutable bool ids_ready_{false};
+
   mutable std::vector<int> cn_;
   mutable std::vector<int> old_cn_;
   mutable bool cn_ready_{false};
   mutable std::vector<vec3_t> saved_positions_;
   mutable std::vector<std::size_t> last_moved_;
 
+  void build_ids() const {
+    std::unordered_map<std::string, uint8_t> name_to_id;
+    uint8_t next_id = 0;
+    elem_id_.resize(elements_.size());
+    for (std::size_t i = 0; i < elements_.size(); ++i) {
+      auto [it, ins] = name_to_id.try_emplace(elements_[i], next_id);
+      if (ins)
+        ++next_id;
+      elem_id_[i] = it->second;
+    }
+    shell_nb_id_.resize(shells_.size());
+    for (std::size_t si = 0; si < shells_.size(); ++si) {
+      auto it = name_to_id.find(shells_[si].neighbour_elem);
+      shell_nb_id_[si] = (it != name_to_id.end())
+                             ? it->second
+                             : std::numeric_limits<uint8_t>::max();
+    }
+    ids_ready_ = true;
+  }
+
   void full_compute(const coords_t &coords) const noexcept {
+    if (!ids_ready_ && !elements_.empty())
+      build_ids();
     const std::size_t N = static_cast<std::size_t>(coords.rows());
     cn_.resize(shells_.size());
     for (std::size_t si = 0; si < shells_.size(); ++si)
@@ -101,14 +137,26 @@ private:
     const double r2_min = sh.r_min * sh.r_min;
     const double r2_max = sh.r_max * sh.r_max;
     int cn = 0;
-    for (std::size_t j = 0; j < N; ++j) {
-      if (j == sh.centre_idx)
-        continue;
-      if (!elements_.empty() && elements_[j] != sh.neighbour_elem)
-        continue;
-      const double d2 = distance_sq(coords, sh.centre_idx, j);
-      if (d2 >= r2_min && d2 <= r2_max)
-        ++cn;
+    if (elem_id_.empty()) {
+      // No element filtering.
+      for (std::size_t j = 0; j < N; ++j) {
+        if (j == sh.centre_idx)
+          continue;
+        const double d2 = distance_sq(coords, sh.centre_idx, j);
+        if (d2 >= r2_min && d2 <= r2_max)
+          ++cn;
+      }
+    } else {
+      const uint8_t nb_id = shell_nb_id_[si];
+      for (std::size_t j = 0; j < N; ++j) {
+        if (j == sh.centre_idx)
+          continue;
+        if (elem_id_[j] != nb_id)
+          continue;
+        const double d2 = distance_sq(coords, sh.centre_idx, j);
+        if (d2 >= r2_min && d2 <= r2_max)
+          ++cn;
+      }
     }
     return cn;
   }
@@ -122,21 +170,19 @@ private:
       const std::size_t k = moved[ki];
       const vec3_t &old_k = saved_positions_[ki];
       const vec3_t new_k = coords.row(static_cast<Eigen::Index>(k)).transpose();
+      const uint8_t k_id = elem_id_.empty() ? 0 : elem_id_[k];
 
       for (std::size_t si = 0; si < ns; ++si) {
         const auto &sh = shells_[si];
 
         if (sh.centre_idx == k) {
-          // All distances from k changed — full recompute of this shell.
           cn_[si] = count_shell(coords, si, N);
           continue;
         }
 
-        // Shell centred at j ≠ k: only k's membership may have changed.
-        if (!elements_.empty() && elements_[k] != sh.neighbour_elem)
+        if (!elem_id_.empty() && k_id != shell_nb_id_[si])
           continue;
 
-        // j did not move so coords.row(j) is correct for both before and after.
         const vec3_t j_pos =
             coords.row(static_cast<Eigen::Index>(sh.centre_idx)).transpose();
         const double r2_min = sh.r_min * sh.r_min;

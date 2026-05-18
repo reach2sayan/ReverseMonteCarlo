@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <ranges>
+
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
@@ -49,4 +51,13 @@ concept ConstraintConcept =
 
 template <typename T> using Result = boost::leaf::result<T>;
 
+constexpr auto upper_triangle_pairs(auto &&N) {
+  return std::views::iota(decltype(N){0}, N) |
+         std::views::transform([N](auto i) {
+           return std::views::iota(i + 1, N) |
+                  std::views::transform(
+                      [i](auto j) { return std::pair{i, j}; });
+         }) |
+         std::views::join;
+}
 } // namespace RMC

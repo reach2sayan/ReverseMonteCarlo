@@ -112,8 +112,7 @@ find_package(Threads REQUIRED)
 
 add_library(RMC SHARED
         src/core/Structure.cpp
-        src/constraints/PairDistributionConstraint.cpp
-        src/constraints/PairCorrelationConstraint.cpp
+        src/constraints/PairConstraintBase.cpp
         src/constraints/StructureFactorConstraint.cpp
         src/io/PdbReader.cpp
         src/io/DataReader.cpp

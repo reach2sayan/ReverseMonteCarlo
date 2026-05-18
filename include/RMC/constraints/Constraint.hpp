@@ -3,7 +3,6 @@
 #include <RMC/core/Types.hpp>
 #include <cmath>
 #include <memory>
-#include <string>
 #include <string_view>
 
 namespace RMC {
@@ -30,6 +29,7 @@ concept CConstraint =
       { c.standard_error(tok) } -> std::convertible_to<double>;
       { c.should_reject(tok) } -> std::convertible_to<bool>;
       { c.name() } -> std::convertible_to<std::string_view>;
+      { c.computation_cost(tok) } -> std::convertible_to<double>;
       c.set_boundary_conditions(tok, bc);
     };
 
@@ -70,6 +70,9 @@ public:
   [[nodiscard]] constexpr std::string_view name() const noexcept {
     return self_->name();
   }
+  [[nodiscard]] constexpr double computation_cost() const noexcept {
+    return self_->computation_cost();
+  }
   constexpr void set_boundary_conditions(const BoundaryConditions &bc) {
     self_->set_boundary_conditions(bc);
   }
@@ -88,6 +91,7 @@ private:
     [[nodiscard]] virtual double standard_error() const noexcept = 0;
     [[nodiscard]] virtual bool should_reject() const noexcept = 0;
     [[nodiscard]] virtual std::string_view name() const noexcept = 0;
+    [[nodiscard]] virtual double computation_cost() const noexcept = 0;
     virtual void set_boundary_conditions(const BoundaryConditions &) = 0;
     virtual std::unique_ptr<ConstraintConcept> clone() const = 0;
   };
@@ -114,6 +118,9 @@ private:
     constexpr std::string_view name() const noexcept override {
       return data_.name();
     }
+    constexpr double computation_cost() const noexcept override {
+      return data_.computation_cost(make_token());
+    }
     constexpr void
     set_boundary_conditions(const BoundaryConditions &bc) override {
       data_.set_boundary_conditions(make_token(), bc);
@@ -130,8 +137,10 @@ private:
 // Penalty for a value outside [lo, hi]: distance to the nearest endpoint.
 [[nodiscard]] FORCE_INLINE constexpr double
 range_violation(double x, double lo, double hi) noexcept {
-  if (x < lo) return lo - x;
-  if (x > hi) return x - hi;
+  if (x < lo)
+    return lo - x;
+  if (x > hi)
+    return x - hi;
   return 0.0;
 }
 
@@ -166,7 +175,11 @@ public:
   constexpr void accept(IConstraint::Token) noexcept {
     err_before_ = err_after_;
   }
-  constexpr void reject(IConstraint::Token) noexcept {}
+  constexpr void reject(IConstraint::Token) noexcept {
+    // Reset err_after_ so total_error() stays consistent after short-circuited
+    // compute_after_move (i.e. when this constraint was skipped).
+    err_after_ = err_before_;
+  }
 
   [[nodiscard]] constexpr double
   standard_error(IConstraint::Token) const noexcept {
@@ -176,6 +189,11 @@ public:
   should_reject(IConstraint::Token) const noexcept {
     return flexible ? (err_after_ > err_before_ + tolerance)
                     : (err_after_ > err_before_);
+  }
+  // Default cost: O(1) or O(bonds). Override in O(N) / O(N²) constraints.
+  [[nodiscard]] constexpr double
+  computation_cost(IConstraint::Token) const noexcept {
+    return 1.0;
   }
 
 protected:

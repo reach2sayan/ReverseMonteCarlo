@@ -15,7 +15,7 @@ struct RemoveGenerator : MoveGeneratorBase<RemoveGenerator> {
       : collector(std::move(c)) {}
 
   constexpr FORCE_INLINE void generate(IMoveGenerator::Token, coords_t &,
-                          std::span<const std::size_t> indices) {
+                                       std::span<const std::size_t> indices) {
     if (collector) {
       collector->stage_removal(indices);
     }

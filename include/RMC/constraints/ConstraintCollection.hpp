@@ -1,16 +1,22 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
+#include <algorithm>
 #include <vector>
 
 namespace RMC {
 
 class ConstraintCollection {
 public:
+  // Insert in ascending computation_cost() order so cheap constraints
+  // (bonds, angles) run before expensive O(N²) ones (PDF, S(Q)).
   constexpr void add(IConstraint c) {
-    if (bc_.has_value()) {
+    if (bc_.has_value())
       c.set_boundary_conditions(bc_.value());
-    }
-    constraints_.push_back(std::move(c));
+    const double cost = c.computation_cost();
+    auto it = std::lower_bound(
+        constraints_.begin(), constraints_.end(), cost,
+        [](const IConstraint &x, double v) { return x.computation_cost() < v; });
+    constraints_.insert(it, std::move(c));
   }
 
   constexpr void
@@ -27,11 +33,16 @@ public:
     });
   }
 
+  // Run constraints cheapest-first. Stop as soon as one would reject — the
+  // rest are skipped (their reject() resets err_after_ to err_before_ so
+  // total_error() stays consistent).
   constexpr void compute_after_move(const coords_t &coords,
                                     std::span<const std::size_t> moved) {
-    std::ranges::for_each(constraints_, [&](IConstraint &c) {
+    for (auto &c : constraints_) {
       c.compute_after_move(coords, moved);
-    });
+      if (c.should_reject())
+        break;
+    }
   }
 
   [[nodiscard]] constexpr bool should_reject() const noexcept {

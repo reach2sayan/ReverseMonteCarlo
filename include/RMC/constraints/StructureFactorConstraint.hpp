@@ -42,6 +42,10 @@ public:
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     return "StructureFactorConstraint";
   }
+  [[nodiscard]] static constexpr double
+  computation_cost(IConstraint::Token) noexcept {
+    return 2e6;
+  }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;

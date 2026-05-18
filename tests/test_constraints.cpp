@@ -4,6 +4,7 @@
 #include <RMC/constraints/CoordinationConstraint.hpp>
 #include <RMC/constraints/DihedralAngleConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
+#include <RMC/constraints/PairCorrelationConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -122,6 +123,158 @@ TEST_CASE("PairDistributionConstraint - large error for random structure vs "
   real_t err = pdc.compute_error(c, all);
   REQUIRE(std::isfinite(err));
   REQUIRE(err >= 0.0);
+}
+
+// ---- PairCorrelationConstraint (via PairFunctionConstraint<PCF>) ----
+TEST_CASE("PairCorrelationConstraint - finite non-negative error", "[constraints]") {
+  PairCorrelationConstraint pcc;
+  mat_t exp(50, 2);
+  for (int i = 0; i < 50; ++i) {
+    exp(i, 0) = 0.1 * (i + 1);
+    exp(i, 1) = 0.0;
+  }
+  pcc.set_experimental_data(exp);
+  pcc.set_number_density(0.03);
+  pcc.initialise();
+
+  const int N = 8;
+  coords_t c(N, 3);
+  for (int i = 0; i < N; ++i)
+    c.row(i) << i * 3.0, 0.0, 0.0;
+  std::vector<index_t> all(N);
+  std::iota(all.begin(), all.end(), 0);
+
+  real_t err = pcc.compute_error(c, all);
+  REQUIRE(std::isfinite(err));
+  REQUIRE(err >= 0.0);
+}
+
+TEST_CASE("PDF and PCF give different errors on same structure", "[constraints]") {
+  // Non-zero experimental data so the scale-factor optimisation doesn't
+  // trivially zero out both errors.
+  auto make_exp = []() {
+    mat_t exp(50, 2);
+    for (int i = 0; i < 50; ++i) {
+      exp(i, 0) = 0.1 * (i + 1);
+      exp(i, 1) = 1.0; // constant non-zero target
+    }
+    return exp;
+  };
+
+  PairDistributionConstraint pdf;
+  pdf.set_experimental_data(make_exp());
+  pdf.set_number_density(0.03);
+  pdf.initialise();
+
+  PairCorrelationConstraint pcf;
+  pcf.set_experimental_data(make_exp());
+  pcf.set_number_density(0.03);
+  pcf.initialise();
+
+  const int N = 8;
+  coords_t c(N, 3);
+  for (int i = 0; i < N; ++i)
+    c.row(i) << i * 3.0, 0.0, 0.0;
+  std::vector<index_t> all(N);
+  std::iota(all.begin(), all.end(), 0);
+
+  // G(r) = 4πrρ₀·F(r) so the residuals must differ.
+  REQUIRE(pdf.compute_error(c, all) != pcf.compute_error(c, all));
+}
+
+TEST_CASE("PairFunctionConstraint - exclude_intra skips same-molecule pairs",
+          "[constraints]") {
+  // 4 atoms: molecule 0 = atoms {0,1}, molecule 1 = atoms {2,3}.
+  // Place each molecule pair at distance 1.0 (intra) and inter at 5.0.
+  // With exclude_intra the histogram should be sparser.
+  // Non-zero target so errors are not trivially zero.
+  mat_t exp(20, 2);
+  for (int i = 0; i < 20; ++i) {
+    exp(i, 0) = 0.5 * (i + 1);
+    exp(i, 1) = 1.0;
+  }
+
+  coords_t c(4, 3);
+  c << 0.0, 0.0, 0.0,  // atom 0, mol 0
+       1.0, 0.0, 0.0,  // atom 1, mol 0  (intra dist = 1.0)
+       5.0, 0.0, 0.0,  // atom 2, mol 1  (inter dist from atom 0 = 5.0)
+       6.0, 0.0, 0.0;  // atom 3, mol 1
+
+  std::vector<std::size_t> mol_ids = {0, 0, 1, 1};
+  std::vector<index_t> all = {0, 1, 2, 3};
+
+  PairDistributionConstraint with_intra, without_intra;
+  for (auto *pdc : {&with_intra, &without_intra}) {
+    pdc->set_experimental_data(exp);
+    pdc->set_number_density(0.03);
+    pdc->set_molecule_ids(mol_ids);
+    pdc->initialise();
+  }
+  without_intra.set_exclude_intra(true);
+
+  real_t err_with    = with_intra.compute_error(c, all);
+  real_t err_without = without_intra.compute_error(c, all);
+  REQUIRE(err_with != err_without);
+}
+
+// ---- Computation cost ordering ----
+TEST_CASE("ConstraintCollection - cheap constraint runs before expensive one",
+          "[constraints]") {
+  // BondConstraint (cost 1.0) must appear before PairDistributionConstraint
+  // (cost 1e6) regardless of insertion order.
+  ConstraintCollection col;
+  {
+    PairDistributionConstraint pdc;
+    mat_t exp(10, 2);
+    for (int i = 0; i < 10; ++i) { exp(i,0) = 0.1*(i+1); exp(i,1) = 0.0; }
+    pdc.set_experimental_data(exp);
+    pdc.set_number_density(0.03);
+    pdc.initialise();
+    col.add(std::move(pdc)); // expensive added first
+  }
+  {
+    BondConstraint b;
+    b.add_bond(0, 1, 1.0, 2.0);
+    col.add(std::move(b));   // cheap added second
+  }
+  // After sorted insert: bond (cost 1.0) must be at index 0.
+  REQUIRE(col[0].name() == "BondConstraint");
+  REQUIRE(col[1].name() == "PairDistributionConstraint");
+}
+
+TEST_CASE("ConstraintCollection - short-circuit skips expensive constraint after cheap rejection",
+          "[constraints]") {
+  // Bond violates → PDF should not be computed (error stays at 0 / err_before).
+  ConstraintCollection col;
+  {
+    BondConstraint b;
+    b.add_bond(0, 1, 1.0, 2.0); // good when dist=1.5, bad when dist=0.3
+    col.add(std::move(b));
+  }
+  {
+    PairDistributionConstraint pdc;
+    mat_t exp(10, 2);
+    for (int i = 0; i < 10; ++i) { exp(i,0) = 0.1*(i+1); exp(i,1) = 0.0; }
+    pdc.set_experimental_data(exp);
+    pdc.set_number_density(0.03);
+    pdc.initialise();
+    col.add(std::move(pdc));
+  }
+
+  coords_t good = make2(0.0, 1.5);
+  coords_t bad  = make2(0.0, 0.3);
+  std::vector<index_t> all = {0, 1};
+
+  col.compute_before_move(good, all);
+  col.compute_after_move(bad, all); // bond fails → PDF skipped
+
+  // Collection should reject and PDF's standard_error() equals its before-error
+  // (set via reject() resetting err_after_ = err_before_).
+  REQUIRE(col.should_reject());
+  const double pdf_before = col[1].standard_error();
+  col.reject();
+  // After reject, PDF error must equal what it was before (no stale after-value).
+  REQUIRE_THAT(col[1].standard_error(), WithinAbs(pdf_before, EPS));
 }
 
 // ---- ConstraintCollection ----
