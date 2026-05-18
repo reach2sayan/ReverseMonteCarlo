@@ -2,7 +2,6 @@
 // selector overhead, and generator cost.
 //
 // Run with:  ./RMC_tests "[!benchmark]" --benchmark-samples 30
-// Normal test pass skips these automatically (they are tagged [!benchmark]).
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -12,11 +11,14 @@
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/CoordinationConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
+#include <RMC/constraints/PairCorrelationConstraint.hpp>
+#include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <RMC/generators/Combined.hpp>
 #include <RMC/generators/Rotations.hpp>
 #include <RMC/generators/Translations.hpp>
 #include <RMC/selectors/OrderedSelector.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
+#include <RMC/selectors/RecursiveGroupSelector.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
 #include <numeric>
@@ -41,12 +43,40 @@ AtomicStructure make_chain(int N, double spacing) {
   return s;
 }
 
+// Build a PairDistributionConstraint ready for use with N atoms at rho0.
+PairDistributionConstraint make_pdf(int N, double rho0 = 0.03) {
+  PairDistributionConstraint pdc;
+  const int n_bins = 100;
+  mat_t exp_data(n_bins, 2);
+  for (int i = 0; i < n_bins; ++i) {
+    exp_data(i, 0) = 0.1 * (i + 1);
+    exp_data(i, 1) = 0.0;
+  }
+  pdc.set_experimental_data(exp_data);
+  pdc.set_number_density(rho0);
+  (void)N;
+  pdc.initialise();
+  return pdc;
+}
+
+PairCorrelationConstraint make_pcf(int N, double rho0 = 0.03) {
+  PairCorrelationConstraint pcf;
+  const int n_bins = 100;
+  mat_t exp_data(n_bins, 2);
+  for (int i = 0; i < n_bins; ++i) {
+    exp_data(i, 0) = 0.1 * (i + 1);
+    exp_data(i, 1) = 0.0;
+  }
+  pcf.set_experimental_data(exp_data);
+  pcf.set_number_density(rho0);
+  (void)N;
+  pcf.initialise();
+  return pcf;
+}
+
 } // namespace
 
-// ─── 1. Step throughput vs system size
-// ──────────────────────────────────────── Bare engine (no constraints),
-// per-atom TranslationGenerator, RandomSelector. Measures how the fixed
-// per-step overhead grows with N.
+// ─── 1. Step throughput vs system size ────────────────────────────────────────
 TEST_CASE("bench: step throughput vs system size", "[!benchmark]") {
   constexpr int STEPS = 500;
 
@@ -75,11 +105,10 @@ TEST_CASE("bench: step throughput vs system size", "[!benchmark]") {
   };
 }
 
-// ─── 2. Constraint cost isolation (N=512)
-// ───────────────────────────────────── Isolates how much each constraint type
-// adds to per-step cost. BondConstraint and AngleConstraint are
-// O(bonds/angles); CoordinationConstraint and InterMolecularDistanceConstraint
-// are O(N²).
+// ─── 2. Constraint cost isolation (N=512) ─────────────────────────────────────
+// Isolates marginal per-step cost of each constraint type.
+// PDF and PCF are O(N²); coordination is O(N) via incremental update;
+// bond/angle are O(bonds) via ItemCache.
 TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
   constexpr int N = 512;
   constexpr int STEPS = 500;
@@ -114,7 +143,7 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
     meter.measure([&] { engine.run(STEPS); });
   };
 
-  BENCHMARK_ADVANCED("+ CoordinationConstraint (O(N²))")(
+  BENCHMARK_ADVANCED("+ CoordinationConstraint O(N) incremental")(
       Catch::Benchmark::Chronometer meter) {
     Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
     CoordinationConstraint cc;
@@ -126,7 +155,23 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
     meter.measure([&] { engine.run(STEPS); });
   };
 
-  BENCHMARK_ADVANCED("+ InterMolecularDistanceConstraint (O(N²))")(
+  BENCHMARK_ADVANCED("+ PairDistributionConstraint O(N²)")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.add_constraint(make_pdf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    meter.measure([&] { engine.run(STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("+ PairCorrelationConstraint O(N²)")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.add_constraint(make_pcf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    meter.measure([&] { engine.run(STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("+ InterMolecularDistanceConstraint O(N²)")(
       Catch::Benchmark::Chronometer meter) {
     Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
     InterMolecularDistanceConstraint dc;
@@ -139,9 +184,51 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
   };
 }
 
-// ─── 3. Selector overhead (N=256)
-// ───────────────────────────────────────────── Fixed N and generator; isolates
-// the cost of each selector strategy.
+// ─── 3. Short-circuit benefit (N=256) ─────────────────────────────────────────
+// Shows how cheap-first ordering + early exit saves O(N²) PDF work when a
+// cheap constraint rejects the move first.
+//
+//   "PDF only"            — baseline: O(N²) every step
+//   "Bond(pass) + PDF"    — bond never rejects; PDF runs every step
+//   "Bond(fail) + PDF"    — bond always rejects; PDF is skipped every step
+TEST_CASE("bench: short-circuit benefit (N=256)", "[!benchmark]") {
+  constexpr int N = 256;
+  constexpr int STEPS = 500;
+
+  BENCHMARK_ADVANCED("PDF only")(Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.add_constraint(make_pdf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    meter.measure([&] { engine.run(STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("Bond(pass) + PDF — PDF always runs")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    BondConstraint bc;
+    // Wide tolerance: bond never violates, PDF always executes.
+    bc.add_bond(0, 1, 0.0, 1e6);
+    engine.add_constraint(std::move(bc));
+    engine.add_constraint(make_pdf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    meter.measure([&] { engine.run(STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("Bond(fail) + PDF — PDF skipped every step")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    BondConstraint bc;
+    // Impossible tolerance: bond always violates → PDF never runs.
+    bc.add_bond(0, 1, 0.0, 0.001);
+    engine.add_constraint(std::move(bc));
+    engine.add_constraint(make_pdf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    meter.measure([&] { engine.run(STEPS); });
+  };
+}
+
+// ─── 4. Selector overhead (N=256) ─────────────────────────────────────────────
+// Fixed N and generator; isolates per-step cost of each selector strategy.
 TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
   constexpr int N = 256;
   constexpr int STEPS = 500;
@@ -176,11 +263,28 @@ TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
     engine.set_selector(WeightedRandomSelector{w, 42});
     meter.measure([&] { engine.run(STEPS); });
   };
+
+  BENCHMARK_ADVANCED("RecursiveGroupSelector/Refine(5) over Random")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    engine.set_selector(RecursiveGroupSelector{RandomSelector{42},
+                                               RecursiveMode::Refine, 5});
+    meter.measure([&] { engine.run(STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("RecursiveGroupSelector/Explore(5) over Random")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    engine.set_selector(RecursiveGroupSelector{RandomSelector{42},
+                                               RecursiveMode::Explore, 5});
+    meter.measure([&] { engine.run(STEPS); });
+  };
 }
 
-// ─── 4. Generator cost (N=64, whole-molecule group)
-// ─────────────────────────── Single group of 64 atoms; compares per-move cost
-// across generator types.
+// ─── 5. Generator cost (N=64, whole-molecule group) ───────────────────────────
+// Single group of 64 atoms; compares per-move cost across generator types.
 TEST_CASE("bench: generator cost (N=64, single group)", "[!benchmark]") {
   constexpr int N = 64;
   constexpr int STEPS = 500;

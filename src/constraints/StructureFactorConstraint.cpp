@@ -1,7 +1,6 @@
 #include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <boost/assert.hpp>
 #include <cmath>
-#include <stdexcept>
 
 namespace RMC {
 
@@ -23,11 +22,8 @@ void StructureFactorConstraint::initialise() {
 
   r_data.col(1).setZero();
   pdf_.set_experimental_data(r_data);
-  for (auto &[k, w] : weights_) {
-    if (auto pos = k.find('_'); pos != std::string::npos) {
-      pdf_.set_weight(k.substr(0, pos), k.substr(pos + 1), w);
-    }
-  }
+  for (const auto &[key, w] : weights_)
+    pdf_.set_weight(key.a, key.b, w);
   if (!elements_.empty()) {
     pdf_.set_elements(elements_);
   }

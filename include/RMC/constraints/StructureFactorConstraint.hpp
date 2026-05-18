@@ -1,9 +1,7 @@
 #pragma once
-#include <Eigen/Core>
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <string>
-#include <vector>
 
 namespace RMC {
 
@@ -33,9 +31,8 @@ public:
     elements_ = elements;
   }
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
-  constexpr void set_weight(const std::string &el1, const std::string &el2,
-                            double w) {
-    weights_[(el1 < el2) ? (el1 + "_" + el2) : (el2 + "_" + el1)] = w;
+  void set_weight(const std::string &el1, const std::string &el2, double w) {
+    weights_[PairElemKey{el1, el2}] = w;
   }
   void initialise(); // builds Gr2Sq matrix
 
@@ -66,9 +63,8 @@ private:
   double rho0_{0.1};
   int n_r_bins_{400};
 
-  // Embedded PDF constraint used to compute the G(r) intermediate.
   PairDistributionConstraint pdf_;
-  std::unordered_map<std::string, double> weights_;
+  boost::container::flat_map<PairElemKey, double> weights_;
   std::span<const std::string> elements_;
 };
 

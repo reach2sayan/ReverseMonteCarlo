@@ -16,11 +16,11 @@ void PairConstraintBase::initialise() {
   elem_id_.resize(elements_.size());
   for (std::size_t i = 0; i < elements_.size(); ++i) {
     auto [it, ins] = name_to_id.try_emplace(elements_[i], next_id);
-    if (ins)
+    if (ins) {
       ++next_id;
+    }
     elem_id_[i] = it->second;
   }
-
   weight_table_.clear();
   for (const auto &[key, w] : weights_) {
     auto ia = name_to_id.find(key.a);
