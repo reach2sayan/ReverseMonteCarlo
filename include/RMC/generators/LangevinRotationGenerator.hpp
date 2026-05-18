@@ -1,10 +1,10 @@
 #pragma once
 #include <Eigen/Geometry>
 #include <RMC/constraints/ConstraintCollection.hpp>
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/GradientOracle.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
 #include <boost/assert.hpp>
-#include <random>
 
 namespace RMC {
 
@@ -18,7 +18,7 @@ struct LangevinRotationGenerator
 
   double step_size{0.01}; // ε (radians)
   ConstraintCollection *constraints{nullptr};
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
   LangevinRotationGenerator() = default;
   LangevinRotationGenerator(double eps, ConstraintCollection &c,
@@ -30,15 +30,14 @@ struct LangevinRotationGenerator
     BOOST_ASSERT_MSG(constraints,
                      "LangevinRotationGenerator: constraints pointer is null");
 
-    std::normal_distribution<double> nd(0.0, 1.0);
-    vec3_t axis(nd(rng), nd(rng), nd(rng));
+    vec3_t axis(rng.normal(), rng.normal(), rng.normal());
     const double n = axis.norm();
     axis = (n < 1e-12) ? vec3_t::UnitZ() : (axis / n).eval();
     const vec3_t pivot = centroid(coords, indices);
     const double g_theta = GradientOracle::rotation_gradient(
         coords, indices, axis, pivot, *constraints);
     const double theta =
-        -(0.5 * step_size * step_size) * g_theta + step_size * nd(rng);
+        -(0.5 * step_size * step_size) * g_theta + step_size * rng.normal();
 
     Eigen::AngleAxisd rot(theta, axis);
     coords(indices, Eigen::all).rowwise() -= pivot.transpose();

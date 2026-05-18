@@ -1,7 +1,7 @@
 #pragma once
 #include <Eigen/Geometry>
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
-#include <random>
 
 namespace RMC {
 
@@ -10,7 +10,7 @@ namespace RMC {
 struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
   double min_angle{0.0};
   double max_angle{0.1}; // ~5.7 degrees
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
   RotationGenerator() = default;
   RotationGenerator(double mn, double mx, std::uint32_t seed = 42)
@@ -19,11 +19,8 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double angle =
-        (min_angle < max_angle)
-            ? std::uniform_real_distribution<double>(min_angle, max_angle)(rng)
-            : min_angle;
-    std::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-    angle = std::copysign(angle, sign_dist(rng));
+        (min_angle < max_angle) ? rng.uniform(min_angle, max_angle) : min_angle;
+    angle = rng.uniform() < 0.5 ? angle : -angle;
     vec3_t axis = random_unit_vector();
     vec3_t pivot = centroid(coords, indices);
     const Eigen::Matrix3d R = Eigen::AngleAxisd(angle, axis).toRotationMatrix();
@@ -35,8 +32,7 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
 
 private:
   FORCE_INLINE vec3_t random_unit_vector() {
-    std::normal_distribution<double> nd(0.0, 1.0);
-    vec3_t v = vec3_t::NullaryExpr([&] { return nd(rng); });
+    vec3_t v(rng.normal(), rng.normal(), rng.normal());
     const double n = v.norm();
     return (n < 1e-12) ? vec3_t{vec3_t::UnitX()} : v / n;
   }
@@ -48,7 +44,7 @@ struct RotationAboutAxisGenerator
   vec3_t axis{0.0, 0.0, 1.0};
   double min_angle{0.0};
   double max_angle{0.1};
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
   RotationAboutAxisGenerator() = default;
   RotationAboutAxisGenerator(vec3_t ax, double mn, double mx,
@@ -58,12 +54,8 @@ struct RotationAboutAxisGenerator
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double angle =
-        (min_angle < max_angle)
-            ? std::uniform_real_distribution<double>(min_angle, max_angle)(rng)
-            : min_angle;
-    std::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-    const double s = std::copysign(1.0, sign_dist(rng));
-    angle *= s;
+        (min_angle < max_angle) ? rng.uniform(min_angle, max_angle) : min_angle;
+    angle *= rng.uniform() < 0.5 ? 1.0 : -1.0;
 
     vec3_t pivot = centroid(coords, indices);
     const Eigen::Matrix3d R = Eigen::AngleAxisd(angle, axis).toRotationMatrix();

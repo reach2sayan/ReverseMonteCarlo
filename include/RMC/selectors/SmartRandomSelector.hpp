@@ -1,7 +1,7 @@
 #pragma once
 #include <Eigen/Core>
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
-#include <random>
 
 namespace RMC {
 
@@ -16,7 +16,7 @@ namespace RMC {
 // every step.
 struct SmartRandomSelector : SelectorBase<SmartRandomSelector> {
   const double bias_factor{1.1};
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
 private:
   Eigen::VectorXd weights_;
@@ -40,8 +40,7 @@ public:
       initialise(n_groups);
     }
 
-    const double target =
-        std::uniform_real_distribution<double>(0.0, weight_sum_)(rng);
+    const double target = rng.uniform(0.0, weight_sum_);
     double cumsum = 0.0;
     for (Eigen::Index i = 0; i < weights_.size(); ++i) {
       cumsum += weights_[i];

@@ -58,6 +58,8 @@ find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
         serialization
         container
         system
+        coroutine
+        context
 )
 
 add_library(eigen_backend INTERFACE)
@@ -132,6 +134,8 @@ target_link_libraries(RMC PUBLIC
         Boost::serialization
         Boost::container
         Boost::system
+        Boost::coroutine
+        Boost::context
         Threads::Threads
 )
 if (OpenMP_CXX_FOUND)

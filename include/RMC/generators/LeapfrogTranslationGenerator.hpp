@@ -1,12 +1,12 @@
 #pragma once
 #include <Eigen/Core>
 #include <RMC/constraints/ConstraintCollection.hpp>
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/GradientOracle.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
 #include <boost/assert.hpp>
 #include <cmath>
 #include <optional>
-#include <random>
 
 namespace RMC {
 
@@ -33,7 +33,7 @@ struct LeapfrogTranslationGenerator
   double step_size{0.005}; // ε (Angstrom)
   bool nuts_mode{false};
   ConstraintCollection *constraints{nullptr};
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
   mutable std::optional<bool> rejection_hint_{std::nullopt};
 
   LeapfrogTranslationGenerator() = default;
@@ -55,8 +55,7 @@ struct LeapfrogTranslationGenerator
     const double chi2_0 = constraints->total_error();
 
     // Sample momentum
-    std::normal_distribution<double> nd(0.0, 1.0);
-    vec_t p = Eigen::VectorXd::NullaryExpr(3 * k, [&] { return nd(rng); });
+    vec_t p = Eigen::VectorXd::NullaryExpr(3 * k, [&] { return rng.normal(); });
     const double K0 = p.squaredNorm() / 2.0;
     const double H0 = chi2_0 / 2.0 + K0;
 
@@ -114,8 +113,8 @@ struct LeapfrogTranslationGenerator
 
     // HMC Metropolis accept/reject
     const double log_alpha = H0 - H1;
-    std::uniform_real_distribution<double> ud(0.0, 1.0);
-    const bool rejected = (log_alpha < 0.0) && (ud(rng) > std::exp(log_alpha));
+    const bool rejected =
+        (log_alpha < 0.0) && (rng.uniform() > std::exp(log_alpha));
 
     if (rejected) {
       // Restore original positions; Engine's score_after will then see

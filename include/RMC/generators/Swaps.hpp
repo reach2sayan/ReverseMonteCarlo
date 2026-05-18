@@ -1,7 +1,7 @@
 #pragma once
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
 #include <boost/assert.hpp>
-#include <random>
 #include <ranges>
 #include <stdexcept>
 #include <vector>
@@ -13,7 +13,7 @@ namespace RMC {
 // Typically used for identity swaps of solvent molecules.
 struct SwapGenerator : MoveGeneratorBase<SwapGenerator> {
   std::vector<std::vector<std::size_t>> candidates;
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
   SwapGenerator() = default;
   explicit SwapGenerator(std::vector<std::vector<std::size_t>> cands,
@@ -25,8 +25,8 @@ struct SwapGenerator : MoveGeneratorBase<SwapGenerator> {
     if (candidates.empty()) {
       return;
     }
-    std::uniform_int_distribution<std::size_t> pick(0, candidates.size() - 1);
-    const auto &other = candidates[pick(rng)];
+    const auto &other = candidates[std::uniform_int_distribution<std::size_t>{
+        0, candidates.size() - 1}(rng.engine())];
     BOOST_ASSERT_MSG(other.size() == indices.size(),
                      "SwapGenerator: group size mismatch");
     for (auto [iindex, otherindex] : std::views::zip(indices, other)) {

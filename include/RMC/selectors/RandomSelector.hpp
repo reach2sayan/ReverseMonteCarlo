@@ -1,24 +1,24 @@
 #pragma once
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
 #include <optional>
-#include <random>
 #include <vector>
 
 namespace RMC {
 
 struct RandomSelector : SelectorBase<RandomSelector> {
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
   explicit RandomSelector(std::uint32_t seed = 42) : rng(seed) {}
   std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
-    std::uniform_int_distribution<std::size_t> dist(0, n_groups - 1);
-    return dist(rng);
+    return std::uniform_int_distribution<std::size_t>{0, n_groups -
+                                                             1}(rng.engine());
   }
   constexpr void feedback(IGroupSelector::Token, std::size_t /*group_idx*/,
                           bool /*accepted*/) noexcept {}
 };
 
 struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
   std::vector<double> weights;
 
   WeightedRandomSelector() = default;
@@ -35,16 +35,17 @@ struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
 
   std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
     if (weights.size() != n_groups) {
-      std::uniform_int_distribution<std::size_t> u(0, n_groups - 1);
-      return u(rng);
+      return std::uniform_int_distribution<std::size_t>{
+          0, n_groups - 1}(rng.engine());
     }
-    return std::invoke(*dist_cache_, rng);
+    return std::invoke(*dist_cache_, rng.engine());
   }
   constexpr void feedback(IGroupSelector::Token, std::size_t /*group_idx*/,
                           bool /*accepted*/) noexcept {}
 
 private:
-  mutable std::optional<std::discrete_distribution<std::size_t>> dist_cache_;
+  mutable std::optional<std::discrete_distribution<std::size_t>>
+      dist_cache_;
   constexpr void rebuild_cache() {
     if (!weights.empty()) {
       dist_cache_.emplace(weights.begin(), weights.end());

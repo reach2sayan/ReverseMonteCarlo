@@ -1,8 +1,7 @@
 #pragma once
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
 #include <cmath>
-#include <numbers>
-#include <random>
 
 namespace RMC {
 
@@ -12,7 +11,7 @@ namespace RMC {
 struct TranslationGenerator : MoveGeneratorBase<TranslationGenerator> {
   double min_amp{0.0};
   double max_amp{0.2};
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
   TranslationGenerator() = default;
   TranslationGenerator(double mn, double mx, std::uint32_t seed = 42)
@@ -20,10 +19,7 @@ struct TranslationGenerator : MoveGeneratorBase<TranslationGenerator> {
 
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
-    double amp =
-        (min_amp < max_amp)
-            ? std::uniform_real_distribution<double>(min_amp, max_amp)(rng)
-            : min_amp;
+    double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     vec3_t delta = random_unit_vector() * amp;
     coords(indices, Eigen::all).rowwise() += delta.transpose();
   }
@@ -31,8 +27,7 @@ struct TranslationGenerator : MoveGeneratorBase<TranslationGenerator> {
 private:
   FORCE_INLINE vec3_t random_unit_vector() {
     // Marsaglia (1972) uniform sphere sampling
-    std::normal_distribution<double> nd(0.0, 1.0);
-    vec3_t v(nd(rng), nd(rng), nd(rng));
+    vec3_t v(rng.normal(), rng.normal(), rng.normal());
     double n = v.norm();
     if (n < 1e-12) {
       return vec3_t::UnitX();
@@ -47,7 +42,7 @@ struct TranslationAlongAxisGenerator
   vec3_t axis{1.0, 0.0, 0.0};
   double min_amp{0.0};
   double max_amp{0.2};
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
   TranslationAlongAxisGenerator() = default;
   TranslationAlongAxisGenerator(vec3_t ax, double mn, double mx,
@@ -57,13 +52,9 @@ struct TranslationAlongAxisGenerator
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double magnitude =
-        (min_amp < max_amp)
-            ? std::uniform_real_distribution<double>(min_amp, max_amp)(rng)
-            : min_amp;
-    std::uniform_real_distribution<double> sign_dist(-1.0, 1.0);
-    if (sign_dist(rng) < 0.0) {
+        (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
+    if (rng.uniform() < 0.5)
       magnitude = -magnitude;
-    }
     vec3_t delta = axis * magnitude;
     coords(indices, Eigen::all).rowwise() += delta.transpose();
   }
@@ -75,7 +66,7 @@ struct TranslationTowardsCentreGenerator
   vec3_t centre{0.0, 0.0, 0.0};
   double min_amp{0.0};
   double max_amp{0.2};
-  mutable std::mt19937 rng;
+  mutable RngBuffer<> rng;
 
   TranslationTowardsCentreGenerator() = default;
   TranslationTowardsCentreGenerator(vec3_t c, double mn, double mx,
@@ -84,10 +75,7 @@ struct TranslationTowardsCentreGenerator
 
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
-    double amp =
-        (min_amp < max_amp)
-            ? std::uniform_real_distribution<double>(min_amp, max_amp)(rng)
-            : min_amp;
+    double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     vec3_t gc = centroid(coords, indices);
     vec3_t dir = (centre - gc);
     double dist = dir.norm();
