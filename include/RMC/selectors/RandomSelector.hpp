@@ -45,9 +45,10 @@ struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
 
 private:
   mutable std::optional<std::discrete_distribution<std::size_t>> dist_cache_;
-  void rebuild_cache() {
-    if (!weights.empty())
+  constexpr void rebuild_cache() {
+    if (!weights.empty()) {
       dist_cache_.emplace(weights.begin(), weights.end());
+    }
   }
 };
 

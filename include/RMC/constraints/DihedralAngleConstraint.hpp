@@ -27,12 +27,14 @@ public:
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
-    if (!initialised_ || moved.empty())
+    if (!initialised_ || moved.empty()) {
       return full_recompute(coords);
+    }
     for (std::size_t atom : moved) {
       auto it = atom_to_quads_.find(atom);
-      if (it == atom_to_quads_.end())
+      if (it == atom_to_quads_.end()) {
         continue;
+      }
       for (std::size_t qi : it->second) {
         double new_err = quad_error(coords, quads_[qi]);
         cached_total_ += new_err - quad_err_[qi];

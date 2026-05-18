@@ -33,9 +33,7 @@ public:
       initialise(n_groups);
     }
     if (dist_dirty_) {
-      dist_cache_ = std::discrete_distribution<std::size_t>(
-          weights_.data(), weights_.data() + weights_.size());
-      dist_dirty_ = false;
+      rebuild_cache();
     }
     return dist_cache_(rng);
   }
@@ -43,16 +41,18 @@ public:
   void feedback(IGroupSelector::Token, std::size_t group_idx, bool accepted) {
     if (weights_.size() == 0)
       return;
-    if (accepted)
+    if (accepted) {
       weights_[static_cast<Eigen::Index>(group_idx)] *= bias_factor;
-    else
+    } else {
       weights_[static_cast<Eigen::Index>(group_idx)] /= bias_factor;
+    }
 
     double total = weights_.sum();
-    if (total < 1e-300)
+    if (total < 1e-300) {
       weights_.setConstant(1.0 / static_cast<double>(weights_.size()));
-    else
+    } else {
       weights_ /= total;
+    }
     dist_dirty_ = true;
   }
 

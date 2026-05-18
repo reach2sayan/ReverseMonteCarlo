@@ -36,17 +36,19 @@ public:
     }
     for (std::size_t atom : moved) {
       auto it = atom_to_bonds_.find(atom);
-      if (it == atom_to_bonds_.end())
+      if (it == atom_to_bonds_.end()) {
         continue;
+      }
       for (const PairKey &key : it->second) {
         double d = distance(coords, key.first, key.second);
         const auto &bnd = bonds_.at(key);
         double old_err = bond_err_.at(key);
         double new_err = 0.0;
-        if (d < bnd.lo)
+        if (d < bnd.lo) {
           new_err = bnd.lo - d;
-        else if (d > bnd.hi)
+        } else if (d > bnd.hi) {
           new_err = d - bnd.hi;
+        }
         cached_total_ += new_err - old_err;
         bond_err_.at(key) = new_err;
       }
@@ -62,10 +64,11 @@ private:
     for (auto &[key, bnd] : bonds_) {
       double d = distance(coords, key.first, key.second);
       double err = 0.0;
-      if (d < bnd.lo)
+      if (d < bnd.lo) {
         err = bnd.lo - d;
-      else if (d > bnd.hi)
+      } else if (d > bnd.hi) {
         err = d - bnd.hi;
+      }
       cached_total_ += err;
       bond_err_[key] = err;
       atom_to_bonds_[key.first].push_back(key);

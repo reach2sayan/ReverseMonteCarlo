@@ -28,12 +28,14 @@ public:
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
-    if (!initialised_ || moved.empty())
+    if (!initialised_ || moved.empty()) {
       return full_recompute(coords);
+    }
     for (std::size_t atom : moved) {
       auto it = atom_to_quads_.find(atom);
-      if (it == atom_to_quads_.end())
+      if (it == atom_to_quads_.end()) {
         continue;
+      }
       for (std::size_t qi : it->second) {
         double new_err = quad_error(coords, quads_[qi]);
         cached_total_ += new_err - quad_err_[qi];
@@ -56,10 +58,12 @@ private:
     vec3_t n1 = b1.cross(b2);
     vec3_t n2 = b2.cross(b3);
     double phi = std::atan2((n1.cross(n2)).dot(b2.normalized()), n1.dot(n2));
-    if (phi < q.lo)
+    if (phi < q.lo) {
       return q.lo - phi;
-    if (phi > q.hi)
+    }
+    if (phi > q.hi) {
       return phi - q.hi;
+    }
     return 0.0;
   }
 

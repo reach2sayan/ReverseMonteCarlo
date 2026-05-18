@@ -27,12 +27,14 @@ public:
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
-    if (!initialised_ || moved.empty())
+    if (!initialised_ || moved.empty()) {
       return full_recompute(coords);
+    }
     for (std::size_t atom : moved) {
       auto it = atom_to_triplets_.find(atom);
-      if (it == atom_to_triplets_.end())
+      if (it == atom_to_triplets_.end()) {
         continue;
+      }
       for (std::size_t ti : it->second) {
         double new_err = triplet_error(coords, triplets_[ti]);
         cached_total_ += new_err - triplet_err_[ti];
@@ -52,10 +54,12 @@ private:
     }
     double cos_a = v1.dot(v2) / (v1.norm() * v2.norm() + 1e-30);
     double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
-    if (angle < t.lo)
+    if (angle < t.lo) {
       return t.lo - angle;
-    if (angle > t.hi)
+    }
+    if (angle > t.hi) {
       return angle - t.hi;
+    }
     return 0.0;
   }
 
