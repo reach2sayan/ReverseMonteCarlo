@@ -22,8 +22,9 @@ void StructureFactorConstraint::initialise() {
 
   r_data.col(1).setZero();
   pdf_.set_experimental_data(r_data);
-  for (const auto &[key, w] : weights_)
+  for (const auto &[key, w] : weights_) {
     pdf_.set_weight(key.a, key.b, w);
+  }
   if (!elements_.empty()) {
     pdf_.set_elements(elements_);
   }
