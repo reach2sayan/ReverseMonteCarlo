@@ -141,6 +141,7 @@ target_link_libraries(RMC PUBLIC
         Boost::context
         Threads::Threads
 )
+
 if (OpenMP_CXX_FOUND)
     target_link_libraries(RMC PUBLIC OpenMP::OpenMP_CXX)
     if (DEFINED _omp_include_dir AND EXISTS "${_omp_include_dir}/omp.h")
@@ -194,4 +195,11 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
     endif ()
     include(Catch)
     catch_discover_tests(RMC_tests DISCOVERY_MODE PRE_TEST)
+endif ()
+
+option(ENABLE_SANITIZERS "Enable AddressSanitizer + UBSan on all targets" OFF)
+if (ENABLE_SANITIZERS AND (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG))
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "Sanitizers: ASan + UBSan enabled")
 endif ()
