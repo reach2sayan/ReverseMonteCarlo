@@ -38,10 +38,12 @@ template <typename Item> struct ItemCache {
       total = 0.0;
       atom_map.clear();
       errs.assign(items.size(), 0.0);
-      for (std::size_t i = 0; i < items.size(); ++i) {
-        errs[i] = err_of(coords, items[i]);
-        total += errs[i];
-        for (auto a : atoms_of(items[i])) {
+      for (auto &&[i, item] :
+           std::views::zip(items, errs) | std::views::enumerate) {
+        auto &[itemi, err] = item;
+        err = err_of(coords, itemi);
+        total += err;
+        for (auto a : atoms_of(itemi)) {
           atom_map[a].push_back(i);
         }
       }
@@ -88,7 +90,7 @@ struct PairCache {
   mutable std::vector<std::vector<BackRef>> bwd;
   mutable Eigen::VectorXd atom_contrib;
 
-  void invalidate() noexcept { ready = false; }
+  constexpr void invalidate() noexcept { ready = false; }
 
   // PairFn : (i, j) → std::optional<double>  (threshold; nullopt = skip pair)
   // DistFn : (i, j) → double
@@ -97,18 +99,26 @@ struct PairCache {
     fwd.assign(N, {});
     bwd.assign(N, {});
     atom_contrib.setZero(static_cast<Eigen::Index>(N));
-    for (std::size_t i = 0; i < N; ++i) {
-      for (std::size_t j = i + 1; j < N; ++j) {
-        auto thresh = pair_threshold(i, j);
-        if (!thresh)
-          continue;
-        const double d = dist(i, j);
-        const double c = (d < *thresh) ? (*thresh - d) : 0.0;
-        const std::size_t pos = fwd[i].size();
-        fwd[i].push_back({j, *thresh, c});
-        bwd[j].push_back({i, pos});
-        atom_contrib(static_cast<Eigen::Index>(i)) += c;
-      }
+    auto indices = std::views::iota(std::size_t{0}, N);
+    auto pairwise = std::views::cartesian_product(indices, indices) |
+                    std::views::filter([](auto p) {
+                      auto [a, b] = p;
+                      return a < b;
+                    }) |
+                    std::views::transform([&](auto p) {
+                      auto [a, b] = p;
+                      return std::tuple{a, b, pair_threshold(a, b)};
+                    }) |
+                    std::views::filter([](const auto &t) {
+                      return std::get<2>(t).has_value();
+                    });
+    for (auto [i, j, thresh] : pairwise) {
+      const double d = dist(i, j);
+      const double c = (d < *thresh) ? (*thresh - d) : 0.0;
+      const std::size_t pos = fwd[i].size();
+      fwd[i].push_back({j, *thresh, c});
+      bwd[j].push_back({i, pos});
+      atom_contrib(static_cast<Eigen::Index>(i)) += c;
     }
     ready = true;
     return atom_contrib.sum();
@@ -129,9 +139,10 @@ struct PairCache {
 
       // 2. Update backward pairs (i, k) with i < k.
       //    Skip i if it is also in moved — its forward pass handles pair (i,k).
-      for (const auto &[i, pos] : bwd[k] | std::views::filter([&](const auto& br) {
-        return std::ranges::find(moved, br.i) == moved.end();
-      })) {
+      for (const auto &[i, pos] :
+           bwd[k] | std::views::filter([&](const auto &br) {
+             return std::ranges::find(moved, br.i) == moved.end();
+           })) {
         auto &p = fwd[i][pos];
         const double d = dist(i, k);
         const double nc = (d < p.threshold) ? (p.threshold - d) : 0.0;
@@ -144,7 +155,7 @@ struct PairCache {
 
   template <typename PairFn, typename DistFn>
   constexpr double compute(std::size_t N, PairFn pair_threshold, DistFn dist,
-                 std::span<const std::size_t> moved) const {
+                           std::span<const std::size_t> moved) const {
     return (!ready || moved.empty()) ? build(N, pair_threshold, dist)
                                      : update(moved, dist);
   }
