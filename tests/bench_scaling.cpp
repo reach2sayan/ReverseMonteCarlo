@@ -76,7 +76,8 @@ PairCorrelationConstraint make_pcf(int N, double rho0 = 0.03) {
 
 } // namespace
 
-// ─── 1. Step throughput vs system size ────────────────────────────────────────
+// ─── 1. Step throughput vs system size
+// ────────────────────────────────────────
 TEST_CASE("bench: step throughput vs system size", "[!benchmark]") {
   constexpr int STEPS = 500;
 
@@ -105,10 +106,10 @@ TEST_CASE("bench: step throughput vs system size", "[!benchmark]") {
   };
 }
 
-// ─── 2. Constraint cost isolation (N=512) ─────────────────────────────────────
-// Isolates marginal per-step cost of each constraint type.
-// PDF and PCF are O(N²); coordination is O(N) via incremental update;
-// bond/angle are O(bonds) via ItemCache.
+// ─── 2. Constraint cost isolation (N=512)
+// ───────────────────────────────────── Isolates marginal per-step cost of each
+// constraint type. PDF and PCF are O(N²); coordination is O(N) via incremental
+// update; bond/angle are O(bonds) via ItemCache.
 TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
   constexpr int N = 512;
   constexpr int STEPS = 500;
@@ -184,9 +185,10 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
   };
 }
 
-// ─── 3. Short-circuit benefit (N=256) ─────────────────────────────────────────
-// Shows how cheap-first ordering + early exit saves O(N²) PDF work when a
-// cheap constraint rejects the move first.
+// ─── 3. Short-circuit benefit (N=256)
+// ───────────────────────────────────────── Shows how cheap-first ordering +
+// early exit saves O(N²) PDF work when a cheap constraint rejects the move
+// first.
 //
 //   "PDF only"            — baseline: O(N²) every step
 //   "Bond(pass) + PDF"    — bond never rejects; PDF runs every step
@@ -227,8 +229,9 @@ TEST_CASE("bench: short-circuit benefit (N=256)", "[!benchmark]") {
   };
 }
 
-// ─── 4. Selector overhead (N=256) ─────────────────────────────────────────────
-// Fixed N and generator; isolates per-step cost of each selector strategy.
+// ─── 4. Selector overhead (N=256)
+// ───────────────────────────────────────────── Fixed N and generator; isolates
+// per-step cost of each selector strategy.
 TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
   constexpr int N = 256;
   constexpr int STEPS = 500;
@@ -268,8 +271,8 @@ TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
       Catch::Benchmark::Chronometer meter) {
     Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
     engine.build_atomic_groups(0.0, 0.2, 42);
-    engine.set_selector(RecursiveGroupSelector{RandomSelector{42},
-                                               RecursiveMode::Refine, 5});
+    engine.set_selector(
+        RecursiveGroupSelector{RandomSelector{42}, RecursiveMode::Refine, 5});
     meter.measure([&] { engine.run(STEPS); });
   };
 
@@ -277,14 +280,15 @@ TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
       Catch::Benchmark::Chronometer meter) {
     Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
     engine.build_atomic_groups(0.0, 0.2, 42);
-    engine.set_selector(RecursiveGroupSelector{RandomSelector{42},
-                                               RecursiveMode::Explore, 5});
+    engine.set_selector(
+        RecursiveGroupSelector{RandomSelector{42}, RecursiveMode::Explore, 5});
     meter.measure([&] { engine.run(STEPS); });
   };
 }
 
-// ─── 5. Generator cost (N=64, whole-molecule group) ───────────────────────────
-// Single group of 64 atoms; compares per-move cost across generator types.
+// ─── 5. Generator cost (N=64, whole-molecule group)
+// ─────────────────────────── Single group of 64 atoms; compares per-move cost
+// across generator types.
 TEST_CASE("bench: generator cost (N=64, single group)", "[!benchmark]") {
   constexpr int N = 64;
   constexpr int STEPS = 500;

@@ -56,13 +56,14 @@ private:
 };
 
 using BoundaryConditions = std::variant<PeriodicBC, InfiniteBC>;
-inline vec3_t bc_wrap(const BoundaryConditions &bc, const vec3_t &r) {
+FORCE_INLINE vec3_t bc_wrap(const BoundaryConditions &bc, const vec3_t &r) {
   return std::visit([&](const auto &b) { return b.wrap(r); }, bc);
 }
-inline vec3_t bc_min_image(const BoundaryConditions &bc, const vec3_t &d) {
+FORCE_INLINE vec3_t bc_min_image(const BoundaryConditions &bc,
+                                 const vec3_t &d) {
   return std::visit([&](const auto &b) { return b.min_image(d); }, bc);
 }
-inline double bc_volume(const BoundaryConditions &bc) {
+FORCE_INLINE double bc_volume(const BoundaryConditions &bc) {
   return std::visit([](const auto &b) { return b.volume(); }, bc);
 }
 

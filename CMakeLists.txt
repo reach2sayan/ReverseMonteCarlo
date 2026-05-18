@@ -14,6 +14,10 @@ option(RMC_BUILD_TESTS "Build Catch2 test suite" ON)
 option(ENABLE_NATIVE_ARCH "Optimise for the current machine" ON)
 option(ENABLE_MKL "Use Intel MKL backend for Eigen" ON)
 
+if (NOT BOOST_ROOT AND EXISTS "/opt/boost")
+    set(BOOST_ROOT "/opt/boost" CACHE PATH "Boost root directory" FORCE)
+endif ()
+
 set(RMC_KNOWN_COMPILER OFF)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     set(RMC_KNOWN_COMPILER ON)
@@ -58,7 +62,6 @@ find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
         serialization
         container
         system
-        coroutine
         context
 )
 
@@ -134,7 +137,6 @@ target_link_libraries(RMC PUBLIC
         Boost::serialization
         Boost::container
         Boost::system
-        Boost::coroutine
         Boost::context
         Threads::Threads
 )

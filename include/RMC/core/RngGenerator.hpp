@@ -1,6 +1,10 @@
 #pragma once
 #include <array>
+// Wrap the include
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include <boost/coroutine2/all.hpp>
+#pragma GCC diagnostic pop
 #include <cstddef>
 #include <cstdint>
 #include <random>
