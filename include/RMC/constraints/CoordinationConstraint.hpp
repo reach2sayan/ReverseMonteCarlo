@@ -57,9 +57,10 @@ public:
     old_cn_ = cn_;
     last_moved_.assign(moved.begin(), moved.end());
     saved_positions_.clear();
-    for (auto k : last_moved_)
+    for (auto k : last_moved_) {
       saved_positions_.push_back(
           coords.row(static_cast<Eigen::Index>(k)).transpose());
+    }
     err_before_ = error_from_cn();
   }
 
