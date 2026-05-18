@@ -32,10 +32,13 @@ public:
 
   [[nodiscard]] double
   compute_error(const coords_t &coords,
-                std::span<const std::size_t> /*moved*/) const {
+                std::span<const std::size_t> /*moved*/) const noexcept {
     double err = 0.0;
     const std::size_t N = static_cast<std::size_t>(coords.rows());
-    for (auto &sh : shells_) {
+    const auto ns = static_cast<std::ptrdiff_t>(shells_.size());
+#pragma omp parallel for reduction(+ : err) schedule(static)
+    for (std::ptrdiff_t si = 0; si < ns; ++si) {
+      const auto &sh = shells_[static_cast<std::size_t>(si)];
       int cn = 0;
       for (std::size_t j = 0; j < N; ++j) {
         if (j == sh.centre_idx) {
@@ -44,8 +47,7 @@ public:
         if (!elements_.empty() && elements_[j] != sh.neighbour_elem) {
           continue;
         }
-        double d = distance(coords, static_cast<std::size_t>(sh.centre_idx),
-                            static_cast<std::size_t>(j));
+        const double d = distance(coords, sh.centre_idx, j);
         if (d >= sh.r_min && d <= sh.r_max) {
           ++cn;
         }

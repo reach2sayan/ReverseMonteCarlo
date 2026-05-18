@@ -125,7 +125,7 @@ struct PairCache {
   }
 
   template <typename DistFn>
-  double update(std::span<const std::size_t> moved, DistFn dist) const {
+  double update(std::span<const std::size_t> moved, DistFn dist) const noexcept {
     for (std::size_t k : moved) {
       // 1. Recompute all forward pairs (k, j) with j > k.
       double c_k = 0.0;

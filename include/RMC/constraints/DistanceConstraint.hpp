@@ -73,7 +73,7 @@ public:
   }
 
 private:
-  [[nodiscard]] bool in_scope(std::size_t i, std::size_t j) const noexcept {
+  [[nodiscard]] constexpr bool in_scope(std::size_t i, std::size_t j) const noexcept {
     if (mol_ids_.empty())
       return true;
     if constexpr (S == DistanceScope::Inter)

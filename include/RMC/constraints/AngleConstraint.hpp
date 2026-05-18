@@ -38,7 +38,7 @@ public:
   }
 
 private:
-  double triplet_error(const coords_t &coords, const Triplet &t) const {
+  double triplet_error(const coords_t &coords, const Triplet &t) const noexcept {
     vec3_t v1 = (coords.row(t.i) - coords.row(t.j)).transpose();
     vec3_t v2 = (coords.row(t.k) - coords.row(t.j)).transpose();
     if (bc_) {
