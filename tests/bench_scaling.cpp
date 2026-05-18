@@ -76,8 +76,7 @@ PairCorrelationConstraint make_pcf(int N, double rho0 = 0.03) {
 
 } // namespace
 
-// ─── 1. Step throughput vs system size
-// ────────────────────────────────────────
+// 1. Step throughput vs system size
 TEST_CASE("bench: step throughput vs system size", "[!benchmark]") {
   constexpr int STEPS = 500;
 
@@ -106,8 +105,8 @@ TEST_CASE("bench: step throughput vs system size", "[!benchmark]") {
   };
 }
 
-// ─── 2. Constraint cost isolation (N=512)
-// ───────────────────────────────────── Isolates marginal per-step cost of each
+// 2. Constraint cost isolation (N=512)
+// Isolates marginal per-step cost of each
 // constraint type. PDF and PCF are O(N²); coordination is O(N) via incremental
 // update; bond/angle are O(bonds) via ItemCache.
 TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
@@ -185,8 +184,8 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
   };
 }
 
-// ─── 3. Short-circuit benefit (N=256)
-// ───────────────────────────────────────── Shows how cheap-first ordering +
+// 3. Short-circuit benefit (N=256)
+// Shows how cheap-first ordering +
 // early exit saves O(N²) PDF work when a cheap constraint rejects the move
 // first.
 //
@@ -229,8 +228,8 @@ TEST_CASE("bench: short-circuit benefit (N=256)", "[!benchmark]") {
   };
 }
 
-// ─── 4. Selector overhead (N=256)
-// ───────────────────────────────────────────── Fixed N and generator; isolates
+// 4. Selector overhead (N=256)
+// Fixed N and generator; isolates
 // per-step cost of each selector strategy.
 TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
   constexpr int N = 256;

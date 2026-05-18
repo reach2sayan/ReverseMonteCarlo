@@ -41,8 +41,9 @@ template <typename Dist, std::size_t N = 1024> class RngBatchBuffer {
       Dist dist{};
       std::array<T, N> buf;
       while (true) {
-        for (auto &v : buf)
+        for (auto &v : buf) {
           v = dist(eng);
+        }
         sink(std::span<const T>{buf});
       }
     }};
