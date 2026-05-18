@@ -26,12 +26,11 @@ public:
   }
 
   [[nodiscard]] std::string name() const { return "AngleConstraint"; }
-
-  [[nodiscard]] double compute_error(const coords_t &coords,
-                                     std::span<const std::size_t> moved) const {
+  [[nodiscard]] constexpr double
+  compute_error(const coords_t &coords,
+                std::span<const std::size_t> moved) const {
     return cache_.compute(
-        triplets_,
-        [](const Triplet &t) { return std::array{t.i, t.j, t.k}; },
+        triplets_, [](const Triplet &t) { return std::array{t.i, t.j, t.k}; },
         [this](const coords_t &c, const Triplet &t) {
           return triplet_error(c, t);
         },
@@ -48,10 +47,11 @@ private:
     }
     const double cos_a = v1.dot(v2) / (v1.norm() * v2.norm() + 1e-30);
     const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
-    if (angle < t.lo)
+    if (angle < t.lo) {
       return t.lo - angle;
-    if (angle > t.hi)
+    } else if (angle > t.hi) {
       return angle - t.hi;
+    }
     return 0.0;
   }
 

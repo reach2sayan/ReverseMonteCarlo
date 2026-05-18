@@ -26,13 +26,11 @@ public:
     cache_.invalidate();
   }
 
-  [[nodiscard]] std::string name() const { return "ImproperAngleConstraint"; }
-
-  [[nodiscard]] double compute_error(const coords_t &coords,
+  [[nodiscard]] constexpr std::string name() const { return "ImproperAngleConstraint"; }
+  [[nodiscard]] constexpr double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
     return cache_.compute(
-        quads_,
-        [](const Quad &q) { return std::array{q.i, q.j, q.k, q.l}; },
+        quads_, [](const Quad &q) { return std::array{q.i, q.j, q.k, q.l}; },
         [this](const coords_t &c, const Quad &q) { return quad_error(c, q); },
         coords, moved);
   }
@@ -51,10 +49,12 @@ private:
     const vec3_t n2 = b2.cross(b3);
     const double phi =
         std::atan2((n1.cross(n2)).dot(b2.normalized()), n1.dot(n2));
-    if (phi < q.lo)
+    if (phi < q.lo) {
       return q.lo - phi;
-    if (phi > q.hi)
+    }
+    if (phi > q.hi) {
       return phi - q.hi;
+    }
     return 0.0;
   }
 

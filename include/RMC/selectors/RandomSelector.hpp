@@ -38,7 +38,7 @@ struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
       std::uniform_int_distribution<std::size_t> u(0, n_groups - 1);
       return u(rng);
     }
-    return (*dist_cache_)(rng);
+    return std::invoke(*dist_cache_, rng);
   }
   constexpr void feedback(IGroupSelector::Token, std::size_t /*group_idx*/,
                           bool /*accepted*/) noexcept {}
