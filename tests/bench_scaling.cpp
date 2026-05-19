@@ -1,5 +1,5 @@
 // Catch2 microbenchmarks for engine throughput, constraint cost,
-// selector overhead, and generator cost.
+// selector overhead, generator cost, and ensemble parallelism.
 //
 // Run with:  ./RMC_tests "[!benchmark]" --benchmark-samples 30
 
@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <RMC/Engine.hpp>
+#include <RMC/Ensemble.hpp>
 #include <RMC/constraints/AngleConstraint.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/CoordinationConstraint.hpp>
@@ -285,7 +286,74 @@ TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
   };
 }
 
-// ─── 5. Generator cost (N=64, whole-molecule group)
+// 5. Ensemble parallelism scaling (N=256, PDF constraint)
+// Compares wall-clock time of running 1, 2, 4, 8 independent replicas with
+// run_ensemble vs the equivalent sequential steps on a single engine.
+// Ideal parallel speedup = replica_count × (single_time / ensemble_time).
+TEST_CASE("bench: ensemble parallelism scaling (N=256, PDF)", "[!benchmark]") {
+  constexpr int N = 256;
+  constexpr std::uint64_t STEPS = 200;
+
+  auto make = [&](std::size_t i) {
+    Engine e(make_chain(N, 3.0), InfiniteBC(1e6));
+    e.add_constraint(make_pdf(N));
+    e.build_atomic_groups(0.0, 0.2, static_cast<std::uint32_t>(42 + i));
+    return e;
+  };
+
+  BENCHMARK_ADVANCED("sequential ×1")(Catch::Benchmark::Chronometer meter) {
+    meter.measure([&] { return RMC::run_ensemble(make, 1, STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("parallel   ×2")(Catch::Benchmark::Chronometer meter) {
+    meter.measure([&] { return RMC::run_ensemble(make, 2, STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("parallel   ×4")(Catch::Benchmark::Chronometer meter) {
+    meter.measure([&] { return RMC::run_ensemble(make, 4, STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("parallel   ×8")(Catch::Benchmark::Chronometer meter) {
+    meter.measure([&] { return RMC::run_ensemble(make, 8, STEPS); });
+  };
+}
+
+// 6. Cooperative ensemble: sync interval sensitivity (N=256, PDF, 4 replicas)
+// Measures overhead of broadcasting best state at different sync frequencies.
+// Shorter sync_every = more broadcasts (higher overhead, faster convergence);
+// longer = less overhead (approaches independent run_ensemble).
+TEST_CASE("bench: cooperative ensemble sync interval (N=256, 4 replicas)",
+          "[!benchmark]") {
+  constexpr int N = 256;
+  constexpr std::uint64_t TOTAL = 400;
+
+  auto make = [&](std::size_t i) {
+    Engine e(make_chain(N, 3.0), InfiniteBC(1e6));
+    e.add_constraint(make_pdf(N));
+    e.build_atomic_groups(0.0, 0.2, static_cast<std::uint32_t>(42 + i));
+    return e;
+  };
+
+  BENCHMARK_ADVANCED("sync_every=25")(Catch::Benchmark::Chronometer meter) {
+    meter.measure([&] {
+      return RMC::run_ensemble_cooperative(make, 4, -1.0, 25, TOTAL);
+    });
+  };
+
+  BENCHMARK_ADVANCED("sync_every=100")(Catch::Benchmark::Chronometer meter) {
+    meter.measure([&] {
+      return RMC::run_ensemble_cooperative(make, 4, -1.0, 100, TOTAL);
+    });
+  };
+
+  BENCHMARK_ADVANCED("sync_every=200")(Catch::Benchmark::Chronometer meter) {
+    meter.measure([&] {
+      return RMC::run_ensemble_cooperative(make, 4, -1.0, 200, TOTAL);
+    });
+  };
+}
+
+// ─── 7. Generator cost (N=64, whole-molecule group)
 // ─────────────────────────── Single group of 64 atoms; compares per-move cost
 // across generator types.
 TEST_CASE("bench: generator cost (N=64, single group)", "[!benchmark]") {

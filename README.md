@@ -39,7 +39,8 @@ To enable AddressSanitizer + UBSan: `-DENABLE_SANITIZERS=ON`
 | `--out` / `-o` | `refined.pdb` | Output PDB |
 | `--checkpoint` / `-c` | — | Save/restore checkpoint every 5 000 accepted moves |
 | `--smart` | off | Adaptive selector — successful groups get picked more often |
-| `--seed` | `42` | RNG seed |
+| `--ensemble` / `-e` | `1` | Run N replicas in parallel; return the one with the lowest final χ² |
+| `--seed` | `42` | RNG seed (replica i uses seed + i) |
 | `--verbose` / `-v` | off | Debug logging |
 
 ## Library API
@@ -217,3 +218,36 @@ auto st = engine.stats();
 ```
 
 Refined coordinates: `engine.structure().coordinates` — N×3 Eigen matrix, row i = atom i.
+
+### Ensemble runs
+
+`#include <RMC/Ensemble.hpp>`
+
+**Independent multi-start** — run N replicas in parallel, return the best:
+
+```cpp
+auto make_engine = [&](std::size_t replica) -> RMC::Engine {
+    RMC::Engine e(structure_copy, bc);
+    e.build_atomic_groups(0.0, 0.2, /*seed*/ 42 + static_cast<uint32_t>(replica));
+    e.add_constraint(pdf_constraint);
+    return e;
+};
+
+// Runs 4 replicas on 4 threads; returns lowest-χ² engine.
+RMC::Engine best = RMC::run_ensemble(make_engine, /*n_replicas*/ 4, /*steps*/ 100'000);
+```
+
+**Cooperative (island model)** — replicas periodically share the best state:
+
+```cpp
+// Every 1 000 steps all replicas synchronise: the best engine is broadcast
+// to laggards. Stops as soon as any replica reaches target_chi2.
+RMC::Engine best = RMC::run_ensemble_cooperative(
+    make_engine,
+    /*n_replicas*/  4,
+    /*target_chi2*/ 0.05,
+    /*sync_every*/  1000,
+    /*max_steps*/   1'000'000);
+```
+
+Both functions require that `make_engine(i)` constructs a fully configured, ready-to-run `Engine` for replica `i`. All engines are constructed in the calling thread (required for correct `boost::context` fibre lifetimes); background threads only call `.run()`.
