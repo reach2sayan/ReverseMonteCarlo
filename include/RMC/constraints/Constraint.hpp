@@ -31,6 +31,8 @@ concept CConstraint =
       { c.name() } -> std::convertible_to<std::string_view>;
       { c.computation_cost(tok) } -> std::convertible_to<double>;
       c.set_boundary_conditions(tok, bc);
+      { c.is_rigid(tok) }    -> std::convertible_to<bool>;
+      { c.is_singular(tok) } -> std::convertible_to<bool>;
     };
 
 class IConstraint {
@@ -76,6 +78,8 @@ public:
   constexpr void set_boundary_conditions(const BoundaryConditions &bc) {
     self_->set_boundary_conditions(bc);
   }
+  [[nodiscard]] constexpr bool is_rigid()    const noexcept { return self_->is_rigid();    }
+  [[nodiscard]] constexpr bool is_singular() const noexcept { return self_->is_singular(); }
 
 private:
   static Token make_token() noexcept { return {}; }
@@ -93,6 +97,8 @@ private:
     [[nodiscard]] virtual std::string_view name() const noexcept = 0;
     [[nodiscard]] virtual double computation_cost() const noexcept = 0;
     virtual void set_boundary_conditions(const BoundaryConditions &) = 0;
+    [[nodiscard]] virtual bool is_rigid() const noexcept = 0;
+    [[nodiscard]] virtual bool is_singular() const noexcept = 0;
     virtual std::unique_ptr<ConstraintConcept> clone() const = 0;
   };
 
@@ -125,6 +131,8 @@ private:
     set_boundary_conditions(const BoundaryConditions &bc) override {
       data_.set_boundary_conditions(make_token(), bc);
     }
+    constexpr bool is_rigid()    const noexcept override { return data_.is_rigid(make_token());    }
+    constexpr bool is_singular() const noexcept override { return data_.is_singular(make_token()); }
     constexpr std::unique_ptr<ConstraintConcept> clone() const override {
       return std::make_unique<ConstraintModel<T>>(data_);
     }
@@ -195,6 +203,8 @@ public:
   computation_cost(IConstraint::Token) const noexcept {
     return 1.0;
   }
+  [[nodiscard]] static constexpr bool is_rigid(IConstraint::Token)    noexcept { return false; }
+  [[nodiscard]] static constexpr bool is_singular(IConstraint::Token) noexcept { return false; }
 
 protected:
   [[nodiscard]] constexpr FORCE_INLINE double
@@ -209,6 +219,28 @@ protected:
   distance(const coords_t &c, std::size_t i, std::size_t j) const noexcept {
     return std::sqrt(distance_sq(c, i, j));
   }
+};
+
+// Hard gate: rejects moves that worsen it, but standard_error() == 0 so it
+// does NOT contribute to the engine's total chi² (mirrors fullrmc RigidConstraint).
+template <typename Derived>
+class RigidConstraintBase : public ConstraintBase<Derived> {
+public:
+  [[nodiscard]] static constexpr double
+  standard_error(IConstraint::Token) noexcept { return 0.0; }
+
+  [[nodiscard]] static constexpr bool
+  is_rigid(IConstraint::Token) noexcept { return true; }
+};
+
+// Only one instance of this constraint type is allowed per ConstraintCollection
+// (mirrors fullrmc SingularConstraint). standard_error() is NOT overridden —
+// singular constraints still contribute to total chi².
+template <typename Derived>
+class SingularConstraintBase : public ConstraintBase<Derived> {
+public:
+  [[nodiscard]] static constexpr bool
+  is_singular(IConstraint::Token) noexcept { return true; }
 };
 
 } // namespace RMC

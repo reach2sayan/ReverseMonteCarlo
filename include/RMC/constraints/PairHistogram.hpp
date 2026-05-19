@@ -142,10 +142,10 @@ enum class PairNorm { PDF, PCF };
 
 template <PairNorm Mode>
 class PairFunctionConstraint
-    : public ConstraintBase<PairFunctionConstraint<Mode>>,
+    : public SingularConstraintBase<PairFunctionConstraint<Mode>>,
       public PairConstraintBase {
 public:
-  using ConstraintBase<PairFunctionConstraint<Mode>>::bc_;
+  using SingularConstraintBase<PairFunctionConstraint<Mode>>::bc_;
 
   using PairConstraintBase::initialise;
   using PairConstraintBase::set_elements;
@@ -155,8 +155,8 @@ public:
   using PairConstraintBase::set_number_density;
   using PairConstraintBase::set_weight;
 
-  // set_boundary_conditions must be forwarded from ConstraintBase.
-  using ConstraintBase<PairFunctionConstraint<Mode>>::set_boundary_conditions;
+  // set_boundary_conditions must be forwarded from SingularConstraintBase.
+  using SingularConstraintBase<PairFunctionConstraint<Mode>>::set_boundary_conditions;
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     if constexpr (Mode == PairNorm::PDF) {

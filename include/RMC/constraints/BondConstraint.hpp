@@ -13,7 +13,7 @@ namespace RMC {
 //
 // Incremental: on a single-atom move, only bonds touching that atom are
 // recomputed via ItemCache. All others retain their cached contribution.
-class BondConstraint : public ConstraintBase<BondConstraint> {
+class BondConstraint : public RigidConstraintBase<BondConstraint> {
 public:
   struct BondItem {
     std::size_t i, j;

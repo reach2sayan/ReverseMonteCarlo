@@ -17,7 +17,7 @@ namespace RMC {
 //
 // Element filtering uses integer IDs built at first use — avoids std::string
 // comparisons in the inner loop.
-class CoordinationConstraint : public ConstraintBase<CoordinationConstraint> {
+class CoordinationConstraint : public RigidConstraintBase<CoordinationConstraint> {
 public:
   struct Shell {
     std::size_t centre_idx;

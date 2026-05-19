@@ -1,6 +1,7 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
 #include <algorithm>
+#include <boost/assert.hpp>
 #include <vector>
 
 namespace RMC {
@@ -10,6 +11,14 @@ public:
   // Insert in ascending computation_cost() order so cheap constraints
   // (bonds, angles) run before expensive O(N²) ones (PDF, S(Q)).
   constexpr void add(IConstraint c) {
+    if (c.is_singular()) {
+      BOOST_ASSERT_MSG(
+          std::ranges::none_of(constraints_,
+                               [&c](const IConstraint &e) {
+                                 return e.is_singular() && e.name() == c.name();
+                               }),
+          "ConstraintCollection: duplicate singular constraint");
+    }
     if (bc_.has_value())
       c.set_boundary_conditions(bc_.value());
     const double cost = c.computation_cost();

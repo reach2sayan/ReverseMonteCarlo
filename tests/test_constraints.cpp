@@ -317,3 +317,61 @@ TEST_CASE("ConstraintCollection - accepts when all constraints pass",
   col.compute_after_move(c2, all);
   REQUIRE_FALSE(col.should_reject());
 }
+
+// ---- RigidConstraintBase ----
+TEST_CASE("RigidConstraintBase - standard_error is 0, should_reject still works",
+          "[constraints][rigid]") {
+  BondConstraint bc;
+  bc.add_bond(0, 1, 1.0, 2.0);
+  IConstraint c = std::move(bc);
+
+  coords_t good = make2(0.0, 1.5);
+  coords_t bad  = make2(0.0, 0.3); // too short: violates [1.0, 2.0]
+  std::vector<index_t> all = {0, 1};
+
+  c.compute_before_move(good, all);
+  c.compute_after_move(bad, all);
+
+  REQUIRE(c.is_rigid());
+  REQUIRE(c.should_reject());
+  REQUIRE_THAT(c.standard_error(), WithinAbs(0.0, EPS));
+}
+
+TEST_CASE("ConstraintCollection - rigid constraint excluded from total_error",
+          "[constraints][rigid]") {
+  ConstraintCollection col;
+  BondConstraint b;
+  b.add_bond(0, 1, 0.5, 3.0); // always satisfied
+  col.add(std::move(b));
+
+  PairDistributionConstraint pdc;
+  mat_t exp(10, 2);
+  for (int i = 0; i < 10; ++i) { exp(i, 0) = 0.5 + 0.1 * i; exp(i, 1) = 0.0; }
+  pdc.set_experimental_data(exp);
+  pdc.set_number_density(0.03);
+  pdc.initialise();
+  col.add(std::move(pdc));
+
+  coords_t c1 = make2(0.0, 1.5);
+  std::vector<index_t> all = {0, 1};
+  col.compute_before_move(c1, all);
+  col.compute_after_move(c1, all);
+
+  // Bond is rigid: its standard_error() == 0; total_error == PDF error only.
+  REQUIRE_THAT(col[0].standard_error(), WithinAbs(0.0, EPS));
+  REQUIRE_THAT(col.total_error(), WithinAbs(col[1].standard_error(), EPS));
+}
+
+// ---- SingularConstraintBase ----
+TEST_CASE("SingularConstraintBase - is_singular flag", "[constraints][singular]") {
+  PairDistributionConstraint pdc;
+  mat_t exp(10, 2);
+  for (int i = 0; i < 10; ++i) { exp(i, 0) = 0.5 + 0.1 * i; exp(i, 1) = 0.0; }
+  pdc.set_experimental_data(exp);
+  pdc.set_number_density(0.03);
+  pdc.initialise();
+  IConstraint c = std::move(pdc);
+
+  REQUIRE(c.is_singular());
+  REQUIRE_FALSE(c.is_rigid());
+}

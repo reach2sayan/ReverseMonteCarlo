@@ -19,7 +19,7 @@ enum class DistanceScope : std::uint8_t { Inter, Intra };
 // backward refs, so a single-atom move at k recomputes only the O(N) pairs
 // involving k, not O(N²) pairs total.
 template <DistanceScope S>
-class DistanceConstraint : public ConstraintBase<DistanceConstraint<S>> {
+class DistanceConstraint : public RigidConstraintBase<DistanceConstraint<S>> {
   struct ElemPair {
     std::string key1;
     std::string key2;

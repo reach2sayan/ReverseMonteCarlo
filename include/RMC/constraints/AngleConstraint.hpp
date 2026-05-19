@@ -12,7 +12,7 @@ namespace RMC {
 //
 // Incremental: on a single-atom move, only triplets touching that atom are
 // recomputed via ItemCache. All others retain their cached contribution.
-class AngleConstraint : public ConstraintBase<AngleConstraint> {
+class AngleConstraint : public RigidConstraintBase<AngleConstraint> {
 public:
   struct Triplet {
     std::size_t i, j, k;

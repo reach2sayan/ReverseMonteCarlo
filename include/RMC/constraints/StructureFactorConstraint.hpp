@@ -10,7 +10,7 @@ namespace RMC {
 //   Gr2Sq[q_i, r_j] = dr · sin(q_i · r_j) / q_i
 // so S(Q) = 1 + Gr2Sq * G(r) as a single matrix–vector product.
 class StructureFactorConstraint
-    : public ConstraintBase<StructureFactorConstraint> {
+    : public SingularConstraintBase<StructureFactorConstraint> {
 public:
   void set_experimental_data(const mat_t &data); // columns: Q, S(Q)
 
@@ -18,12 +18,12 @@ public:
   constexpr void
   set_boundary_conditions(IConstraint::Token tok,
                           const BoundaryConditions &bc) noexcept {
-    ConstraintBase::set_boundary_conditions(tok, bc);
+    SingularConstraintBase::set_boundary_conditions(tok, bc);
     pdf_.set_boundary_conditions(bc);
   }
   constexpr void
   set_boundary_conditions(const BoundaryConditions &bc) noexcept {
-    ConstraintBase::set_boundary_conditions(bc);
+    SingularConstraintBase::set_boundary_conditions(bc);
     pdf_.set_boundary_conditions(bc);
   }
 
