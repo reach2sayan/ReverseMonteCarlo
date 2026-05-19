@@ -49,17 +49,13 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
 
   std::size_t best_i = 0;
   double best_chi2 = engines[0].stats().last_total_err;
-  BOOST_LOG_TRIVIAL(info) << "Replica 0  chi2=" << best_chi2;
   for (std::size_t i = 1; i < n_replicas; ++i) {
     double chi2 = engines[i].stats().last_total_err;
-    BOOST_LOG_TRIVIAL(info) << "Replica " << i << "  chi2=" << chi2;
     if (chi2 < best_chi2) {
       best_chi2 = chi2;
       best_i = i;
     }
   }
-  BOOST_LOG_TRIVIAL(info) << "Best replica: " << best_i
-                          << "  chi2=" << best_chi2;
   return std::move(engines[best_i]);
 }
 
@@ -99,8 +95,6 @@ Engine run_ensemble_cooperative(F make_engine, std::size_t n_replicas,
             }
           }
           best_i_atomic.store(best_i, std::memory_order_relaxed);
-          BOOST_LOG_TRIVIAL(info) << "Sync: best chi2=" << best_chi2
-                                  << " (replica " << best_i << ")";
           shared_best = engines[best_i];
         } catch (...) {
           std::terminate();
