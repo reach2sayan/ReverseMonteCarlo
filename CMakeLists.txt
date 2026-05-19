@@ -157,6 +157,7 @@ endif ()
 
 add_executable(RMC_run src/main.cpp)
 target_link_libraries(RMC_run PRIVATE RMC Boost::program_options)
+
 if (RMC_COMPILER_MSVC)
     target_compile_options(RMC_run PRIVATE /W4 /permissive-)
 elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
@@ -165,6 +166,11 @@ endif ()
 # BOOST_LEAF_AUTO expands to a GNU statement-expression; silence on Clang.
 if (RMC_COMPILER_CLANG)
     target_compile_options(RMC_run PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
+endif ()
+
+option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
+if (RMC_BUILD_MCSQS)
+    add_subdirectory(extensions/mcsqs)
 endif ()
 
 include(CTest)

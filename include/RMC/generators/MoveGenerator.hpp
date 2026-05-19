@@ -32,6 +32,14 @@ concept CMoveGeneratorWithRejectionOverride =
       { gen.rejection_override() } -> std::convertible_to<std::optional<bool>>;
     };
 
+// Optional extension: generator mutates species (elements/atomic_numbers), not
+// just coordinates. Engine will save/restore species snapshots around such moves.
+template <typename T>
+concept CMoveGeneratorWithSpeciesModification =
+    CMoveGenerator<T> && requires(const T &gen) {
+      { gen.modifies_species() } -> std::convertible_to<bool>;
+    };
+
 class IMoveGenerator {
 public:
   using Token = detail::GeneratorToken;
@@ -61,6 +69,10 @@ public:
     return self_->rejection_override();
   }
 
+  [[nodiscard]] constexpr bool modifies_species() const noexcept {
+    return self_->modifies_species();
+  }
+
 private:
   static Token make_token() noexcept { return {}; }
   struct MoveGeneratorConcept {
@@ -69,6 +81,7 @@ private:
     virtual std::optional<bool> rejection_override() const noexcept {
       return std::nullopt;
     }
+    virtual bool modifies_species() const noexcept { return false; }
     virtual std::unique_ptr<MoveGeneratorConcept> clone() const = 0;
   };
   template <CMoveGenerator T>
@@ -83,6 +96,13 @@ private:
         return data_.rejection_override();
       } else {
         return std::nullopt;
+      }
+    }
+    constexpr bool modifies_species() const noexcept override {
+      if constexpr (CMoveGeneratorWithSpeciesModification<T>) {
+        return data_.modifies_species();
+      } else {
+        return false;
       }
     }
     constexpr std::unique_ptr<MoveGeneratorConcept> clone() const override {

@@ -98,6 +98,8 @@ private:
   constexpr void snapshot_and_score_before(TrialCtx &c) {
     ++n_steps_tried_;
     structure_.save_snapshot(c.group->span());
+    if (c.group->generator->modifies_species())
+      structure_.save_species_snapshot();
     constraints_.compute_before_move(structure_.coordinates, c.group->span());
   }
   constexpr void propose_move(TrialCtx &c) {
@@ -125,6 +127,7 @@ private:
     }
     if (rejected) {
       structure_.restore_snapshot(c.group->span());
+      structure_.restore_species_snapshot();
       constraints_.reject();
     } else {
       constraints_.accept();

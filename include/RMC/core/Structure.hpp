@@ -26,6 +26,12 @@ struct AtomicStructure {
   void save_snapshot(std::span<const std::size_t> indices);
   void restore_snapshot(std::span<const std::size_t> indices);
 
+  // Species snapshot: saves the full elements/atomic_numbers arrays.
+  // Call conditionally (only when a generator modifies species).
+  // restore_species_snapshot() is a no-op if save was never called.
+  void save_species_snapshot();
+  void restore_species_snapshot();
+
   // ---- Convenience: pairwise distance (with PBC) ----
   [[nodiscard]] double distance(std::size_t i, std::size_t j,
                                 const BoundaryConditions &bc) const noexcept {
@@ -35,6 +41,10 @@ struct AtomicStructure {
 private:
   coords_t snapshot_coords_;
   std::vector<std::size_t> snapshot_indices_;
+
+  std::vector<std::string> snapshot_elements_;
+  std::vector<int> snapshot_atomic_numbers_;
+  bool has_species_snapshot_{false};
 };
 
 } // namespace RMC
