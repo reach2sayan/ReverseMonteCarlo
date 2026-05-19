@@ -12,14 +12,15 @@ struct TranslationAlongAxisPath : MoveGeneratorBase<TranslationAlongAxisPath> {
   vec3_t axis{0.0, 0.0, 1.0};
   std::vector<double> path;
 
-  TranslationAlongAxisPath() = default;
+  constexpr TranslationAlongAxisPath() = default;
   TranslationAlongAxisPath(vec3_t ax, std::vector<double> displacements)
       : axis(ax.normalized()), path(std::move(displacements)) {}
 
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
-    if (path.empty())
+    if (path.empty()) {
       return;
+    }
     double magnitude = path[step_++ % path.size()];
     vec3_t delta = axis * magnitude;
     coords(indices, Eigen::all).rowwise() += delta.transpose();
@@ -42,8 +43,9 @@ struct RotationAboutAxisPath : MoveGeneratorBase<RotationAboutAxisPath> {
 
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
-    if (path.empty())
+    if (path.empty()) {
       return;
+    }
     double angle = path[step_++ % path.size()];
     vec3_t pivot = centroid(coords, indices);
     const Eigen::Matrix3d R = Eigen::AngleAxisd(angle, axis).toRotationMatrix();

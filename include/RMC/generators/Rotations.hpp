@@ -111,13 +111,15 @@ struct OrientationGenerator : MoveGeneratorBase<OrientationGenerator> {
 
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
-    if (indices.size() < 2)
+    if (indices.size() < 2) {
       return;
-    const Eigen::Index ia = static_cast<Eigen::Index>(indices.front());
-    const Eigen::Index ib = static_cast<Eigen::Index>(indices.back());
+    }
+    const auto ia = static_cast<Eigen::Index>(indices.front());
+    const auto ib = static_cast<Eigen::Index>(indices.back());
     vec3_t current = (coords.row(ib) - coords.row(ia)).transpose();
-    if (current.norm() < 1e-12)
+    if (current.norm() < 1e-12) {
       return;
+    }
     current.normalize();
 
     // Add small random perturbation around the target axis.

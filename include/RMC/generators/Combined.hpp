@@ -42,10 +42,10 @@ class MoveGeneratorCollector : MoveGeneratorBase<MoveGeneratorCollector> {
 public:
   MoveGeneratorCollector() = default;
   explicit MoveGeneratorCollector(std::uint32_t seed) : rng_(seed) {}
-
   void add(IMoveGenerator gen, double weight = 1.0) {
-    if (weight <= 0.0)
+    if (weight <= 0.0) {
       weight = 1.0;
+    }
     generators_.push_back(std::move(gen));
     double prev =
         cumulative_weights_.empty() ? 0.0 : cumulative_weights_.back();
@@ -54,15 +54,17 @@ public:
 
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
-    if (generators_.empty())
+    if (generators_.empty()) {
       return;
+    }
     double r = rng_.uniform(0.0, cumulative_weights_.back());
     auto it = std::lower_bound(cumulative_weights_.begin(),
                                cumulative_weights_.end(), r);
     std::size_t idx =
         static_cast<std::size_t>(it - cumulative_weights_.begin());
-    if (idx >= generators_.size())
+    if (idx >= generators_.size()) {
       idx = generators_.size() - 1;
+    }
     generators_[idx].generate(coords, indices);
   }
 };

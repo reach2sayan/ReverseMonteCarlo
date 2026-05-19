@@ -25,14 +25,16 @@ struct DistanceAgitationGenerator
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> /*indices*/) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    if (rng.uniform() < 0.5)
+    if (rng.uniform() < 0.5) {
       amp = -amp;
+    }
     const auto ei = static_cast<Eigen::Index>(i);
     const auto ej = static_cast<Eigen::Index>(j);
     vec3_t bond = (coords.row(ej) - coords.row(ei)).transpose();
     double len = bond.norm();
-    if (len < 1e-12)
+    if (len < 1e-12) {
       return;
+    }
     vec3_t bond_dir = bond / len;
     coords.row(ei) -= (0.5 * amp * bond_dir).transpose();
     coords.row(ej) += (0.5 * amp * bond_dir).transpose();
@@ -68,8 +70,9 @@ struct AngleAgitationGenerator : MoveGeneratorBase<AngleAgitationGenerator> {
     vec3_t jk = (coords.row(ek) - coords.row(ej)).transpose();
     // Rotation axis perpendicular to the i-j-k plane.
     vec3_t rot_axis = ji.cross(jk);
-    if (rot_axis.norm() < 1e-12)
+    if (rot_axis.norm() < 1e-12) {
       return;
+    }
     rot_axis.normalize();
     // Rotate i by -amp/2 about rot_axis through j.
     Eigen::Matrix3d Ri =
