@@ -10,6 +10,13 @@ foreach(ex
     atomic_niti
     molecular_co2
     molecular_thf
-    si_ox_nanosphere)
+    si_ox_nanosphere
+    agitations
+    axis_translations
+    orientation
+    swap_centers
+    generator_collector
+    path_generators
+    reduced_sq)
     add_subdirectory(${ex})
 endforeach()
