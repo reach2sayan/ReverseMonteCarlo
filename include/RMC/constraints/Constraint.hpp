@@ -87,7 +87,6 @@ public:
 
 private:
   static Token make_token() noexcept { return {}; }
-
   struct ConstraintConcept {
     virtual ~ConstraintConcept() = default;
     virtual void compute_before_move(const coords_t &,

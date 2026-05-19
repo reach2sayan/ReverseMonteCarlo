@@ -67,8 +67,9 @@ TEST_CASE("AtomicStructure - restore_species_snapshot is no-op without save",
 // SpeciesSwapGenerator
 // ============================================================
 
-TEST_CASE("SpeciesSwapGenerator - swaps elements between different-species sites",
-          "[species_swap]") {
+TEST_CASE(
+    "SpeciesSwapGenerator - swaps elements between different-species sites",
+    "[species_swap]") {
   auto s = make_4site_single_sublattice();
   // One sublattice: all 4 sites.
   std::vector<std::vector<std::size_t>> groups = {{0, 1, 2, 3}};
@@ -88,16 +89,19 @@ TEST_CASE("SpeciesSwapGenerator - swaps elements between different-species sites
   // Exactly one Cu→Au swap must have happened.
   int n_cu = 0, n_au = 0;
   for (const auto &e : s.elements) {
-    if (e == "Cu") ++n_cu;
-    if (e == "Au") ++n_au;
+    if (e == "Cu")
+      ++n_cu;
+    if (e == "Au")
+      ++n_au;
   }
   REQUIRE(n_cu == 2);
   REQUIRE(n_au == 2);
   REQUIRE(s.elements != before); // something changed
 }
 
-TEST_CASE("SpeciesSwapGenerator - no swap when all sites share the same element",
-          "[species_swap]") {
+TEST_CASE(
+    "SpeciesSwapGenerator - no swap when all sites share the same element",
+    "[species_swap]") {
   // All sites are Cu: no candidate with a different element exists → no swap.
   AtomicStructure s;
   s.coordinates.resize(4, 3);
@@ -167,8 +171,9 @@ TEST_CASE("SpeciesSwapGenerator - modifies_species returns true",
   REQUIRE(wrapped.modifies_species());
 }
 
-TEST_CASE("SpeciesSwapGenerator - normal generators report modifies_species false",
-          "[species_swap]") {
+TEST_CASE(
+    "SpeciesSwapGenerator - normal generators report modifies_species false",
+    "[species_swap]") {
   IMoveGenerator t = TranslationGenerator(0.1, 0.2, 1);
   REQUIRE_FALSE(t.modifies_species());
 }
@@ -182,18 +187,22 @@ TEST_CASE("SpeciesSwapGenerator - normal generators report modifies_species fals
 // Orbit 1: next-nearest pairs     (0-2, 1-3)
 static std::vector<ClusterOrbit> two_pair_orbits() {
   ClusterOrbit nn, nnn;
-  nn.target = 0.0; nn.weight = 1.0;
+  nn.target = 0.0;
+  nn.weight = 1.0;
   nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
 
-  nnn.target = 0.0; nnn.weight = 1.0;
+  nnn.target = 0.0;
+  nnn.weight = 1.0;
   nnn.instances = {{{0, 2}}, {{1, 3}}};
 
   return {nn, nnn};
 }
 
-TEST_CASE("ClusterCorrelationConstraint - perfectly ordered state has nonzero error",
-          "[species_swap][constraint]") {
-  // All Cu on sites 0,1 and all Au on 2,3: high correlation, nonzero error vs 0.
+TEST_CASE(
+    "ClusterCorrelationConstraint - perfectly ordered state has nonzero error",
+    "[species_swap][constraint]") {
+  // All Cu on sites 0,1 and all Au on 2,3: high correlation, nonzero error vs
+  // 0.
   auto s = make_4site_single_sublattice(); // Cu Cu Au Au
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
   ClusterCorrelationConstraint cc{s, sm, two_pair_orbits()};
@@ -204,7 +213,8 @@ TEST_CASE("ClusterCorrelationConstraint - perfectly ordered state has nonzero er
   REQUIRE(err > 0.0);
 }
 
-TEST_CASE("ClusterCorrelationConstraint - alternating arrangement is closer to random",
+TEST_CASE("ClusterCorrelationConstraint - alternating arrangement is closer to "
+          "random",
           "[species_swap][constraint]") {
   // Cu Au Cu Au: nearest-neighbour correlation = -1 (anti-ferromagnetic),
   // which is further from 0 target. next-nearest = +1, also nonzero.
@@ -223,8 +233,9 @@ TEST_CASE("ClusterCorrelationConstraint - alternating arrangement is closer to r
   REQUIRE(std::isfinite(err));
 }
 
-TEST_CASE("ClusterCorrelationConstraint - error decreases toward target arrangement",
-          "[species_swap][constraint]") {
+TEST_CASE(
+    "ClusterCorrelationConstraint - error decreases toward target arrangement",
+    "[species_swap][constraint]") {
   // Cu Au Cu Au → NN corr = -1, NNN corr = +1; both deviate from 0.
   // Cu Cu Au Au → NN corr > 0, NNN corr = -1; both deviate from 0.
   // Mixed Cu Au Au Cu → NN corr = 0 exactly for two orbits.
@@ -232,9 +243,11 @@ TEST_CASE("ClusterCorrelationConstraint - error decreases toward target arrangem
   s.coordinates.resize(4, 3);
   s.coordinates.setZero();
   s.atomic_numbers.resize(4, 1);
-  s.elements = {"Cu", "Au", "Au", "Cu"}; // NN pairs: (Cu,Au),(Au,Au),(Au,Cu),(Cu,Cu)
+  s.elements = {"Cu", "Au", "Au",
+                "Cu"}; // NN pairs: (Cu,Au),(Au,Au),(Au,Cu),(Cu,Cu)
   for (int i = 0; i < 4; ++i) {
-    s.names.push_back("X"); s.residues.push_back("A");
+    s.names.push_back("X");
+    s.residues.push_back("A");
     s.molecule_ids.push_back(static_cast<std::size_t>(i));
     s.coordinates(i, 0) = i;
   }
@@ -256,7 +269,8 @@ TEST_CASE("ClusterCorrelationConstraint - should_reject worsening move",
 
   // Use only the NN orbit with target 0.
   ClusterOrbit nn;
-  nn.target = 0.0; nn.weight = 1.0;
+  nn.target = 0.0;
+  nn.weight = 1.0;
   nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
 
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
@@ -283,16 +297,18 @@ TEST_CASE("Engine - SpeciesSwapGenerator restores elements on rejection",
           "[species_swap][engine]") {
   // Set up: 4 sites, one sublattice. ClusterCorrelationConstraint with a
   // target that the starting state already satisfies perfectly.
-  // Any swap will worsen it → every move is rejected → elements must not change.
+  // Any swap will worsen it → every move is rejected → elements must not
+  // change.
 
   auto s = make_4site_single_sublattice();
   // Cu Au Cu Au → alternating. Build an orbit whose target EQUALS the current
   // correlation so err_before == 0 and any swap raises err_after > 0.
 
-  // NN correlation for Cu Au Cu Au: each NN pair is (Cu,Au) or (Au,Cu) → σᵢσⱼ = -1.
-  // Average NN corr = -1.0. Set target = -1.0 so starting state is perfect.
+  // NN correlation for Cu Au Cu Au: each NN pair is (Cu,Au) or (Au,Cu) → σᵢσⱼ =
+  // -1. Average NN corr = -1.0. Set target = -1.0 so starting state is perfect.
   ClusterOrbit perfect_nn;
-  perfect_nn.target = -1.0; perfect_nn.weight = 1.0;
+  perfect_nn.target = -1.0;
+  perfect_nn.weight = 1.0;
   perfect_nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
 
   s.elements = {"Cu", "Au", "Cu", "Au"};
@@ -310,7 +326,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator restores elements on rejection",
 
   for (std::size_t i = 0; i < eng.structure().size(); ++i) {
     Group g;
-    g.name    = "site_" + std::to_string(i);
+    g.name = "site_" + std::to_string(i);
     g.indices = {i};
     g.generator = IMoveGenerator{gen};
     eng.add_group(std::move(g));
@@ -334,20 +350,21 @@ TEST_CASE("Engine - SpeciesSwapGenerator accepts improving moves",
   // that move toward alternating.
 
   ClusterOrbit nn;
-  nn.target = -1.0; nn.weight = 1.0;
+  nn.target = -1.0;
+  nn.weight = 1.0;
   nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
 
   Engine eng{s, InfiniteBC{}};
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
-  eng.add_constraint(IConstraint{
-      ClusterCorrelationConstraint{eng.structure(), sm, {nn}}});
+  eng.add_constraint(
+      IConstraint{ClusterCorrelationConstraint{eng.structure(), sm, {nn}}});
 
   std::vector<std::vector<std::size_t>> groups = {{0, 1, 2, 3}};
   SpeciesSwapGenerator gen{eng.structure(), groups, 17};
 
   for (std::size_t i = 0; i < eng.structure().size(); ++i) {
     Group g;
-    g.name    = "site_" + std::to_string(i);
+    g.name = "site_" + std::to_string(i);
     g.indices = {i};
     g.generator = IMoveGenerator{gen};
     eng.add_group(std::move(g));

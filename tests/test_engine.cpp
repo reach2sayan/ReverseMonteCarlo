@@ -1,5 +1,5 @@
-#include <RMC/Ensemble.hpp>
 #include <RMC/Engine.hpp>
+#include <RMC/Ensemble.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/selectors/OrderedSelector.hpp>
@@ -106,7 +106,8 @@ TEST_CASE("run_ensemble - winner has lowest chi2", "[engine][ensemble]") {
 }
 
 TEST_CASE("run_ensemble - best chi2 <= all replicas", "[engine][ensemble]") {
-  // 3 replicas with a distance constraint; verify winner is not worse than others.
+  // 3 replicas with a distance constraint; verify winner is not worse than
+  // others.
   auto make = [](std::size_t i) {
     AtomicStructure s = make_linear_chain(3, 4.0);
     Engine e(std::move(s), InfiniteBC(1e6));

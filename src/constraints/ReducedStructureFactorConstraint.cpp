@@ -19,8 +19,7 @@ void ReducedStructureFactorConstraint::initialise() {
   n_r_bins_ = static_cast<int>((r_max_ - r_min_) / r_bin_);
   mat_t r_data(n_r_bins_, 2);
   r_data.col(0) =
-      Eigen::VectorXd::LinSpaced(n_r_bins_, 0, n_r_bins_ - 1).array() *
-          r_bin_ +
+      Eigen::VectorXd::LinSpaced(n_r_bins_, 0, n_r_bins_ - 1).array() * r_bin_ +
       (r_min_ + 0.5 * r_bin_);
   r_data.col(1).setZero();
   pdf_.set_experimental_data(r_data);

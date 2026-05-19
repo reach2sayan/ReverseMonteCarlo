@@ -59,18 +59,22 @@ public:
     // Collect candidate sites: same sublattice, different element.
     thread_local std::vector<std::size_t> candidates;
     candidates.clear();
-    for (std::size_t j : sl_sites)
-      if (j != i && structure->elements[j] != structure->elements[i])
-        candidates.push_back(j);
-    if (candidates.empty())
+    candidates.reserve(sl_sites.size());
+    std::ranges::copy_if(
+        sl_sites, std::back_inserter(candidates), [&, i](std::size_t j) {
+          return j != i && structure->elements[j] != structure->elements[i];
+        });
+    if (candidates.empty()) {
       return;
+    }
 
     const std::size_t j =
         candidates[boost::random::uniform_int_distribution<std::size_t>{
             0, candidates.size() - 1}(rng.engine())];
 
-    std::swap(structure->elements[i], structure->elements[j]);
-    std::swap(structure->atomic_numbers[i], structure->atomic_numbers[j]);
+    using std::swap;
+    swap(structure->elements[i], structure->elements[j]);
+    swap(structure->atomic_numbers[i], structure->atomic_numbers[j]);
   }
 
   // Signals Engine to save/restore species snapshot around this move.

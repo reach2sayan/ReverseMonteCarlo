@@ -12,7 +12,8 @@ namespace RMC {
 //
 // Incremental: on a single-atom move, only quads touching that atom are
 // recomputed via ItemCache. All others retain their cached contribution.
-class DihedralAngleConstraint : public RigidConstraintBase<DihedralAngleConstraint> {
+class DihedralAngleConstraint
+    : public RigidConstraintBase<DihedralAngleConstraint> {
 public:
   struct Quad {
     std::size_t i, j, k, l;

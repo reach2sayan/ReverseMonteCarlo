@@ -19,8 +19,8 @@ public:
     double lo, hi;
   };
 
-  void add_angle(std::size_t i, std::size_t j, std::size_t k, double lo_rad,
-                 double hi_rad) {
+  constexpr void add_angle(std::size_t i, std::size_t j, std::size_t k,
+                           double lo_rad, double hi_rad) {
     triplets_.push_back({i, j, k, lo_rad, hi_rad});
     cache_.invalidate();
   }

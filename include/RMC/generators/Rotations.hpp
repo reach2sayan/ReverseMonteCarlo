@@ -77,7 +77,7 @@ struct RotationAboutSymmetryAxisGenerator
 
   RotationAboutSymmetryAxisGenerator() = default;
   RotationAboutSymmetryAxisGenerator(SymmetryAxis ax, double mn, double mx,
-                                      std::uint32_t seed = 42)
+                                     std::uint32_t seed = 42)
       : axis(ax), min_angle(mn), max_angle(mx), rng(seed) {}
 
   void generate(IMoveGenerator::Token, coords_t &coords,
@@ -87,9 +87,10 @@ struct RotationAboutSymmetryAxisGenerator
     angle *= rng.uniform() < 0.5 ? 1.0 : -1.0;
     vec3_t ax_vec = (axis == SymmetryAxis::X)   ? vec3_t::UnitX()
                     : (axis == SymmetryAxis::Y) ? vec3_t::UnitY()
-                                                 : vec3_t::UnitZ();
+                                                : vec3_t::UnitZ();
     vec3_t pivot = centroid(coords, indices);
-    const Eigen::Matrix3d R = Eigen::AngleAxisd(angle, ax_vec).toRotationMatrix();
+    const Eigen::Matrix3d R =
+        Eigen::AngleAxisd(angle, ax_vec).toRotationMatrix();
     for (auto i : indices) {
       vec3_t r = coords.row(static_cast<Eigen::Index>(i)).transpose() - pivot;
       coords.row(static_cast<Eigen::Index>(i)) = (R * r + pivot).transpose();
@@ -112,10 +113,8 @@ struct OrientationGenerator : MoveGeneratorBase<OrientationGenerator> {
                 std::span<const std::size_t> indices) {
     if (indices.size() < 2)
       return;
-    const Eigen::Index ia =
-        static_cast<Eigen::Index>(indices.front());
-    const Eigen::Index ib =
-        static_cast<Eigen::Index>(indices.back());
+    const Eigen::Index ia = static_cast<Eigen::Index>(indices.front());
+    const Eigen::Index ib = static_cast<Eigen::Index>(indices.back());
     vec3_t current = (coords.row(ib) - coords.row(ia)).transpose();
     if (current.norm() < 1e-12)
       return;
@@ -131,8 +130,7 @@ struct OrientationGenerator : MoveGeneratorBase<OrientationGenerator> {
     desired.normalize();
 
     // Rotation from current group axis to desired direction.
-    Eigen::Quaterniond q =
-        Eigen::Quaterniond::FromTwoVectors(current, desired);
+    Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(current, desired);
     const Eigen::Matrix3d R = q.toRotationMatrix();
     vec3_t pivot = centroid(coords, indices);
     for (auto i : indices) {

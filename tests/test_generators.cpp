@@ -136,11 +136,12 @@ TEST_CASE("TranslationTowardsAxisGenerator - no-op when centroid on axis",
 }
 
 // ---- TranslationAlongSymmetryAxisGenerator ----
-TEST_CASE("TranslationAlongSymmetryAxisGenerator - moves only along chosen axis",
-          "[generators]") {
-  for (auto [ax, col] : {std::pair{SymmetryAxis::X, 0},
-                          std::pair{SymmetryAxis::Y, 1},
-                          std::pair{SymmetryAxis::Z, 2}}) {
+TEST_CASE(
+    "TranslationAlongSymmetryAxisGenerator - moves only along chosen axis",
+    "[generators]") {
+  for (auto [ax, col] :
+       {std::pair{SymmetryAxis::X, 0}, std::pair{SymmetryAxis::Y, 1},
+        std::pair{SymmetryAxis::Z, 2}}) {
     IMoveGenerator gen = TranslationAlongSymmetryAxisGenerator(ax, 0.3, 0.3, 5);
     coords_t c = make_coords({{1, 1, 1}});
     coords_t orig = c;
@@ -156,8 +157,9 @@ TEST_CASE("TranslationAlongSymmetryAxisGenerator - moves only along chosen axis"
 }
 
 // ---- TranslationTowardsSymmetryAxisGenerator ----
-TEST_CASE("TranslationTowardsSymmetryAxisGenerator - perpendicular dist decreases",
-          "[generators]") {
+TEST_CASE(
+    "TranslationTowardsSymmetryAxisGenerator - perpendicular dist decreases",
+    "[generators]") {
   // Group centroid at (3, 4, 7), symmetry axis Z. Perp dist = 5.
   IMoveGenerator gen =
       TranslationTowardsSymmetryAxisGenerator(SymmetryAxis::Z, 1.0, 1.0, 2);
@@ -175,8 +177,7 @@ TEST_CASE("TranslationTowardsSymmetryAxisGenerator - perpendicular dist decrease
 TEST_CASE("RotationAboutSymmetryAxisGenerator - preserves pairwise distances",
           "[generators]") {
   for (auto ax : {SymmetryAxis::X, SymmetryAxis::Y, SymmetryAxis::Z}) {
-    IMoveGenerator gen =
-        RotationAboutSymmetryAxisGenerator(ax, 0.3, 0.3, 7);
+    IMoveGenerator gen = RotationAboutSymmetryAxisGenerator(ax, 0.3, 0.3, 7);
     coords_t c = make_coords({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
     double d01 = (c.row(0) - c.row(1)).norm();
     double d23 = (c.row(2) - c.row(3)).norm();
@@ -188,7 +189,8 @@ TEST_CASE("RotationAboutSymmetryAxisGenerator - preserves pairwise distances",
 }
 
 // ---- OrientationGenerator ----
-TEST_CASE("OrientationGenerator - preserves pairwise distances", "[generators]") {
+TEST_CASE("OrientationGenerator - preserves pairwise distances",
+          "[generators]") {
   vec3_t target{0, 0, 1};
   IMoveGenerator gen = OrientationGenerator(target, 0.05, 3);
   coords_t c = make_coords({{0, 0, 0}, {1, 0, 0}, {2, 0, 0}});
@@ -285,7 +287,8 @@ TEST_CASE("SwapCentersGenerator - moves group centroid to candidate centroid",
   REQUIRE_THAT(c(1, 0), WithinAbs(5.0, 1e-12));
 }
 
-TEST_CASE("SwapCentersGenerator - no-op with empty candidates", "[generators]") {
+TEST_CASE("SwapCentersGenerator - no-op with empty candidates",
+          "[generators]") {
   IMoveGenerator gen = SwapCentersGenerator({}, 1);
   coords_t c = make_coords({{1, 2, 3}});
   coords_t orig = c;

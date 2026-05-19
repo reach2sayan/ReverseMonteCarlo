@@ -33,7 +33,8 @@ concept CMoveGeneratorWithRejectionOverride =
     };
 
 // Optional extension: generator mutates species (elements/atomic_numbers), not
-// just coordinates. Engine will save/restore species snapshots around such moves.
+// just coordinates. Engine will save/restore species snapshots around such
+// moves.
 template <typename T>
 concept CMoveGeneratorWithSpeciesModification =
     CMoveGenerator<T> && requires(const T &gen) {

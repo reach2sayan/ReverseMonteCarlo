@@ -25,8 +25,8 @@
 //   0.0 1.0 2
 //   0 2
 //   1 3
-#include <RMC/Ensemble.hpp>
 #include <RMC/Engine.hpp>
+#include <RMC/Ensemble.hpp>
 #include <RMC/constraints/ClusterCorrelationConstraint.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Group.hpp>
@@ -70,10 +70,10 @@ parse_species(const std::string &s) {
 }
 
 // Parse the cluster file into a vector of ClusterOrbit.
-static std::vector<RMC::ClusterOrbit>
-load_clusters(const std::string &path) {
+static std::vector<RMC::ClusterOrbit> load_clusters(const std::string &path) {
   std::ifstream f(path);
-  if (!f) throw std::runtime_error("Cannot open cluster file: " + path);
+  if (!f)
+    throw std::runtime_error("Cannot open cluster file: " + path);
 
   std::vector<RMC::ClusterOrbit> orbits;
   std::string line;
@@ -101,7 +101,8 @@ load_clusters(const std::string &path) {
       continue;
     }
     // Otherwise it's a cluster instance: space-separated site indices.
-    if (!cur) continue;
+    if (!cur)
+      continue;
     RMC::ClusterInstance inst;
     ls.clear();
     ls.str(line);
@@ -132,16 +133,14 @@ build_sublattices(const RMC::AtomicStructure &str) {
 static void write_pdb(const RMC::AtomicStructure &str,
                       const std::string &path) {
   std::ofstream f(path);
-  if (!f) throw std::runtime_error("Cannot write: " + path);
+  if (!f)
+    throw std::runtime_error("Cannot write: " + path);
   for (std::size_t i = 0; i < str.size(); ++i) {
     const auto &e = str.elements.empty() ? "X" : str.elements[i];
-    f << std::left << std::setw(6) << "ATOM"
-      << std::right << std::setw(5) << (i + 1)
-      << "  " << std::left << std::setw(4) << e
-      << std::setw(4) << (str.residues.empty() ? "LIG" : str.residues[i])
-      << "  " << std::setw(4) << (i + 1)
-      << "    "
-      << std::fixed << std::setprecision(3)
+    f << std::left << std::setw(6) << "ATOM" << std::right << std::setw(5)
+      << (i + 1) << "  " << std::left << std::setw(4) << e << std::setw(4)
+      << (str.residues.empty() ? "LIG" : str.residues[i]) << "  "
+      << std::setw(4) << (i + 1) << "    " << std::fixed << std::setprecision(3)
       << std::setw(8) << str.coordinates(static_cast<Eigen::Index>(i), 0)
       << std::setw(8) << str.coordinates(static_cast<Eigen::Index>(i), 1)
       << std::setw(8) << str.coordinates(static_cast<Eigen::Index>(i), 2)
@@ -181,7 +180,10 @@ int main(int argc, char *argv[]) {
   po::variables_map vm;
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
-    if (vm.count("help")) { std::cout << desc << "\n"; return 0; }
+    if (vm.count("help")) {
+      std::cout << desc << "\n";
+      return 0;
+    }
     po::notify(vm);
   } catch (const po::error &e) {
     std::cerr << "Error: " << e.what() << "\n" << desc << "\n";
@@ -189,23 +191,24 @@ int main(int argc, char *argv[]) {
   }
 
   const auto struct_path = vm["structure"].as<std::string>();
-  const auto clus_path   = vm["clusters"].as<std::string>();
+  const auto clus_path = vm["clusters"].as<std::string>();
   const auto species_str = vm["species"].as<std::string>();
   const std::uint64_t n_steps = vm["steps"].as<std::uint64_t>();
   const std::size_t n_replicas = vm["replicas"].as<std::size_t>();
-  const std::uint32_t seed   = vm["seed"].as<std::uint32_t>();
-  const auto out_path        = vm["out"].as<std::string>();
+  const std::uint32_t seed = vm["seed"].as<std::uint32_t>();
+  const auto out_path = vm["out"].as<std::string>();
   const std::uint64_t log_ev = vm["log-every"].as<std::uint64_t>();
 
   // Load inputs.
   auto structure = [&] {
     auto r = RMC::io::read_pdb(struct_path);
-    if (!r) throw std::runtime_error("Failed to read PDB: " + struct_path);
+    if (!r)
+      throw std::runtime_error("Failed to read PDB: " + struct_path);
     return std::move(*r);
   }();
 
   const auto species_map = parse_species(species_str);
-  const auto orbits      = load_clusters(clus_path);
+  const auto orbits = load_clusters(clus_path);
   const auto sublattices = build_sublattices(structure);
 
   std::cout << "Sites: " << structure.size()
@@ -218,8 +221,8 @@ int main(int argc, char *argv[]) {
     RMC::Engine eng{structure, RMC::InfiniteBC{}};
 
     // Add the cluster correlation constraint.
-    eng.add_constraint(RMC::IConstraint{
-        RMC::ClusterCorrelationConstraint{eng.structure(), species_map, orbits}});
+    eng.add_constraint(RMC::IConstraint{RMC::ClusterCorrelationConstraint{
+        eng.structure(), species_map, orbits}});
 
     // One group per site; generator performs sublattice-aware species swap.
     RMC::SpeciesSwapGenerator gen{eng.structure(), sublattices, rseed};
@@ -231,7 +234,8 @@ int main(int argc, char *argv[]) {
       eng.add_group(std::move(g));
     }
 
-    eng.set_selector(RMC::IGroupSelector{RMC::SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
+    eng.set_selector(RMC::IGroupSelector{
+        RMC::SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
     eng.set_step_callback(
         [log_ev](std::uint64_t total, std::uint64_t accepted,
                  std::uint64_t /*tried*/, double err) {
@@ -244,15 +248,18 @@ int main(int argc, char *argv[]) {
     return eng;
   };
 
-  RMC::Engine best_engine = (n_replicas > 1)
-      ? RMC::run_ensemble(
-            [&](std::size_t ri) { return make_engine(seed + static_cast<std::uint32_t>(ri * 17u)); },
-            n_replicas, n_steps)
-      : [&] {
-            auto eng = make_engine(seed);
-            eng.run(n_steps);
-            return eng;
-        }();
+  RMC::Engine best_engine =
+      (n_replicas > 1) ? RMC::run_ensemble(
+                             [&](std::size_t ri) {
+                               return make_engine(
+                                   seed + static_cast<std::uint32_t>(ri * 17u));
+                             },
+                             n_replicas, n_steps)
+                       : [&] {
+                           auto eng = make_engine(seed);
+                           eng.run(n_steps);
+                           return eng;
+                         }();
 
   const auto &best = best_engine.structure();
   write_pdb(best, out_path);

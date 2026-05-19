@@ -34,8 +34,7 @@ CombinedMoveGenerator(Gs &&...) -> CombinedMoveGenerator<std::decay_t<Gs>...>;
 // Randomly selects ONE generator from a runtime collection and applies it.
 // Unlike CombinedMoveGenerator (which applies all), this picks one per step.
 // Supports optional per-generator weights (uniform by default).
-class MoveGeneratorCollector
-    : MoveGeneratorBase<MoveGeneratorCollector> {
+class MoveGeneratorCollector : MoveGeneratorBase<MoveGeneratorCollector> {
   std::vector<IMoveGenerator> generators_;
   std::vector<double> cumulative_weights_;
   mutable RngBuffer<> rng_;
@@ -48,7 +47,8 @@ public:
     if (weight <= 0.0)
       weight = 1.0;
     generators_.push_back(std::move(gen));
-    double prev = cumulative_weights_.empty() ? 0.0 : cumulative_weights_.back();
+    double prev =
+        cumulative_weights_.empty() ? 0.0 : cumulative_weights_.back();
     cumulative_weights_.push_back(prev + weight);
   }
 

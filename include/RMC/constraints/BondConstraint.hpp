@@ -20,7 +20,7 @@ public:
     double lo, hi;
   };
 
-  void add_bond(std::size_t i, std::size_t j, double lo, double hi) {
+  constexpr void add_bond(std::size_t i, std::size_t j, double lo, double hi) {
     bonds_.push_back({std::min(i, j), std::max(i, j), lo, hi});
     cache_.invalidate();
   }
@@ -29,8 +29,9 @@ public:
     return "BondConstraint";
   }
 
-  [[nodiscard]] double compute_error(const coords_t &coords,
-                                     std::span<const std::size_t> moved) const {
+  [[nodiscard]] constexpr double
+  compute_error(const coords_t &coords,
+                std::span<const std::size_t> moved) const {
     return cache_.compute(
         bonds_, [](const BondItem &b) { return std::array{b.i, b.j}; },
         [this](const coords_t &c, const BondItem &b) {

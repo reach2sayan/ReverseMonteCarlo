@@ -156,7 +156,8 @@ public:
   using PairConstraintBase::set_weight;
 
   // set_boundary_conditions must be forwarded from SingularConstraintBase.
-  using SingularConstraintBase<PairFunctionConstraint<Mode>>::set_boundary_conditions;
+  using SingularConstraintBase<
+      PairFunctionConstraint<Mode>>::set_boundary_conditions;
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     if constexpr (Mode == PairNorm::PDF) {

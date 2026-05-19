@@ -53,7 +53,7 @@ public:
       return "IntraMolecularDistanceConstraint";
   }
 
-  [[nodiscard]] double compute_error(const coords_t &coords,
+  [[nodiscard]] constexpr double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
     const std::size_t N = static_cast<std::size_t>(coords.rows());
     return cache_.compute(

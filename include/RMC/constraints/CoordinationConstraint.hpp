@@ -17,7 +17,8 @@ namespace RMC {
 //
 // Element filtering uses integer IDs built at first use — avoids std::string
 // comparisons in the inner loop.
-class CoordinationConstraint : public RigidConstraintBase<CoordinationConstraint> {
+class CoordinationConstraint
+    : public RigidConstraintBase<CoordinationConstraint> {
 public:
   struct Shell {
     std::size_t centre_idx;
@@ -199,10 +200,11 @@ private:
 
         const bool was_in = in_shell(old_k);
         const bool is_in = in_shell(new_k);
-        if (was_in && !is_in)
+        if (was_in && !is_in) {
           --cn_[si];
-        else if (!was_in && is_in)
+        } else if (!was_in && is_in) {
           ++cn_[si];
+        }
       }
     }
   }
@@ -211,10 +213,11 @@ private:
     double err = 0.0;
     for (std::size_t si = 0; si < shells_.size(); ++si) {
       const auto &sh = shells_[si];
-      if (cn_[si] < sh.min_cn)
+      if (cn_[si] < sh.min_cn) {
         err += static_cast<double>(sh.min_cn - cn_[si]);
-      else if (cn_[si] > sh.max_cn)
+      } else if (cn_[si] > sh.max_cn) {
         err += static_cast<double>(cn_[si] - sh.max_cn);
+      }
     }
     return err;
   }

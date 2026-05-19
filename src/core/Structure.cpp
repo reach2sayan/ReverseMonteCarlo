@@ -20,14 +20,16 @@ void AtomicStructure::restore_snapshot(std::span<const std::size_t>) {
 
 void AtomicStructure::save_species_snapshot() {
   snapshot_elements_ = elements;
-  snapshot_atomic_numbers_.resize(static_cast<std::size_t>(atomic_numbers.size()));
+  snapshot_atomic_numbers_.resize(
+      static_cast<std::size_t>(atomic_numbers.size()));
   for (Eigen::Index k = 0; k < atomic_numbers.size(); ++k)
     snapshot_atomic_numbers_[static_cast<std::size_t>(k)] = atomic_numbers[k];
   has_species_snapshot_ = true;
 }
 
 void AtomicStructure::restore_species_snapshot() {
-  if (!has_species_snapshot_) return;
+  if (!has_species_snapshot_)
+    return;
   elements = snapshot_elements_;
   for (Eigen::Index k = 0; k < atomic_numbers.size(); ++k)
     atomic_numbers[k] = snapshot_atomic_numbers_[static_cast<std::size_t>(k)];

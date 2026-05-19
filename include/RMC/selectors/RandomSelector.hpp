@@ -12,8 +12,8 @@ struct RandomSelector : SelectorBase<RandomSelector> {
   mutable RngBuffer<> rng;
   explicit RandomSelector(std::uint32_t seed = 42) : rng(seed) {}
   std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
-    return boost::random::uniform_int_distribution<std::size_t>{0, n_groups -
-                                                             1}(rng.engine());
+    return boost::random::uniform_int_distribution<std::size_t>{
+        0, n_groups - 1}(rng.engine());
   }
   constexpr void feedback(IGroupSelector::Token, std::size_t /*group_idx*/,
                           bool /*accepted*/) noexcept {}

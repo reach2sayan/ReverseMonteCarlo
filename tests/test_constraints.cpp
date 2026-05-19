@@ -321,14 +321,15 @@ TEST_CASE("ConstraintCollection - accepts when all constraints pass",
 }
 
 // ---- RigidConstraintBase ----
-TEST_CASE("RigidConstraintBase - standard_error is 0, should_reject still works",
-          "[constraints][rigid]") {
+TEST_CASE(
+    "RigidConstraintBase - standard_error is 0, should_reject still works",
+    "[constraints][rigid]") {
   BondConstraint bc;
   bc.add_bond(0, 1, 1.0, 2.0);
   IConstraint c = std::move(bc);
 
   coords_t good = make2(0.0, 1.5);
-  coords_t bad  = make2(0.0, 0.3); // too short: violates [1.0, 2.0]
+  coords_t bad = make2(0.0, 0.3); // too short: violates [1.0, 2.0]
   std::vector<index_t> all = {0, 1};
 
   c.compute_before_move(good, all);
@@ -348,7 +349,10 @@ TEST_CASE("ConstraintCollection - rigid constraint excluded from total_error",
 
   PairDistributionConstraint pdc;
   mat_t exp(10, 2);
-  for (int i = 0; i < 10; ++i) { exp(i, 0) = 0.5 + 0.1 * i; exp(i, 1) = 0.0; }
+  for (int i = 0; i < 10; ++i) {
+    exp(i, 0) = 0.5 + 0.1 * i;
+    exp(i, 1) = 0.0;
+  }
   pdc.set_experimental_data(exp);
   pdc.set_number_density(0.03);
   pdc.initialise();
@@ -365,10 +369,14 @@ TEST_CASE("ConstraintCollection - rigid constraint excluded from total_error",
 }
 
 // ---- SingularConstraintBase ----
-TEST_CASE("SingularConstraintBase - is_singular flag", "[constraints][singular]") {
+TEST_CASE("SingularConstraintBase - is_singular flag",
+          "[constraints][singular]") {
   PairDistributionConstraint pdc;
   mat_t exp(10, 2);
-  for (int i = 0; i < 10; ++i) { exp(i, 0) = 0.5 + 0.1 * i; exp(i, 1) = 0.0; }
+  for (int i = 0; i < 10; ++i) {
+    exp(i, 0) = 0.5 + 0.1 * i;
+    exp(i, 1) = 0.0;
+  }
   pdc.set_experimental_data(exp);
   pdc.set_number_density(0.03);
   pdc.initialise();
@@ -384,7 +392,7 @@ static ReducedStructureFactorConstraint make_rfq(int nQ = 20) {
   mat_t data(nQ, 2);
   for (int i = 0; i < nQ; ++i) {
     data(i, 0) = 0.5 * (i + 1); // Q values
-    data(i, 1) = 0.0;            // F(Q) target
+    data(i, 1) = 0.0;           // F(Q) target
   }
   rfq.set_experimental_data(data);
   rfq.set_number_density(0.03);
@@ -406,8 +414,9 @@ TEST_CASE("ReducedStructureFactorConstraint - is_singular not rigid",
   REQUIRE_FALSE(c.is_rigid());
 }
 
-TEST_CASE("ReducedStructureFactorConstraint - compute_error finite non-negative",
-          "[constraints]") {
+TEST_CASE(
+    "ReducedStructureFactorConstraint - compute_error finite non-negative",
+    "[constraints]") {
   ReducedStructureFactorConstraint rfq = make_rfq();
   const int N = 8;
   coords_t c(N, 3);
@@ -424,7 +433,8 @@ TEST_CASE("ReducedStructureFactorConstraint - compute_error finite non-negative"
 TEST_CASE("ReducedStructureFactorConstraint - F(Q) differs from S(Q)",
           "[constraints]") {
   // Both constraints fit the same zero target with the same structure.
-  // The two Fourier kernels differ (1/Q factor), so computed values must differ.
+  // The two Fourier kernels differ (1/Q factor), so computed values must
+  // differ.
   const int nQ = 20;
   mat_t data(nQ, 2);
   for (int i = 0; i < nQ; ++i) {

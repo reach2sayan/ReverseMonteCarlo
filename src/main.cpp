@@ -1,5 +1,5 @@
-#include <RMC/Ensemble.hpp>
 #include <RMC/Engine.hpp>
+#include <RMC/Ensemble.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
@@ -31,10 +31,11 @@ int main(int argc, char *argv[]) {
       "pdb,p", po::value<std::string>()->required(), "Input PDB file")(
       "pdf,d", po::value<std::string>(), "Experimental G(r) data file")(
       "sq,q", po::value<std::string>(), "Experimental S(Q) data file")(
-      "steps,n", po::value<std::uint64_t>()->default_value(100000),
-      "MC steps")("ensemble,e", po::value<std::size_t>()->default_value(1),
-      "Number of independent replicas to run in parallel; best chi2 wins")("rho0", po::value<double>()->default_value(0.1),
-                  "Number density (atoms/Å³)")(
+      "steps,n", po::value<std::uint64_t>()->default_value(100000), "MC steps")(
+      "ensemble,e", po::value<std::size_t>()->default_value(1),
+      "Number of independent replicas to run in parallel; best chi2 wins")(
+      "rho0", po::value<double>()->default_value(0.1),
+      "Number density (atoms/Å³)")(
       "seed", po::value<std::uint32_t>()->default_value(42), "RNG seed")(
       "out,o", po::value<std::string>()->default_value("refined.pdb"),
       "Output PDB")("checkpoint,c", po::value<std::string>(),
@@ -86,7 +87,8 @@ int main(int argc, char *argv[]) {
         RMC::mat_t pdf_data, sq_data;
         bool has_pdf = vm.count("pdf") > 0, has_sq = vm.count("sq") > 0;
         if (has_pdf) {
-          BOOST_LEAF_AUTO(d, RMC::io::read_xy_data(vm["pdf"].as<std::string>()));
+          BOOST_LEAF_AUTO(d,
+                          RMC::io::read_xy_data(vm["pdf"].as<std::string>()));
           pdf_data = std::move(d);
           BOOST_LOG_TRIVIAL(info) << "Loaded PairDistribution data";
         }
@@ -99,8 +101,8 @@ int main(int argc, char *argv[]) {
         // ---- Engine factory: builds a fresh engine for replica i ----
         auto base_seed = vm["seed"].as<std::uint32_t>();
         bool use_smart = vm["smart"].as<bool>();
-        auto make_engine = [s, bc, pdf_data, sq_data, has_pdf, has_sq,
-                            rho0, base_seed, use_smart](std::size_t replica) {
+        auto make_engine = [s, bc, pdf_data, sq_data, has_pdf, has_sq, rho0,
+                            base_seed, use_smart](std::size_t replica) {
           auto seed = base_seed + static_cast<std::uint32_t>(replica);
           RMC::Engine engine(s, bc);
           engine.build_atomic_groups(0.0, 0.2, seed);
@@ -130,8 +132,8 @@ int main(int argc, char *argv[]) {
 
         RMC::Engine engine = [&]() -> RMC::Engine {
           if (n_ensemble > 1) {
-            BOOST_LOG_TRIVIAL(info)
-                << "Ensemble: running " << n_ensemble << " replicas in parallel";
+            BOOST_LOG_TRIVIAL(info) << "Ensemble: running " << n_ensemble
+                                    << " replicas in parallel";
             return RMC::run_ensemble(make_engine, n_ensemble, n_steps);
           }
           // Single run — attach callback and checkpoint

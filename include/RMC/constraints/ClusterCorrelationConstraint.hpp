@@ -49,8 +49,8 @@ public:
 
   // Required by ConstraintBase<Derived> — called by compute_before/after_move.
   // Ignores coords and moved (correlations are global, not incremental).
-  [[nodiscard]] double compute_error(const coords_t & /*coords*/,
-                                     std::span<const std::size_t> /*moved*/) {
+  [[nodiscard]] double compute_error(const coords_t &,
+                                     std::span<const std::size_t>) {
     double total = 0.0;
     for (const auto &orbit : orbits_) {
       const double corr = orbit_correlation(orbit);
@@ -64,18 +64,17 @@ public:
     return "ClusterCorrelation";
   }
 
-  // Cluster correlation recomputes over all instances — flag as expensive so
-  // ConstraintCollection places it last after cheap geometric constraints.
+  // More expensive than cheap geometric constraints.
   [[nodiscard]] double computation_cost(IConstraint::Token) const noexcept {
     return static_cast<double>(total_instances_) * 10.0;
   }
 
-  // Read-only access to current correlations (useful for logging / driver).
   [[nodiscard]] std::vector<double> current_correlations() const {
     std::vector<double> out;
-    out.reserve(orbits_.size());
-    for (const auto &orbit : orbits_)
-      out.push_back(orbit_correlation(orbit));
+    out.resize(orbits_.size());
+    std::transform(
+        orbits_.begin(), orbits_.end(), out.begin(),
+        [this](const auto &orbit) { return orbit_correlation(orbit); });
     return out;
   }
 
@@ -85,8 +84,9 @@ public:
 
 private:
   [[nodiscard]] double orbit_correlation(const ClusterOrbit &orbit) const {
-    if (orbit.instances.empty())
+    if (orbit.instances.empty()) {
       return 0.0;
+    }
     double sum = 0.0;
     for (const auto &inst : orbit.instances) {
       double prod = 1.0;
@@ -104,8 +104,9 @@ private:
   std::vector<ClusterOrbit> orbits_;
   std::size_t total_instances_ = [this] {
     std::size_t n = 0;
-    for (const auto &o : orbits_)
+    for (const auto &o : orbits_) {
       n += o.instances.size();
+    }
     return n;
   }();
 };

@@ -87,7 +87,8 @@ struct TranslationTowardsCentreGenerator
   }
 };
 
-// Translates toward the nearest point on an infinite axis (line through `point` along `direction`).
+// Translates toward the nearest point on an infinite axis (line through `point`
+// along `direction`).
 struct TranslationTowardsAxisGenerator
     : MoveGeneratorBase<TranslationTowardsAxisGenerator> {
   vec3_t point{0.0, 0.0, 0.0};
@@ -98,7 +99,7 @@ struct TranslationTowardsAxisGenerator
 
   TranslationTowardsAxisGenerator() = default;
   TranslationTowardsAxisGenerator(vec3_t pt, vec3_t dir, double mn, double mx,
-                                   std::uint32_t seed = 42)
+                                  std::uint32_t seed = 42)
       : point(std::move(pt)), direction(dir.normalized()), min_amp(mn),
         max_amp(mx), rng(seed) {}
 
@@ -127,7 +128,7 @@ struct TranslationAlongSymmetryAxisGenerator
 
   TranslationAlongSymmetryAxisGenerator() = default;
   TranslationAlongSymmetryAxisGenerator(SymmetryAxis ax, double mn, double mx,
-                                         std::uint32_t seed = 42)
+                                        std::uint32_t seed = 42)
       : axis(ax), min_amp(mn), max_amp(mx), rng(seed) {}
 
   void generate(IMoveGenerator::Token, coords_t &coords,
@@ -147,7 +148,8 @@ struct TranslationAlongSymmetryAxisGenerator
   }
 };
 
-// Translates toward the nearest point on a Cartesian symmetry axis through the origin.
+// Translates toward the nearest point on a Cartesian symmetry axis through the
+// origin.
 struct TranslationTowardsSymmetryAxisGenerator
     : MoveGeneratorBase<TranslationTowardsSymmetryAxisGenerator> {
   SymmetryAxis axis{SymmetryAxis::Z};
@@ -157,14 +159,15 @@ struct TranslationTowardsSymmetryAxisGenerator
 
   TranslationTowardsSymmetryAxisGenerator() = default;
   TranslationTowardsSymmetryAxisGenerator(SymmetryAxis ax, double mn, double mx,
-                                           std::uint32_t seed = 42)
+                                          std::uint32_t seed = 42)
       : axis(ax), min_amp(mn), max_amp(mx), rng(seed) {}
 
   void generate(IMoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     vec3_t gc = centroid(coords, indices);
-    // Nearest point on the symmetry axis: zero out the two perpendicular components.
+    // Nearest point on the symmetry axis: zero out the two perpendicular
+    // components.
     vec3_t nearest = gc;
     if (axis == SymmetryAxis::X) {
       nearest.y() = 0.0;

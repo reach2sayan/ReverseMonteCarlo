@@ -6,8 +6,9 @@
 
 namespace RMC {
 
-// Pushes/pulls two atoms symmetrically along their bond direction by ±amp/2 each,
-// preserving the bond midpoint. Atoms `i` and `j` must be present in `indices`.
+// Pushes/pulls two atoms symmetrically along their bond direction by ±amp/2
+// each, preserving the bond midpoint. Atoms `i` and `j` must be present in
+// `indices`.
 struct DistanceAgitationGenerator
     : MoveGeneratorBase<DistanceAgitationGenerator> {
   std::size_t i{0};
@@ -18,7 +19,7 @@ struct DistanceAgitationGenerator
 
   DistanceAgitationGenerator() = default;
   DistanceAgitationGenerator(std::size_t ai, std::size_t aj, double mn,
-                              double mx, std::uint32_t seed = 42)
+                             double mx, std::uint32_t seed = 42)
       : i(ai), j(aj), min_amp(mn), max_amp(mx), rng(seed) {}
 
   void generate(IMoveGenerator::Token, coords_t &coords,
@@ -51,7 +52,7 @@ struct AngleAgitationGenerator : MoveGeneratorBase<AngleAgitationGenerator> {
 
   AngleAgitationGenerator() = default;
   AngleAgitationGenerator(std::size_t ai, std::size_t aj, std::size_t ak,
-                           double mn, double mx, std::uint32_t seed = 42)
+                          double mn, double mx, std::uint32_t seed = 42)
       : i(ai), j(aj), k(ak), min_amp(mn), max_amp(mx), rng(seed) {}
 
   void generate(IMoveGenerator::Token, coords_t &coords,
