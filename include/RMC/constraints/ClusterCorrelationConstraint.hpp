@@ -85,7 +85,8 @@ public:
 
 private:
   [[nodiscard]] double orbit_correlation(const ClusterOrbit &orbit) const {
-    if (orbit.instances.empty()) return 0.0;
+    if (orbit.instances.empty())
+      return 0.0;
     double sum = 0.0;
     for (const auto &inst : orbit.instances) {
       double prod = 1.0;
