@@ -121,6 +121,7 @@ add_library(RMC SHARED
         src/core/Structure.cpp
         src/constraints/PairConstraintBase.cpp
         src/constraints/StructureFactorConstraint.cpp
+        src/constraints/ReducedStructureFactorConstraint.cpp
         src/io/PdbReader.cpp
         src/io/DataReader.cpp
         src/io/Checkpoint.cpp

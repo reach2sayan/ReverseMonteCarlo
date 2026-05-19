@@ -114,6 +114,8 @@ private:
   std::unique_ptr<MoveGeneratorConcept> self_;
 };
 
+enum class SymmetryAxis { X, Y, Z };
+
 template <typename Derived> struct MoveGeneratorBase {};
 FORCE_INLINE vec3_t centroid(const coords_t &coords,
                              std::span<const std::size_t> indices) noexcept {

@@ -1,6 +1,9 @@
 #pragma once
+#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
+#include <algorithm>
 #include <tuple>
+#include <vector>
 
 namespace RMC {
 
@@ -27,5 +30,41 @@ public:
 
 template <CMoveGenerator... Gs>
 CombinedMoveGenerator(Gs &&...) -> CombinedMoveGenerator<std::decay_t<Gs>...>;
+
+// Randomly selects ONE generator from a runtime collection and applies it.
+// Unlike CombinedMoveGenerator (which applies all), this picks one per step.
+// Supports optional per-generator weights (uniform by default).
+class MoveGeneratorCollector
+    : MoveGeneratorBase<MoveGeneratorCollector> {
+  std::vector<IMoveGenerator> generators_;
+  std::vector<double> cumulative_weights_;
+  mutable RngBuffer<> rng_;
+
+public:
+  MoveGeneratorCollector() = default;
+  explicit MoveGeneratorCollector(std::uint32_t seed) : rng_(seed) {}
+
+  void add(IMoveGenerator gen, double weight = 1.0) {
+    if (weight <= 0.0)
+      weight = 1.0;
+    generators_.push_back(std::move(gen));
+    double prev = cumulative_weights_.empty() ? 0.0 : cumulative_weights_.back();
+    cumulative_weights_.push_back(prev + weight);
+  }
+
+  void generate(IMoveGenerator::Token, coords_t &coords,
+                std::span<const std::size_t> indices) {
+    if (generators_.empty())
+      return;
+    double r = rng_.uniform(0.0, cumulative_weights_.back());
+    auto it = std::lower_bound(cumulative_weights_.begin(),
+                               cumulative_weights_.end(), r);
+    std::size_t idx =
+        static_cast<std::size_t>(it - cumulative_weights_.begin());
+    if (idx >= generators_.size())
+      idx = generators_.size() - 1;
+    generators_[idx].generate(coords, indices);
+  }
+};
 
 } // namespace RMC

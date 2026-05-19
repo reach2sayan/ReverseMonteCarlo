@@ -6,6 +6,8 @@
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairCorrelationConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
+#include <RMC/constraints/ReducedStructureFactorConstraint.hpp>
+#include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <numbers>
@@ -374,4 +376,105 @@ TEST_CASE("SingularConstraintBase - is_singular flag", "[constraints][singular]"
 
   REQUIRE(c.is_singular());
   REQUIRE_FALSE(c.is_rigid());
+}
+
+// ---- ReducedStructureFactorConstraint ----
+static ReducedStructureFactorConstraint make_rfq(int nQ = 20) {
+  ReducedStructureFactorConstraint rfq;
+  mat_t data(nQ, 2);
+  for (int i = 0; i < nQ; ++i) {
+    data(i, 0) = 0.5 * (i + 1); // Q values
+    data(i, 1) = 0.0;            // F(Q) target
+  }
+  rfq.set_experimental_data(data);
+  rfq.set_number_density(0.03);
+  rfq.initialise();
+  return rfq;
+}
+
+TEST_CASE("ReducedStructureFactorConstraint - name and cost", "[constraints]") {
+  ReducedStructureFactorConstraint rfq = make_rfq();
+  IConstraint c = std::move(rfq);
+  REQUIRE(c.name() == "ReducedStructureFactorConstraint");
+  REQUIRE(c.computation_cost() >= 1e6);
+}
+
+TEST_CASE("ReducedStructureFactorConstraint - is_singular not rigid",
+          "[constraints]") {
+  IConstraint c = make_rfq();
+  REQUIRE(c.is_singular());
+  REQUIRE_FALSE(c.is_rigid());
+}
+
+TEST_CASE("ReducedStructureFactorConstraint - compute_error finite non-negative",
+          "[constraints]") {
+  ReducedStructureFactorConstraint rfq = make_rfq();
+  const int N = 8;
+  coords_t c(N, 3);
+  for (int i = 0; i < N; ++i)
+    c.row(i) << i * 3.0, 0.0, 0.0;
+  std::vector<index_t> all(N);
+  std::iota(all.begin(), all.end(), 0);
+
+  real_t err = rfq.compute_error(c, all);
+  REQUIRE(std::isfinite(err));
+  REQUIRE(err >= 0.0);
+}
+
+TEST_CASE("ReducedStructureFactorConstraint - F(Q) differs from S(Q)",
+          "[constraints]") {
+  // Both constraints fit the same zero target with the same structure.
+  // The two Fourier kernels differ (1/Q factor), so computed values must differ.
+  const int nQ = 20;
+  mat_t data(nQ, 2);
+  for (int i = 0; i < nQ; ++i) {
+    data(i, 0) = 0.5 * (i + 1);
+    data(i, 1) = 1.0; // non-zero target so scale matters
+  }
+
+  ReducedStructureFactorConstraint rfq;
+  rfq.set_experimental_data(data);
+  rfq.set_number_density(0.03);
+  rfq.initialise();
+
+  StructureFactorConstraint sfq;
+  sfq.set_experimental_data(data);
+  sfq.set_number_density(0.03);
+  sfq.initialise();
+
+  const int N = 8;
+  coords_t c(N, 3);
+  for (int i = 0; i < N; ++i)
+    c.row(i) << i * 3.0, 0.0, 0.0;
+  std::vector<index_t> all(N);
+  std::iota(all.begin(), all.end(), 0);
+
+  real_t err_f = rfq.compute_error(c, all);
+  real_t err_s = sfq.compute_error(c, all);
+  REQUIRE(std::isfinite(err_f));
+  REQUIRE(std::isfinite(err_s));
+  // F(Q) = Q·(S(Q)−1) ≠ S(Q) for Q ≠ 1 or S(Q) ≠ 0
+  REQUIRE(err_f != err_s);
+}
+
+TEST_CASE("ReducedStructureFactorConstraint - accept/reject cycle",
+          "[constraints]") {
+  ReducedStructureFactorConstraint rfq = make_rfq();
+  IConstraint c = std::move(rfq);
+
+  const int N = 4;
+  coords_t c1(N, 3), c2(N, 3);
+  for (int i = 0; i < N; ++i) {
+    c1.row(i) << i * 3.0, 0.0, 0.0;
+    c2.row(i) << i * 3.0 + 0.5, 0.0, 0.0;
+  }
+  std::vector<index_t> all(N);
+  std::iota(all.begin(), all.end(), 0);
+
+  c.compute_before_move(c1, all);
+  c.compute_after_move(c2, all);
+  double err_after = c.standard_error();
+  c.accept();
+  // After accept, standard_error() should reflect the accepted (after) state.
+  REQUIRE_THAT(c.standard_error(), WithinAbs(err_after, EPS));
 }

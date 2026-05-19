@@ -80,7 +80,7 @@ int main() {
     {
         auto eng = build_engine(tmpl, a);
         eng.build_atomic_groups(0.0, 0.1, 1);
-        eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 1}});
+        eng.set_selector(SmartRandomSelector{1.1, 1});
         eng.run(10000);
         std::cout << "Phase 1 (translate): accepted " << eng.stats().steps_accepted
                   << "  err " << eng.stats().last_total_err << "\n";
@@ -96,10 +96,10 @@ int main() {
             Group g;
             g.name = "s" + std::to_string(i);
             g.indices = {i};
-            g.generator = IMoveGenerator{gen};
+            g.generator = gen;
             eng.add_group(std::move(g));
         }
-        eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 2}});
+        eng.set_selector(SmartRandomSelector{1.1, 2});
         eng.run(10000);
         std::cout << "Phase 2 (swap):      accepted " << eng.stats().steps_accepted
                   << "  err " << eng.stats().last_total_err << "\n";
@@ -122,7 +122,7 @@ int main() {
                 g.generator = IMoveGenerator{swap_gen};
             eng.add_group(std::move(g));
         }
-        eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 3}});
+        eng.set_selector(SmartRandomSelector{1.1, 3});
         eng.run(10000);
         std::cout << "Phase 3 (combined):  accepted " << eng.stats().steps_accepted
                   << "  err " << eng.stats().last_total_err << "\n";
