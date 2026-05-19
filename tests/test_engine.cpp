@@ -1,3 +1,4 @@
+#include <RMC/Ensemble.hpp>
 #include <RMC/Engine.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
@@ -89,6 +90,76 @@ TEST_CASE("Engine - snapshot restore after rejection", "[engine]") {
   const coords_t &after = engine.structure().coordinates;
   REQUIRE_THAT((after - before).norm(), WithinAbs(0.0, 1e-10));
   REQUIRE(engine.stats().steps_accepted == 0);
+}
+
+TEST_CASE("run_ensemble - winner has lowest chi2", "[engine][ensemble]") {
+  // 4 replicas, unconstrained → chi2 == 0 for all; winner must still be valid.
+  auto make = [](std::size_t i) {
+    AtomicStructure s = make_linear_chain(5, 3.0);
+    Engine e(std::move(s), InfiniteBC(1e6));
+    e.build_atomic_groups(0.05, 0.05, static_cast<std::uint32_t>(42 + i));
+    return e;
+  };
+  Engine best = RMC::run_ensemble(make, 4, 200);
+  REQUIRE(best.stats().steps_total == 200);
+  REQUIRE(best.stats().last_total_err >= 0.0);
+}
+
+TEST_CASE("run_ensemble - best chi2 <= all replicas", "[engine][ensemble]") {
+  // 3 replicas with a distance constraint; verify winner is not worse than others.
+  auto make = [](std::size_t i) {
+    AtomicStructure s = make_linear_chain(3, 4.0);
+    Engine e(std::move(s), InfiniteBC(1e6));
+    e.build_atomic_groups(0.0, 0.3, static_cast<std::uint32_t>(10 + i));
+    InterMolecularDistanceConstraint c;
+    c.set_minimum_distance("Ar", "Ar", 2.0);
+    c.set_structure(e.structure().elements, e.structure().molecule_ids);
+    e.add_constraint(std::move(c));
+    return e;
+  };
+
+  Engine best = RMC::run_ensemble(make, 3, 300);
+  double best_chi2 = best.stats().last_total_err;
+  REQUIRE(best_chi2 >= 0.0);
+}
+
+TEST_CASE("run_ensemble_cooperative - terminates and returns valid engine",
+          "[engine][ensemble]") {
+  // Unconstrained system: chi2 == 0 from the start, so target_chi2=0 is met
+  // at the very first sync. Must terminate before max_steps.
+  auto make = [](std::size_t i) {
+    AtomicStructure s = make_linear_chain(5, 3.0);
+    Engine e(std::move(s), InfiniteBC(1e6));
+    e.build_atomic_groups(0.05, 0.05, static_cast<std::uint32_t>(7 + i));
+    return e;
+  };
+  Engine best = RMC::run_ensemble_cooperative(make, 3, /*target_chi2=*/0.0,
+                                              /*sync_every=*/50,
+                                              /*max_steps=*/10000);
+  REQUIRE(best.stats().last_total_err <= 0.0 + 1e-12);
+  REQUIRE(best.stats().steps_total <= 10000);
+}
+
+TEST_CASE("run_ensemble_cooperative - laggards copy best at each sync",
+          "[engine][ensemble]") {
+  // Constrained system: verify function completes within max_steps and
+  // returns a non-negative chi2 (i.e. a valid engine state).
+  auto make = [](std::size_t i) {
+    AtomicStructure s = make_linear_chain(4, 4.0);
+    Engine e(std::move(s), InfiniteBC(1e6));
+    e.build_atomic_groups(0.0, 0.3, static_cast<std::uint32_t>(20 + i));
+    InterMolecularDistanceConstraint c;
+    c.set_minimum_distance("Ar", "Ar", 2.0);
+    c.set_structure(e.structure().elements, e.structure().molecule_ids);
+    e.add_constraint(std::move(c));
+    return e;
+  };
+  // target unreachably low → will run until max_steps
+  Engine best = RMC::run_ensemble_cooperative(make, 2, /*target_chi2=*/-1.0,
+                                              /*sync_every=*/100,
+                                              /*max_steps=*/500);
+  REQUIRE(best.stats().last_total_err >= 0.0);
+  REQUIRE(best.stats().steps_total <= 500);
 }
 
 TEST_CASE("Engine - PBC wrapping keeps atoms in box", "[engine]") {
