@@ -1,0 +1,15 @@
+foreach(ex
+    translations
+    rotations
+    bonds_constraint
+    angles_constraint
+    dihedral_constraint
+    improper_constraint
+    coordination_constraint
+    smart_selector
+    atomic_niti
+    molecular_co2
+    molecular_thf
+    si_ox_nanosphere)
+    add_subdirectory(${ex})
+endforeach()

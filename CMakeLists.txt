@@ -173,6 +173,11 @@ if (RMC_BUILD_MCSQS)
     add_subdirectory(extensions/mcsqs)
 endif ()
 
+option(RMC_BUILD_EXAMPLES "Build fullrmc-equivalent C++ examples" ON)
+if (RMC_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif ()
+
 include(CTest)
 if (BUILD_TESTING AND RMC_BUILD_TESTS)
     find_package(Catch2 3 REQUIRED)
