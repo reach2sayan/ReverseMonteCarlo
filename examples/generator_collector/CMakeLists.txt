@@ -35,6 +35,8 @@ else()
 endif()
 
 add_executable(generator_collector main.cpp)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
 target_link_libraries(generator_collector PRIVATE ${_rmc_target})
 target_compile_features(generator_collector PRIVATE cxx_std_23)
 

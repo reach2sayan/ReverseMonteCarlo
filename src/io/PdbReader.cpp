@@ -33,7 +33,9 @@ constexpr int ELEMENT_LEN = 2;
 const std::unordered_map<std::string, int> ATOMIC_NUMBERS = {
     {"H", 1},   {"C", 6},   {"N", 7},   {"O", 8},   {"F", 9},   {"P", 15},
     {"S", 16},  {"Cl", 17}, {"Ar", 18}, {"K", 19},  {"Ca", 20}, {"Fe", 26},
-    {"Ni", 28}, {"Cu", 29}, {"Zn", 30}, {"Br", 35}, {"I", 53},  {"Pb", 82}};
+    {"Ni", 28}, {"Cu", 29}, {"Zn", 30}, {"Br", 35}, {"I", 53},  {"Pb", 82},
+    {"Si", 14}, {"Ti", 22}, {"V", 23},  {"Cr", 24}, {"Mn", 25}, {"Co", 27},
+    {"Ge", 32}, {"As", 33}, {"Se", 34}, {"Ag", 47}, {"Au", 79}, {"Pt", 78}};
 
 std::string trim(std::string_view sv) {
   auto b = sv.find_first_not_of(' ');

@@ -58,8 +58,7 @@ public:
       return;
     }
     double r = rng_.uniform(0.0, cumulative_weights_.back());
-    auto it = std::lower_bound(cumulative_weights_.begin(),
-                               cumulative_weights_.end(), r);
+    auto it = std::ranges::lower_bound(cumulative_weights_, r);
     std::size_t idx =
         static_cast<std::size_t>(it - cumulative_weights_.begin());
     if (idx >= generators_.size()) {

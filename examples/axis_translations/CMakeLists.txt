@@ -35,6 +35,8 @@ else()
 endif()
 
 add_executable(axis_translations main.cpp)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
 target_link_libraries(axis_translations PRIVATE ${_rmc_target})
 target_compile_features(axis_translations PRIVATE cxx_std_23)
 

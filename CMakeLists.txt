@@ -191,7 +191,10 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_examples.cpp
             tests/test_species_swap.cpp
             tests/bench_scaling.cpp
+            tests/bench_thf.cpp
     )
+    target_compile_definitions(RMC_tests PRIVATE
+        THF_BENCHMARK_DATA_DIR="${CMAKE_SOURCE_DIR}/examples/benchmark/data")
     target_link_libraries(RMC_tests PRIVATE RMC Catch2::Catch2WithMain)
     if (RMC_COMPILER_MSVC)
         target_compile_options(RMC_tests PRIVATE

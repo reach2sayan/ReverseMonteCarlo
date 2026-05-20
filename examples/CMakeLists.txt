@@ -17,6 +17,7 @@ foreach(ex
     swap_centers
     generator_collector
     path_generators
-    reduced_sq)
+    reduced_sq
+    benchmark)
     add_subdirectory(${ex})
 endforeach()

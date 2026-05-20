@@ -1,4 +1,5 @@
 // path_generators — fullrmc equivalent
+// Single C atom loaded from data/atom.pdb; C4 tetrahedron from data/tetrahedron.pdb.
 // Demonstrates TranslationAlongAxisPath and RotationAboutAxisPath:
 // predefined move sequences applied cyclically.
 //
@@ -16,6 +17,7 @@
 #include <RMC/core/Group.hpp>
 #include <RMC/core/Structure.hpp>
 #include <RMC/generators/Path.hpp>
+#include <RMC/io/PdbReader.hpp>
 #include <RMC/selectors/OrderedSelector.hpp>
 
 #include <cmath>
@@ -24,43 +26,26 @@
 
 using namespace RMC;
 
-static AtomicStructure single_atom() {
-  AtomicStructure s;
-  s.coordinates.resize(1, 3);
-  s.coordinates.setZero();
-  s.atomic_numbers.resize(1);
-  s.atomic_numbers[0] = 6;
-  s.elements.push_back("C");
-  s.names.push_back("C");
-  s.residues.push_back("MOL");
-  s.molecule_ids.push_back(0);
-  return s;
-}
-
-static AtomicStructure tetrahedron() {
-  AtomicStructure s;
-  s.coordinates.resize(4, 3);
-  s.coordinates << 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
-      1.0;
-  s.atomic_numbers.resize(4);
-  s.atomic_numbers.setConstant(6);
-  for (int i = 0; i < 4; ++i) {
-    s.elements.push_back("C");
-    s.names.push_back("C");
-    s.residues.push_back("MOL");
-    s.molecule_ids.push_back(0);
-  }
-  return s;
+static AtomicStructure load(const char *path) {
+  auto r = io::read_pdb(path);
+  if (!r) { std::cerr << "Cannot open " << path << "\n"; std::exit(1); }
+  return std::move(*r);
 }
 
 int main() {
+  const auto atom = load("data/atom.pdb");
+  const auto tet  = load("data/tetrahedron.pdb");
+  std::cout << "Loaded atom.pdb (" << atom.size() << " atom) at ("
+            << atom.coordinates(0,0) << ", " << atom.coordinates(0,1) << ", "
+            << atom.coordinates(0,2) << ")\n";
+  std::cout << "Loaded tetrahedron.pdb (" << tet.size() << " atoms)\n\n";
+
   // ---- A: TranslationAlongAxisPath ----
   {
     std::cout << "=== A: TranslationAlongAxisPath ===\n";
     // Path sums per cycle: +0.5 - 0.3 + 0.2 = +0.4 Å
     std::vector<double> steps = {0.5, -0.3, 0.2};
-    auto s = single_atom();
-    Engine eng(std::move(s), InfiniteBC{});
+    Engine eng(atom, InfiniteBC{});
 
     Group g;
     g.name = "atom";
@@ -69,7 +54,7 @@ int main() {
     eng.add_group(std::move(g));
     eng.set_selector(IGroupSelector{OrderedSelector{}});
 
-    double expected_z = 0.0;
+    double expected_z = atom.coordinates(0, 2);
     for (int step = 0; step < 9; ++step) {
       eng.run(1);
       expected_z += steps[step % 3];
@@ -85,12 +70,11 @@ int main() {
     constexpr double q = std::numbers::pi / 4.0;
     // 4 steps: +45°, +45°, +45°, -135° → net 0 per cycle.
     std::vector<double> angles = {q, q, q, -3.0 * q};
-    auto s = tetrahedron();
 
-    const double d01 = (s.coordinates.row(0) - s.coordinates.row(1)).norm();
-    const double d23 = (s.coordinates.row(2) - s.coordinates.row(3)).norm();
+    const double d01 = (tet.coordinates.row(0) - tet.coordinates.row(1)).norm();
+    const double d23 = (tet.coordinates.row(2) - tet.coordinates.row(3)).norm();
 
-    Engine eng(std::move(s), InfiniteBC{});
+    Engine eng(tet, InfiniteBC{});
     Group g;
     g.name = "mol";
     g.indices = {0, 1, 2, 3};

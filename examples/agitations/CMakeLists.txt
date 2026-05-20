@@ -35,6 +35,8 @@ else()
 endif()
 
 add_executable(agitations main.cpp)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
 target_link_libraries(agitations PRIVATE ${_rmc_target})
 target_compile_features(agitations PRIVATE cxx_std_23)
 

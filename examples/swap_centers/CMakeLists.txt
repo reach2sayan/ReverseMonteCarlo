@@ -35,6 +35,8 @@ else()
 endif()
 
 add_executable(swap_centers main.cpp)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
 target_link_libraries(swap_centers PRIVATE ${_rmc_target})
 target_compile_features(swap_centers PRIVATE cxx_std_23)
 
