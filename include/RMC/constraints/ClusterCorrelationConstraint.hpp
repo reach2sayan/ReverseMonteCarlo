@@ -60,7 +60,7 @@ public:
     return total;
   }
 
-  [[nodiscard]] std::string_view name() const noexcept {
+  [[nodiscard]] static constexpr std::string_view name() noexcept {
     return "ClusterCorrelation";
   }
 
