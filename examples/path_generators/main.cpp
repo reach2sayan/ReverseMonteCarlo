@@ -1,7 +1,7 @@
 // path_generators — fullrmc equivalent
-// Single C atom loaded from data/atom.pdb; C4 tetrahedron from data/tetrahedron.pdb.
-// Demonstrates TranslationAlongAxisPath and RotationAboutAxisPath:
-// predefined move sequences applied cyclically.
+// Single C atom loaded from data/atom.pdb; C4 tetrahedron from
+// data/tetrahedron.pdb. Demonstrates TranslationAlongAxisPath and
+// RotationAboutAxisPath: predefined move sequences applied cyclically.
 //
 // Scenario A — TranslationAlongAxisPath:
 //   Single atom; a 3-step oscillation path along Z (+0.5, -0.3, +0.2 Å)
@@ -28,16 +28,19 @@ using namespace RMC;
 
 static AtomicStructure load(const char *path) {
   auto r = io::read_pdb(path);
-  if (!r) { std::cerr << "Cannot open " << path << "\n"; std::exit(1); }
+  if (!r) {
+    std::cerr << "Cannot open " << path << "\n";
+    std::exit(1);
+  }
   return std::move(*r);
 }
 
 int main() {
   const auto atom = load("data/atom.pdb");
-  const auto tet  = load("data/tetrahedron.pdb");
+  const auto tet = load("data/tetrahedron.pdb");
   std::cout << "Loaded atom.pdb (" << atom.size() << " atom) at ("
-            << atom.coordinates(0,0) << ", " << atom.coordinates(0,1) << ", "
-            << atom.coordinates(0,2) << ")\n";
+            << atom.coordinates(0, 0) << ", " << atom.coordinates(0, 1) << ", "
+            << atom.coordinates(0, 2) << ")\n";
   std::cout << "Loaded tetrahedron.pdb (" << tet.size() << " atoms)\n\n";
 
   // ---- A: TranslationAlongAxisPath ----

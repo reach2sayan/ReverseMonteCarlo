@@ -27,7 +27,10 @@ using namespace RMC;
 
 static AtomicStructure load(const char *path) {
   auto r = io::read_pdb(path);
-  if (!r) { std::cerr << "Cannot open " << path << "\n"; std::exit(1); }
+  if (!r) {
+    std::cerr << "Cannot open " << path << "\n";
+    std::exit(1);
+  }
   return std::move(*r);
 }
 
@@ -39,9 +42,9 @@ molecules(const AtomicStructure &s) {
   return m;
 }
 
-static void add_constraints(Engine &eng,
-                            const std::map<std::size_t,
-                                           std::vector<std::size_t>> &mols) {
+static void
+add_constraints(Engine &eng,
+                const std::map<std::size_t, std::vector<std::size_t>> &mols) {
   BondConstraint bc;
   AngleConstraint ac;
   for (auto &[mid, a] : mols) {
@@ -50,17 +53,16 @@ static void add_constraints(Engine &eng,
       int next = (j + 1) % 5;
       bool oc = (j == 0 || j == 4);
       bc.add_bond(a[static_cast<std::size_t>(j)],
-                  a[static_cast<std::size_t>(next)],
-                  oc ? 1.3 : 1.4, oc ? 1.6 : 1.7);
+                  a[static_cast<std::size_t>(next)], oc ? 1.3 : 1.4,
+                  oc ? 1.6 : 1.7);
     }
     // Ring angles at each vertex.
     for (int j = 0; j < 5; ++j) {
       int prev = (j + 4) % 5, next = (j + 1) % 5;
-      ac.add_angle(a[static_cast<std::size_t>(prev)],
-                   a[static_cast<std::size_t>(j)],
-                   a[static_cast<std::size_t>(next)],
-                   90.0 * std::numbers::pi / 180.0,
-                   115.0 * std::numbers::pi / 180.0);
+      ac.add_angle(
+          a[static_cast<std::size_t>(prev)], a[static_cast<std::size_t>(j)],
+          a[static_cast<std::size_t>(next)], 90.0 * std::numbers::pi / 180.0,
+          115.0 * std::numbers::pi / 180.0);
     }
   }
   eng.add_constraint(std::move(bc));
@@ -90,8 +92,8 @@ static void run(const char *label, bool use_collector,
 
     if (use_collector) {
       MoveGeneratorCollector col(seed + 100);
-      col.add(TranslationGenerator(0.0, 0.15, seed + 1),        3.0);
-      col.add(RotationGenerator(0.0, 0.08, seed + 2),           2.0);
+      col.add(TranslationGenerator(0.0, 0.15, seed + 1), 3.0);
+      col.add(RotationGenerator(0.0, 0.08, seed + 2), 2.0);
       col.add(AngleAgitationGenerator(iO, iC1, iC2, 0.0, 0.04, seed + 3), 1.0);
       g.generator = std::move(col);
     } else {
@@ -107,16 +109,16 @@ static void run(const char *label, bool use_collector,
   eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 13}});
   eng.run(15000);
   std::cout << label << ": accepted " << eng.stats().steps_accepted << " / "
-            << eng.stats().steps_tried << "  err "
-            << eng.stats().last_total_err << "\n";
+            << eng.stats().steps_tried << "  err " << eng.stats().last_total_err
+            << "\n";
 }
 
 int main() {
   const auto tmpl = load("data/thf.pdb");
   const auto mols = molecules(tmpl);
-  std::cout << "Loaded " << tmpl.size() << " atoms ("
-            << mols.size() << " THF rings) from thf.pdb\n\n";
+  std::cout << "Loaded " << tmpl.size() << " atoms (" << mols.size()
+            << " THF rings) from thf.pdb\n\n";
 
-  run("MoveGeneratorCollector (select one)", true,  tmpl);
+  run("MoveGeneratorCollector (select one)", true, tmpl);
   run("CombinedMoveGenerator  (apply all) ", false, tmpl);
 }

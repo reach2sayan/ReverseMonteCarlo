@@ -69,7 +69,7 @@ static void run_phase(const char *label, bool dist_agit, bool angle_agit) {
     if (dist_agit && angle_agit) {
       // Phase 3: collector picks one agitation per step.
       MoveGeneratorCollector col(seed + 200);
-      col.add(DistanceAgitationGenerator(iO, iH1, 0.0, 0.03, seed),     1.0);
+      col.add(DistanceAgitationGenerator(iO, iH1, 0.0, 0.03, seed), 1.0);
       col.add(DistanceAgitationGenerator(iO, iH2, 0.0, 0.03, seed + 1), 1.0);
       col.add(AngleAgitationGenerator(iH1, iO, iH2, 0.0, 0.04, seed + 2), 1.0);
       Group g;
@@ -91,7 +91,8 @@ static void run_phase(const char *label, bool dist_agit, bool angle_agit) {
       Group g;
       g.name = "a" + std::to_string(mid);
       g.indices = {iO, iH1, iH2};
-      g.generator.emplace(AngleAgitationGenerator(iH1, iO, iH2, 0.0, 0.04, seed));
+      g.generator.emplace(
+          AngleAgitationGenerator(iH1, iO, iH2, 0.0, 0.04, seed));
       eng.add_group(std::move(g));
     }
     seed += 10;
@@ -100,16 +101,16 @@ static void run_phase(const char *label, bool dist_agit, bool angle_agit) {
   eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
   eng.run(5000);
   std::cout << label << ": accepted " << eng.stats().steps_accepted << " / "
-            << eng.stats().steps_tried << "  err "
-            << eng.stats().last_total_err << "\n";
+            << eng.stats().steps_tried << "  err " << eng.stats().last_total_err
+            << "\n";
 }
 
 int main() {
   auto s = load("data/waterBox.pdb");
-  std::cout << "Loaded " << s.size() << " atoms ("
-            << molecules(s).size() << " water molecules) from waterBox.pdb\n\n";
+  std::cout << "Loaded " << s.size() << " atoms (" << molecules(s).size()
+            << " water molecules) from waterBox.pdb\n\n";
 
-  run_phase("Phase 1 (distance agitation)", true,  false);
+  run_phase("Phase 1 (distance agitation)", true, false);
   run_phase("Phase 2 (angle agitation)   ", false, true);
-  run_phase("Phase 3 (collector)         ", true,  true);
+  run_phase("Phase 3 (collector)         ", true, true);
 }

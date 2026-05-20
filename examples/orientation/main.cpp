@@ -24,7 +24,10 @@ using namespace RMC;
 
 static AtomicStructure load(const char *path) {
   auto r = io::read_pdb(path);
-  if (!r) { std::cerr << "Cannot open " << path << "\n"; std::exit(1); }
+  if (!r) {
+    std::cerr << "Cannot open " << path << "\n";
+    std::exit(1);
+  }
   return std::move(*r);
 }
 
@@ -37,16 +40,18 @@ molecules(const AtomicStructure &s) {
 }
 
 // Mean angle (degrees) between each CO2 principal axis and the Z-axis.
-static double mean_angle_deg(const Engine &eng,
-                             const std::map<std::size_t,
-                                            std::vector<std::size_t>> &mols) {
+static double
+mean_angle_deg(const Engine &eng,
+               const std::map<std::size_t, std::vector<std::size_t>> &mols) {
   const auto &c = eng.structure().coordinates;
   vec3_t z{0, 0, 1};
   double sum = 0;
   for (auto &[mid, atoms] : mols) {
     // Principal axis: first atom → last atom in molecule.
     vec3_t ax = (c.row(static_cast<Eigen::Index>(atoms.back())) -
-                 c.row(static_cast<Eigen::Index>(atoms.front()))).transpose().normalized();
+                 c.row(static_cast<Eigen::Index>(atoms.front())))
+                    .transpose()
+                    .normalized();
     double cos_a = std::abs(ax.dot(z));
     sum += std::acos(std::clamp(cos_a, 0.0, 1.0)) * 180.0 / std::numbers::pi;
   }
@@ -56,13 +61,13 @@ static double mean_angle_deg(const Engine &eng,
 int main() {
   const auto tmpl = load("data/co2.pdb");
   const auto mols = molecules(tmpl);
-  std::cout << "Loaded " << tmpl.size() << " atoms ("
-            << mols.size() << " CO2 molecules) from co2.pdb\n";
+  std::cout << "Loaded " << tmpl.size() << " atoms (" << mols.size()
+            << " CO2 molecules) from co2.pdb\n";
 
   {
     Engine tmp(tmpl, InfiniteBC{});
-    std::cout << "Initial mean axis angle from Z: "
-              << mean_angle_deg(tmp, mols) << "°\n\n";
+    std::cout << "Initial mean axis angle from Z: " << mean_angle_deg(tmp, mols)
+              << "°\n\n";
   }
 
   Engine eng(tmpl, InfiniteBC{});
@@ -74,8 +79,8 @@ int main() {
     bc.add_bond(atoms[0], atoms[1], 1.0, 1.3);
     bc.add_bond(atoms[2], atoms[1], 1.0, 1.3);
     // O1-C-O2 linearity [170°, 180°].
-    ac.add_angle(atoms[0], atoms[1], atoms[2],
-                 170.0 * std::numbers::pi / 180.0, std::numbers::pi);
+    ac.add_angle(atoms[0], atoms[1], atoms[2], 170.0 * std::numbers::pi / 180.0,
+                 std::numbers::pi);
   }
   eng.add_constraint(std::move(bc));
   eng.add_constraint(std::move(ac));
@@ -100,9 +105,9 @@ int main() {
   eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 7}});
   eng.run(20000);
 
-  std::cout << "Final mean axis angle from Z:   "
-            << mean_angle_deg(eng, mols) << "°\n";
+  std::cout << "Final mean axis angle from Z:   " << mean_angle_deg(eng, mols)
+            << "°\n";
   std::cout << "Accepted " << eng.stats().steps_accepted << " / "
-            << eng.stats().steps_tried << "  err "
-            << eng.stats().last_total_err << "\n";
+            << eng.stats().steps_tried << "  err " << eng.stats().last_total_err
+            << "\n";
 }

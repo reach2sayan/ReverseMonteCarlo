@@ -21,17 +21,24 @@ using namespace RMC;
 
 static AtomicStructure load_pdb(const char *path) {
   auto r = io::read_pdb(path);
-  if (!r) { std::cerr << "Cannot open " << path << "\n"; std::exit(1); }
+  if (!r) {
+    std::cerr << "Cannot open " << path << "\n";
+    std::exit(1);
+  }
   return std::move(*r);
 }
 
 static mat_t load_fq(const char *path) {
   auto r = io::read_xy_data(path);
-  if (!r) { std::cerr << "Cannot open " << path << "\n"; std::exit(1); }
+  if (!r) {
+    std::cerr << "Cannot open " << path << "\n";
+    std::exit(1);
+  }
   return std::move(*r);
 }
 
-static Engine build(const AtomicStructure &tmpl, double a, const mat_t &fq_data) {
+static Engine build(const AtomicStructure &tmpl, double a,
+                    const mat_t &fq_data) {
   mat3_t box = mat3_t::Zero();
   box.diagonal() << 4 * a, 4 * a, 2 * a;
   Engine eng(tmpl, PeriodicBC{box});
@@ -61,11 +68,12 @@ static void run_phase(const char *label, double amp,
 int main() {
   constexpr double a = 2.87;
 
-  const auto tmpl   = load_pdb("data/system.pdb");
+  const auto tmpl = load_pdb("data/system.pdb");
   const auto fq_data = load_fq("data/experimental.fq");
 
   std::cout << "Loaded " << tmpl.size() << " atoms from system.pdb\n";
-  std::cout << "Loaded " << fq_data.rows() << " Q points from experimental.fq\n\n";
+  std::cout << "Loaded " << fq_data.rows()
+            << " Q points from experimental.fq\n\n";
 
   run_phase("Phase 1", 0.10, tmpl, a, fq_data, 5000);
   run_phase("Phase 2", 0.05, tmpl, a, fq_data, 5000);

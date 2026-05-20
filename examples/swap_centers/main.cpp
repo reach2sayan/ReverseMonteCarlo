@@ -21,7 +21,10 @@ using namespace RMC;
 
 static AtomicStructure load(const char *path) {
   auto r = io::read_pdb(path);
-  if (!r) { std::cerr << "Cannot open " << path << "\n"; std::exit(1); }
+  if (!r) {
+    std::cerr << "Cannot open " << path << "\n";
+    std::exit(1);
+  }
   return std::move(*r);
 }
 
@@ -33,9 +36,9 @@ molecules(const AtomicStructure &s) {
   return m;
 }
 
-static double centroid_spread(const Engine &eng,
-                              const std::map<std::size_t,
-                                             std::vector<std::size_t>> &mols) {
+static double
+centroid_spread(const Engine &eng,
+                const std::map<std::size_t, std::vector<std::size_t>> &mols) {
   const auto &c = eng.structure().coordinates;
   double cx = 0, cy = 0;
   for (auto &[mid, atoms] : mols) {
@@ -64,12 +67,13 @@ static double centroid_spread(const Engine &eng,
 int main() {
   const auto tmpl = load("data/dimers.pdb");
   const auto mols = molecules(tmpl);
-  std::cout << "Loaded " << tmpl.size() << " atoms ("
-            << mols.size() << " dimers) from dimers.pdb\n";
+  std::cout << "Loaded " << tmpl.size() << " atoms (" << mols.size()
+            << " dimers) from dimers.pdb\n";
 
   {
     Engine tmp(tmpl, InfiniteBC{});
-    std::cout << "Initial centroid spread: " << centroid_spread(tmp, mols) << "\n\n";
+    std::cout << "Initial centroid spread: " << centroid_spread(tmp, mols)
+              << "\n\n";
   }
 
   Engine eng(tmpl, InfiniteBC{});
@@ -97,7 +101,8 @@ int main() {
   eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
   eng.run(10000);
 
-  std::cout << "Final centroid spread:   " << centroid_spread(eng, mols) << "\n";
+  std::cout << "Final centroid spread:   " << centroid_spread(eng, mols)
+            << "\n";
   std::cout << "Accepted " << eng.stats().steps_accepted << " / "
             << eng.stats().steps_tried << "\n";
 }

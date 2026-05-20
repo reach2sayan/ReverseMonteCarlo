@@ -390,3 +390,47 @@ TEST_CASE("bench: generator cost (N=64, single group)", "[!benchmark]") {
     meter.measure([&] { engine.run(STEPS); });
   };
 }
+
+// 8. OpenMP thread scaling for accumulate_pair_histogram (N=512, PDF)
+// Measures wall-clock time of PDF constraint kernel at 1, 2, 4, and
+// max available threads. Each benchmark sets omp_set_num_threads before
+// running so the results are directly comparable.
+// Expected: near-linear speedup up to the number of physical cores.
+#ifdef _OPENMP
+#include <omp.h>
+TEST_CASE("bench: PDF kernel OpenMP thread scaling (N=512)", "[!benchmark]") {
+  constexpr int N     = 512;
+  constexpr int STEPS = 200;
+
+  auto make = [&](int nthreads) {
+    omp_set_num_threads(nthreads);
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.add_constraint(make_pdf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    return engine;
+  };
+
+  BENCHMARK_ADVANCED("1 thread")(Catch::Benchmark::Chronometer meter) {
+    auto engine = make(1);
+    meter.measure([&] { engine.run(STEPS); });
+    omp_set_num_threads(omp_get_max_threads());
+  };
+
+  BENCHMARK_ADVANCED("2 threads")(Catch::Benchmark::Chronometer meter) {
+    auto engine = make(2);
+    meter.measure([&] { engine.run(STEPS); });
+    omp_set_num_threads(omp_get_max_threads());
+  };
+
+  BENCHMARK_ADVANCED("4 threads")(Catch::Benchmark::Chronometer meter) {
+    auto engine = make(4);
+    meter.measure([&] { engine.run(STEPS); });
+    omp_set_num_threads(omp_get_max_threads());
+  };
+
+  BENCHMARK_ADVANCED("max threads")(Catch::Benchmark::Chronometer meter) {
+    auto engine = make(omp_get_max_threads());
+    meter.measure([&] { engine.run(STEPS); });
+  };
+}
+#endif

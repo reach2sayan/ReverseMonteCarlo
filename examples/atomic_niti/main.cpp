@@ -27,8 +27,8 @@ static AtomicStructure make_niti(double a = 2.87) {
   s.atomic_numbers.resize(N);
 
   int idx = 0;
-  for (int iz = 0; iz < Nz; ++iz)
-    for (int iy = 0; iy < Ny; ++iy)
+  for (int iz = 0; iz < Nz; ++iz) {
+    for (int iy = 0; iy < Ny; ++iy) {
       for (int ix = 0; ix < Nx; ++ix) {
         s.coordinates.row(idx) << ix * a, iy * a, iz * a;
         // Alternate Ni / Ti checkerboard.
@@ -40,6 +40,8 @@ static AtomicStructure make_niti(double a = 2.87) {
         s.molecule_ids.push_back(static_cast<std::size_t>(idx));
         ++idx;
       }
+    }
+  }
   return s;
 }
 

@@ -10,6 +10,9 @@
 #include <span>
 #include <string>
 #include <vector>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace RMC {
 
@@ -46,35 +49,69 @@ inline void accumulate_pair_histogram(
   const bool weighted = !weight_table.empty();
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
 
+#ifdef _OPENMP
+  const int nthreads = omp_get_max_threads();
+  std::vector<vec_t> partial(static_cast<std::size_t>(nthreads),
+                             vec_t::Zero(n_bins));
+
+#pragma omp parallel for schedule(static)
+  for (Eigen::Index i = 0; i < N - 1; ++i) {
+    vec_t &local = partial[static_cast<std::size_t>(omp_get_thread_num())];
+    for (Eigen::Index j = i + 1; j < N; ++j) {
+      if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
+                              molecule_ids[static_cast<std::size_t>(j)]) {
+        continue;
+      }
+      vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
+      if (bc)
+        delta = bc_min_image(*bc, delta);
+      const double d = delta.norm();
+      if (d < r_min || d >= r_max)
+        continue;
+      const int bin = static_cast<int>((d - r_min) / bin_width);
+      if (bin < 0 || bin >= n_bins)
+        continue;
+      double w = 1.0;
+      if (weighted) {
+        PairIdKey key{elem_id[static_cast<std::size_t>(i)],
+                      elem_id[static_cast<std::size_t>(j)]};
+        if (auto it = weight_table.find(key); it != weight_table.end())
+          w = it->second;
+      }
+      local(bin) += 2.0 * w;
+    }
+  }
+
+  for (auto &p : partial)
+    hist += p;
+
+#else
   for (auto [i, j] : upper_triangle_pairs(N)) {
+    // for (Eigen::Index j = i + 1; j < N; ++j) {
     if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
                             molecule_ids[static_cast<std::size_t>(j)]) {
       continue;
     }
-
     vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-    if (bc) {
+    if (bc)
       delta = bc_min_image(*bc, delta);
-    }
     const double d = delta.norm();
-    if (d < r_min || d >= r_max) {
+    if (d < r_min || d >= r_max)
       continue;
-    }
     const int bin = static_cast<int>((d - r_min) / bin_width);
-    if (bin < 0 || bin >= n_bins) {
+    if (bin < 0 || bin >= n_bins)
       continue;
-    }
-
     double w = 1.0;
     if (weighted) {
       PairIdKey key{elem_id[static_cast<std::size_t>(i)],
                     elem_id[static_cast<std::size_t>(j)]};
-      if (auto it = weight_table.find(key); it != weight_table.end()) {
+      if (auto it = weight_table.find(key); it != weight_table.end())
         w = it->second;
-      }
     }
     hist(bin) += 2.0 * w;
+    //}
   }
+#endif
 }
 
 // ---------------------------------------------------------------------------
