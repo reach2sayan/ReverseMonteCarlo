@@ -128,8 +128,13 @@ private:
       build_ids();
     const std::size_t N = static_cast<std::size_t>(coords.rows());
     cn_.resize(shells_.size());
-    for (std::size_t si = 0; si < shells_.size(); ++si)
-      cn_[si] = count_shell(coords, si, N);
+    const auto ns = static_cast<std::ptrdiff_t>(shells_.size());
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (std::ptrdiff_t si = 0; si < ns; ++si)
+      cn_[static_cast<std::size_t>(si)] =
+          count_shell(coords, static_cast<std::size_t>(si), N);
     cn_ready_ = true;
   }
 

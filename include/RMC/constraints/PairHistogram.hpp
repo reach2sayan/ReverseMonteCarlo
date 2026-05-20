@@ -39,80 +39,12 @@ using PairWeightTable = boost::container::flat_map<PairIdKey, double>;
 // Each pair (i<j) contributes 2*w to hist[bin].
 // If molecule_ids is non-empty and exclude_intra is true, same-molecule pairs
 // are skipped (useful for modelling molecular liquids).
-inline void accumulate_pair_histogram(
+void accumulate_pair_histogram(
     vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
     const std::vector<uint8_t> &elem_id, const PairWeightTable &weight_table,
     double r_min, double r_max, double bin_width, int n_bins,
     std::span<const std::size_t> molecule_ids = {},
-    bool exclude_intra = false) {
-  const Eigen::Index N = coords.rows();
-  const bool weighted = !weight_table.empty();
-  const bool filter_intra = exclude_intra && !molecule_ids.empty();
-
-#ifdef _OPENMP
-  const int nthreads = omp_get_max_threads();
-  std::vector<vec_t> partial(static_cast<std::size_t>(nthreads),
-                             vec_t::Zero(n_bins));
-
-#pragma omp parallel for schedule(static)
-  for (Eigen::Index i = 0; i < N - 1; ++i) {
-    vec_t &local = partial[static_cast<std::size_t>(omp_get_thread_num())];
-    for (Eigen::Index j = i + 1; j < N; ++j) {
-      if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                              molecule_ids[static_cast<std::size_t>(j)]) {
-        continue;
-      }
-      vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-      if (bc)
-        delta = bc_min_image(*bc, delta);
-      const double d = delta.norm();
-      if (d < r_min || d >= r_max)
-        continue;
-      const int bin = static_cast<int>((d - r_min) / bin_width);
-      if (bin < 0 || bin >= n_bins)
-        continue;
-      double w = 1.0;
-      if (weighted) {
-        PairIdKey key{elem_id[static_cast<std::size_t>(i)],
-                      elem_id[static_cast<std::size_t>(j)]};
-        if (auto it = weight_table.find(key); it != weight_table.end())
-          w = it->second;
-      }
-      local(bin) += 2.0 * w;
-    }
-  }
-
-  for (auto &p : partial)
-    hist += p;
-
-#else
-  for (auto [i, j] : upper_triangle_pairs(N)) {
-    // for (Eigen::Index j = i + 1; j < N; ++j) {
-    if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                            molecule_ids[static_cast<std::size_t>(j)]) {
-      continue;
-    }
-    vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-    if (bc)
-      delta = bc_min_image(*bc, delta);
-    const double d = delta.norm();
-    if (d < r_min || d >= r_max)
-      continue;
-    const int bin = static_cast<int>((d - r_min) / bin_width);
-    if (bin < 0 || bin >= n_bins)
-      continue;
-    double w = 1.0;
-    if (weighted) {
-      PairIdKey key{elem_id[static_cast<std::size_t>(i)],
-                    elem_id[static_cast<std::size_t>(j)]};
-      if (auto it = weight_table.find(key); it != weight_table.end())
-        w = it->second;
-    }
-    hist(bin) += 2.0 * w;
-    //}
-  }
-#endif
-}
+    bool exclude_intra = false);
 
 // ---------------------------------------------------------------------------
 // Shared base: r-grid, shell volumes, element-ID table, weight table.
@@ -211,7 +143,7 @@ public:
 
   [[nodiscard]] double
   compute_error(const coords_t &coords,
-                std::span<const std::size_t> /*moved*/) const {
+                std::span<const std::size_t>) const {
     computed_.setZero();
     accumulate_pair_histogram(computed_, coords, bc_, elem_id_, weight_table_,
                               r_min_, r_max_, bin_width_, n_bins_,

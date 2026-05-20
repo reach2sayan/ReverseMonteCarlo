@@ -14,18 +14,6 @@
 
 namespace RMC {
 
-// Batch buffer backed by a boost::coroutines2 generator.
-//
-// The coroutine owns its engine + distribution + fill buffer on its own
-// heap-allocated stack. It default-constructs Dist (so uniform → [0,1),
-// normal → N(0,1)) and yields a std::span over the freshly-filled array.
-// The span is valid while the coroutine is suspended; the caller must not
-// resume the coroutine while holding the span.
-//
-// Context-switch cost (~150 cycles, boost::context) is amortised over N
-// values per yield — for N=1024 this is ~0.15 cycles overhead per sample.
-//
-// Copy semantics: copies restart from the same seed (independent fresh stream).
 template <typename Dist, std::size_t N = 1024> class RngBatchBuffer {
   using T = typename Dist::result_type;
   using coro_t = boost::coroutines2::coroutine<std::span<const T>>;
@@ -70,15 +58,6 @@ public:
   }
 };
 
-// Convenience façade exposing three independent random streams:
-//   uniform()        → [0, 1)   batched via coroutine
-//   uniform(lo, hi)  → [lo, hi) scaled from the [0,1) buffer
-//   normal()         → N(0, 1)  batched via coroutine (Ziggurat)
-//   engine()         → raw boost::random::mt19937 for ad-hoc distributions
-//                      (uniform_int, discrete, etc.)
-//
-// Seeds are offset by 1/2 so the three streams are statistically independent.
-// Copy semantics inherited from RngBatchBuffer: copies restart from same seed.
 template <std::size_t N = 1024> class RngBuffer {
 public:
   explicit RngBuffer(std::uint32_t seed = 42)
