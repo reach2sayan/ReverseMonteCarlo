@@ -68,31 +68,7 @@ private:
     constraints_.compute_after_move(structure_.coordinates, c.group->span());
   }
 
-  constexpr void settle(TrialCtx &c) {
-    // Let gradient-based generators (HMC/leapfrog) supply their own
-    // accept/reject; fall back to the standard Metropolis criterion from
-    // constraints otherwise.
-    bool rejected;
-    if (auto override_rej = c.group->generator->rejection_override()) {
-      rejected = *override_rej;
-    } else {
-      rejected = constraints_.should_reject();
-    }
-    if (!rejected && !collector_.pending().empty()) {
-      collector_.commit_removal();
-    } else {
-      collector_.rollback_removal();
-    }
-    if (rejected) {
-      structure_.restore_snapshot(c.group->span());
-      structure_.restore_species_snapshot();
-      constraints_.reject();
-    } else {
-      constraints_.accept();
-      ++n_steps_accepted_;
-    }
-    selector_.feedback(c.gi, !rejected);
-  }
+  constexpr void settle(TrialCtx &c);
   constexpr void maybe_checkpoint() {
     if (checkpoint_path_ && n_steps_accepted_ > 0 &&
         n_steps_accepted_ % checkpoint_every_ == 0) {
@@ -103,16 +79,7 @@ private:
     }
   }
 
-  constexpr void step() {
-    ++n_steps_total_;
-    select_group()
-        .and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
-        .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
-        .and_then(stage([&](TrialCtx &c) { score_after(c); }))
-        .and_then(stage([&](TrialCtx &c) { settle(c); }));
-    maybe_log();
-    maybe_checkpoint();
-  }
+  constexpr void step();
 
   AtomicStructure structure_;
   GroupSelector selector_;
@@ -122,5 +89,42 @@ private:
   std::optional<std::filesystem::path> checkpoint_path_;
   std::uint64_t checkpoint_every_{5000};
 };
+
+constexpr void Engine::settle(TrialCtx &c) {
+  // Let gradient-based generators (HMC/leapfrog) supply their own
+  // accept/reject; fall back to the standard Metropolis criterion from
+  // constraints otherwise.
+  bool rejected;
+  if (auto override_rej = c.group->generator->rejection_override()) {
+    rejected = *override_rej;
+  } else {
+    rejected = constraints_.should_reject();
+  }
+  if (!rejected && !collector_.pending().empty()) {
+    collector_.commit_removal();
+  } else {
+    collector_.rollback_removal();
+  }
+  if (rejected) {
+    structure_.restore_snapshot(c.group->span());
+    structure_.restore_species_snapshot();
+    constraints_.reject();
+  } else {
+    constraints_.accept();
+    ++n_steps_accepted_;
+  }
+  selector_.feedback(c.gi, !rejected);
+}
+
+constexpr void Engine::step() {
+  ++n_steps_total_;
+  select_group()
+      .and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
+      .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
+      .and_then(stage([&](TrialCtx &c) { score_after(c); }))
+      .and_then(stage([&](TrialCtx &c) { settle(c); }));
+  maybe_log();
+  maybe_checkpoint();
+}
 
 } // namespace RMC
