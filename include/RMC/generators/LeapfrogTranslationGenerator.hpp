@@ -99,8 +99,9 @@ struct LeapfrogTranslationGenerator
             r_diff_flat(3 * ai + d) = coords(atom, d) - saved(ai, d);
           }
         }
-        if (p.dot(r_diff_flat) < 0.0)
+        if (p.dot(r_diff_flat) < 0.0) {
           break;
+        }
       }
     }
     (void)steps_done;
@@ -118,8 +119,8 @@ struct LeapfrogTranslationGenerator
         (log_alpha < 0.0) && (rng.uniform() > std::exp(log_alpha));
 
     if (rejected) {
-      // Restore original positions; Engine's score_after will then see
-      // err_after ≈ err_before and accept the no-op correctly.
+      // Engine's `score_after` will then see
+      // `err_after ≈ err_before` and accept the no-op correctly.
       coords(idx, Eigen::all) = saved;
     }
     rejection_hint_ = rejected;

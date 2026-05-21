@@ -21,7 +21,8 @@ private:
 template <typename T>
 concept CConstraint =
     requires(T &c, detail::ConstraintToken tok, const coords_t &coords,
-             std::span<const std::size_t> moved, const BoundaryConditions &bc) {
+             std::span<const std::size_t> moved, const BoundaryConditions &bc,
+             std::size_t k) {
       c.compute_before_move(tok, coords, moved);
       c.compute_after_move(tok, coords, moved);
       c.accept(tok);
@@ -33,6 +34,8 @@ concept CConstraint =
       c.set_boundary_conditions(tok, bc);
       { c.is_rigid(tok) } -> std::convertible_to<bool>;
       { c.is_singular(tok) } -> std::convertible_to<bool>;
+      c.set_n_frames(tok, k);
+      c.set_active_frame(tok, k);
     };
 
 class Constraint {
@@ -84,6 +87,12 @@ public:
   [[nodiscard]] constexpr bool is_singular() const noexcept {
     return self_->is_singular();
   }
+  constexpr void set_n_frames(std::size_t n) noexcept {
+    self_->set_n_frames(n);
+  }
+  constexpr void set_active_frame(std::size_t k) noexcept {
+    self_->set_active_frame(k);
+  }
 
 private:
   static Token make_token() noexcept { return {}; }
@@ -102,6 +111,8 @@ private:
     virtual void set_boundary_conditions(const BoundaryConditions &) = 0;
     [[nodiscard]] virtual bool is_rigid() const noexcept = 0;
     [[nodiscard]] virtual bool is_singular() const noexcept = 0;
+    virtual void set_n_frames(std::size_t) noexcept = 0;
+    virtual void set_active_frame(std::size_t) noexcept = 0;
     virtual std::unique_ptr<ConstraintConcept> clone() const = 0;
   };
 
@@ -139,6 +150,12 @@ private:
     }
     constexpr bool is_singular() const noexcept override {
       return data_.is_singular(make_token());
+    }
+    void set_n_frames(std::size_t n) noexcept override {
+      data_.set_n_frames(make_token(), n);
+    }
+    void set_active_frame(std::size_t k) noexcept override {
+      data_.set_active_frame(make_token(), k);
     }
     constexpr std::unique_ptr<ConstraintConcept> clone() const override {
       return std::make_unique<ConstraintModel<T>>(data_);
@@ -218,6 +235,9 @@ public:
   [[nodiscard]] static constexpr bool is_singular(Constraint::Token) noexcept {
     return false;
   }
+  // No-op defaults for multi-frame support; override in pair constraints.
+  constexpr void set_n_frames(Constraint::Token, std::size_t) noexcept {}
+  constexpr void set_active_frame(Constraint::Token, std::size_t) noexcept {}
 
 protected:
   [[nodiscard]] constexpr FORCE_INLINE double

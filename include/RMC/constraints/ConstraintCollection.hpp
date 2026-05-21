@@ -75,6 +75,15 @@ public:
         [](double acc, const auto &c) { return acc + c.standard_error(); });
   }
 
+  constexpr void set_n_frames(std::size_t n) noexcept {
+    std::ranges::for_each(constraints_,
+                          [n](Constraint &c) { c.set_n_frames(n); });
+  }
+  constexpr void set_active_frame(std::size_t k) noexcept {
+    std::ranges::for_each(constraints_,
+                          [k](Constraint &c) { c.set_active_frame(k); });
+  }
+
   [[nodiscard]] constexpr std::size_t size() const noexcept {
     return constraints_.size();
   }

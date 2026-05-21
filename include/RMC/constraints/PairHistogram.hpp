@@ -6,7 +6,9 @@
 #include <boost/container/flat_map.hpp>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <numbers>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -34,6 +36,27 @@ struct PairIdKey {
 };
 
 using PairWeightTable = boost::container::flat_map<PairIdKey, double>;
+
+// Shape-function factory helpers for nanoparticle PDF corrections.
+// Apply via PairConstraintBase::set_shape_function().
+
+// Spherical envelope for a particle of given diameter:
+//   f(r) = 1 - (3/2)(r/d) + (1/2)(r/d)³   for r < d, else 0
+inline auto spherical_shape_fn(double diameter) {
+  return [d = diameter](double r) -> double {
+    if (r >= d)
+      return 0.0;
+    const double x = r / d;
+    return 1.0 - 1.5 * x + 0.5 * x * x * x;
+  };
+}
+
+// Gaussian damping envelope:  f(r) = exp(-r²/σ²)
+inline auto gaussian_shape_fn(double sigma) {
+  return [s = sigma](double r) -> double {
+    return std::exp(-(r * r) / (s * s));
+  };
+}
 
 // Accumulate a raw pair-count histogram into `hist`.
 // Each pair (i<j) contributes 2*w to hist[bin].
@@ -87,6 +110,35 @@ public:
     molecule_ids_ = ids;
   }
   constexpr void set_exclude_intra(bool v) noexcept { exclude_intra_ = v; }
+
+  // Shape function: f(r) multiplied into the computed G(r) before chi²
+  // evaluation. Use spherical_shape_fn() or gaussian_shape_fn() as factories.
+  void set_shape_function(std::function<double(double)> fn) {
+    shape_fn_ = std::move(fn);
+  }
+
+  // Multi-frame: allocate per-frame histograms. Must be called after
+  // set_experimental_data() so that n_bins_ is known.
+  void set_n_frames(std::size_t n) {
+    BOOST_ASSERT_MSG(n_bins_ > 0,
+                     "call set_experimental_data before set_n_frames");
+    n_frames_ = n;
+    frame_hists_.assign(n, vec_t::Zero(n_bins_));
+    sum_hist_ = vec_t::Zero(n_bins_);
+    saved_frame_hist_.resize(n_bins_);
+  }
+  void set_active_frame_idx(std::size_t k) noexcept { active_frame_ = k; }
+
+  // Roll back the active frame's histogram to the state saved during the last
+  // compute_error() call (used by PairFunctionConstraint::reject()).
+  void rollback_frame() noexcept {
+    if (n_frames_ > 1) {
+      sum_hist_ -= frame_hists_[active_frame_];
+      frame_hists_[active_frame_] = saved_frame_hist_;
+      sum_hist_ += saved_frame_hist_;
+    }
+  }
+
   [[nodiscard]] constexpr const vec_t &computed_G() const noexcept {
     return computed_;
   }
@@ -96,6 +148,16 @@ public:
 
   // Call after set_experimental_data / set_elements / set_weight.
   void initialise();
+
+protected:
+  std::optional<std::function<double(double)>> shape_fn_;
+
+  // Multi-frame state (mutable: modified inside const compute_error())
+  std::size_t n_frames_{1};
+  std::size_t active_frame_{0};
+  mutable std::vector<vec_t> frame_hists_;
+  mutable vec_t sum_hist_;
+  mutable vec_t saved_frame_hist_;
 };
 
 // ---------------------------------------------------------------------------
@@ -140,28 +202,73 @@ public:
   [[nodiscard]] double
   compute_error(const coords_t &coords,
                 std::span<const std::size_t>) const {
-    computed_.setZero();
-    accumulate_pair_histogram(computed_, coords, bc_, elem_id_, weight_table_,
-                              r_min_, r_max_, n_bins_,
-                              molecule_ids_, exclude_intra_);
-
     const Eigen::Index N = coords.rows();
 
-    if constexpr (Mode == PairNorm::PDF) {
-      const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
-      const auto r = r_min_ + (idx + 0.5) * bin_width_;
-      computed_.array() =
-          4.0 * std::numbers::pi * r * rho0_ *
-          (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
+    if (n_frames_ > 1) {
+      // Delta-update: recompute only the active frame's histogram.
+      saved_frame_hist_ = frame_hists_[active_frame_];
+      vec_t tmp = vec_t::Zero(n_bins_);
+      accumulate_pair_histogram(tmp, coords, bc_, elem_id_, weight_table_,
+                                r_min_, r_max_, n_bins_,
+                                molecule_ids_, exclude_intra_);
+      sum_hist_ += tmp - saved_frame_hist_;
+      frame_hists_[active_frame_] = std::move(tmp);
+
+      // Normalise averaged histogram to G(r) / PCF.
+      computed_ = sum_hist_ / static_cast<double>(n_frames_);
+      if constexpr (Mode == PairNorm::PDF) {
+        const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
+        const auto r = r_min_ + (idx + 0.5) * bin_width_;
+        computed_.array() =
+            4.0 * std::numbers::pi * r * rho0_ *
+            (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
+      } else {
+        computed_.array() /= shell_vols_.array() * rho0_ * N;
+        computed_.array() -= 1.0;
+      }
     } else {
-      computed_.array() /= shell_vols_.array() * rho0_ * N;
-      computed_.array() -= 1.0;
+      // Single-frame path (unchanged).
+      computed_.setZero();
+      accumulate_pair_histogram(computed_, coords, bc_, elem_id_, weight_table_,
+                                r_min_, r_max_, n_bins_,
+                                molecule_ids_, exclude_intra_);
+      if constexpr (Mode == PairNorm::PDF) {
+        const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
+        const auto r = r_min_ + (idx + 0.5) * bin_width_;
+        computed_.array() =
+            4.0 * std::numbers::pi * r * rho0_ *
+            (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
+      } else {
+        computed_.array() /= shell_vols_.array() * rho0_ * N;
+        computed_.array() -= 1.0;
+      }
+    }
+
+    // Apply shape function (nanoparticle envelope), if set.
+    if (shape_fn_) {
+      const auto &fn = *shape_fn_;
+      for (int i = 0; i < n_bins_; ++i)
+        computed_[i] *= fn(r_min_ + (i + 0.5) * bin_width_);
     }
 
     const double denom = computed_.squaredNorm();
     const double scale =
         (denom > 1e-30) ? computed_.dot(exp_data_) / denom : 1.0;
     return (scale * computed_ - exp_data_).squaredNorm();
+  }
+
+  // Token-gated wrappers for CConstraint compliance (multi-frame).
+  void set_n_frames(Constraint::Token, std::size_t n) {
+    PairConstraintBase::set_n_frames(n);
+  }
+  void set_active_frame(Constraint::Token, std::size_t k) noexcept {
+    PairConstraintBase::set_active_frame_idx(k);
+  }
+
+  // Restore the active frame's histogram on rejection.
+  void reject(Constraint::Token tok) noexcept {
+    SingularConstraintBase<PairFunctionConstraint<Mode>>::reject(tok);
+    PairConstraintBase::rollback_frame();
   }
 };
 

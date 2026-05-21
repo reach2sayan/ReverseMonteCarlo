@@ -1,6 +1,7 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
+#include <functional>
 #include <string>
 
 namespace RMC {
@@ -32,6 +33,19 @@ public:
   constexpr void set_number_density(double rho0) noexcept { rho0_ = rho0; }
   void set_weight(const std::string &el1, const std::string &el2, double w) {
     weights_[PairElemKey{el1, el2}] = w;
+  }
+  void set_shape_function(std::function<double(double)> fn) {
+    pdf_.set_shape_function(std::move(fn));
+  }
+  void set_n_frames(Constraint::Token, std::size_t n) {
+    pdf_.PairConstraintBase::set_n_frames(n);
+  }
+  void set_active_frame(Constraint::Token, std::size_t k) noexcept {
+    pdf_.set_active_frame_idx(k);
+  }
+  void reject(Constraint::Token tok) noexcept {
+    SingularConstraintBase<StructureFactorConstraint>::reject(tok);
+    pdf_.rollback_frame();
   }
   void initialise(); // builds Gr2Sq matrix
 
