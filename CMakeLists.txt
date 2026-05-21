@@ -153,6 +153,12 @@ if (RMC_USE_OPENMP AND OpenMP_CXX_FOUND)
 endif ()
 
 option(RMC_USE_TBB "Use Intel TBB for parallel full-histogram builds (off by default)" OFF)
+if (RMC_USE_TBB AND RMC_USE_OPENMP)
+    message(FATAL_ERROR
+        "RMC_USE_TBB and RMC_USE_OPENMP are mutually exclusive — "
+        "both parallelize accumulate_pair_histogram and will oversubscribe the CPU. "
+        "Enable at most one.")
+endif ()
 if (RMC_USE_TBB)
     find_package(TBB REQUIRED)
     target_link_libraries(RMC PUBLIC TBB::tbb)
