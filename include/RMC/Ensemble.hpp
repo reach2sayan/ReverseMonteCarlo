@@ -13,6 +13,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(RMC_USE_TBB)
+#include <oneapi/tbb/global_control.h>
+#endif
+
 namespace RMC {
 
 // Runs n_replicas engines in parallel threads (each built by make_engine(i))
@@ -40,6 +44,16 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
     tasks.emplace_back([&run_fn, i] { run_fn(i); });
     futs.push_back(tasks.back().get_future());
   }
+#if defined(RMC_USE_TBB)
+  // Cap TBB's thread pool so that N_replicas × N_tbb_workers ≤
+  // hardware_concurrency.
+  const std::size_t tbb_threads =
+      std::max(std::size_t{1},
+               static_cast<std::size_t>(std::thread::hardware_concurrency()) /
+                   n_replicas);
+  tbb::global_control tbb_gc(tbb::global_control::max_allowed_parallelism,
+                             tbb_threads);
+#endif
   std::vector<std::jthread> threads;
   threads.reserve(n_replicas);
   for (auto &task : tasks) {
@@ -127,6 +141,14 @@ Engine run_ensemble_cooperative(F make_engine, std::size_t n_replicas,
     futs.push_back(tasks.back().get_future());
   }
 
+#if defined(RMC_USE_TBB)
+  const std::size_t tbb_threads_coop =
+      std::max(std::size_t{1},
+               static_cast<std::size_t>(std::thread::hardware_concurrency()) /
+                   (n_replicas * 2));
+  tbb::global_control tbb_gc_coop(tbb::global_control::max_allowed_parallelism,
+                                  tbb_threads_coop);
+#endif
   std::vector<std::jthread> threads;
   threads.reserve(n_replicas);
   for (auto &task : tasks) {
