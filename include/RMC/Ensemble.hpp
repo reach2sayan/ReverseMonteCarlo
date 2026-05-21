@@ -17,7 +17,42 @@
 #include <oneapi/tbb/global_control.h>
 #endif
 
+#include <cstdlib>
+
 namespace RMC {
+
+namespace detail {
+
+// Returns the number of CPUs allocated to this process, in priority order:
+//   1. SLURM_CPUS_PER_TASK  (SLURM scheduler)
+//   2. PBS_NUM_PPN           (PBS/Torque scheduler)
+//   3. LSB_DJOB_NUMPROC      (LSF scheduler)
+//   4. std::thread::hardware_concurrency() (local fallback)
+inline std::size_t allocated_cpus() noexcept {
+  for (const char *var :
+       {"SLURM_CPUS_PER_TASK", "PBS_NUM_PPN", "LSB_DJOB_NUMPROC"}) {
+    if (const char *val = std::getenv(var); val && *val) {
+      if (const int n = std::atoi(val); n > 0) {
+        return static_cast<std::size_t>(n);
+      }
+    }
+  }
+  return std::max(1u, std::thread::hardware_concurrency());
+}
+
+#if defined(RMC_USE_TBB)
+// Compute per-replica TBB thread budget: explicit override > env heuristic.
+// tbb_threads_per_replica == 0  →  auto (allocated_cpus / n_replicas, ≥ 1)
+inline std::size_t tbb_budget(std::size_t n_replicas,
+                              std::size_t tbb_threads_per_replica) noexcept {
+  if (tbb_threads_per_replica > 0) {
+    return tbb_threads_per_replica;
+  }
+  return std::max(std::size_t{1}, allocated_cpus() / n_replicas);
+}
+#endif
+
+} // namespace detail
 
 // Runs n_replicas engines in parallel threads (each built by make_engine(i))
 // for n_steps each, then returns the replica with the lowest total chi2 error.
@@ -25,10 +60,15 @@ namespace RMC {
 //
 // All engines are constructed in the calling thread so that
 // boost::context coroutine lifetimes stay on one thread.
+// tbb_threads_per_replica: TBB workers per replica engine (RMC_USE_TBB only).
+//   0 = auto (uses SLURM_CPUS_PER_TASK / PBS_NUM_PPN / hardware_concurrency,
+//             divided by n_replicas).  Set explicitly when running inside a
+//             scheduler that does not export those variables.
 template <std::invocable<std::size_t> F>
   requires std::same_as<std::invoke_result_t<F, std::size_t>, Engine>
 Engine run_ensemble(F make_engine, std::size_t n_replicas,
-                    std::uint64_t n_steps) {
+                    std::uint64_t n_steps,
+                    [[maybe_unused]] std::size_t tbb_threads_per_replica = 0) {
   std::vector<Engine> engines;
   engines.reserve(n_replicas);
   for (std::size_t i = 0; i < n_replicas; ++i) {
@@ -45,14 +85,9 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
     futs.push_back(tasks.back().get_future());
   }
 #if defined(RMC_USE_TBB)
-  // Cap TBB's thread pool so that N_replicas × N_tbb_workers ≤
-  // hardware_concurrency.
-  const std::size_t tbb_threads =
-      std::max(std::size_t{1},
-               static_cast<std::size_t>(std::thread::hardware_concurrency()) /
-                   n_replicas);
-  tbb::global_control tbb_gc(tbb::global_control::max_allowed_parallelism,
-                             tbb_threads);
+  tbb::global_control tbb_gc(
+      tbb::global_control::max_allowed_parallelism,
+      detail::tbb_budget(n_replicas, tbb_threads_per_replica));
 #endif
   std::vector<std::jthread> threads;
   threads.reserve(n_replicas);
@@ -79,10 +114,10 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
 // target_chi2 (or max_steps is exhausted). Returns the best engine seen.
 template <std::invocable<std::size_t> F>
   requires std::same_as<std::invoke_result_t<F, std::size_t>, Engine>
-Engine run_ensemble_cooperative(F make_engine, std::size_t n_replicas,
-                                double target_chi2,
-                                std::uint64_t sync_every = 1000,
-                                std::uint64_t max_steps = 0) {
+Engine run_ensemble_cooperative(
+    F make_engine, std::size_t n_replicas, double target_chi2,
+    std::uint64_t sync_every = 1000, std::uint64_t max_steps = 0,
+    [[maybe_unused]] std::size_t tbb_threads_per_replica = 0) {
   std::vector<Engine> engines;
   engines.reserve(n_replicas);
   for (std::size_t i = 0; i < n_replicas; ++i) {
@@ -142,12 +177,9 @@ Engine run_ensemble_cooperative(F make_engine, std::size_t n_replicas,
   }
 
 #if defined(RMC_USE_TBB)
-  const std::size_t tbb_threads_coop =
-      std::max(std::size_t{1},
-               static_cast<std::size_t>(std::thread::hardware_concurrency()) /
-                   (n_replicas * 2));
-  tbb::global_control tbb_gc_coop(tbb::global_control::max_allowed_parallelism,
-                                  tbb_threads_coop);
+  tbb::global_control tbb_gc_coop(
+      tbb::global_control::max_allowed_parallelism,
+      detail::tbb_budget(n_replicas, tbb_threads_per_replica));
 #endif
   std::vector<std::jthread> threads;
   threads.reserve(n_replicas);
