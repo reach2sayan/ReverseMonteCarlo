@@ -3,9 +3,10 @@
 Run RMC_tests benchmarks and render a colour-coded bar-chart figure.
 
 Usage (from the repo root or build dir):
-    python3 tools/bench_plot.py                     # 30 samples, show window
-    python3 tools/bench_plot.py --samples 10        # fewer samples
-    python3 tools/bench_plot.py --out bench.png     # save instead of show
+    python3 tools/bench_plot.py                           # all [!benchmark], 30 samples
+    python3 tools/bench_plot.py --tags "[!benchmark][tbb]"   # TBB / incremental only
+    python3 tools/bench_plot.py --samples 10 --cols 2    # fewer samples, 2-column layout
+    python3 tools/bench_plot.py --out bench.png           # save instead of showing window
     python3 tools/bench_plot.py --binary ./build/RMC_tests
 """
 
@@ -62,6 +63,47 @@ def parse_xml(xml_text: str) -> list[dict]:
     return groups
 
 
+# ── speedup annotation ────────────────────────────────────────────────────────
+
+def detect_speedup_pairs(bars: list[dict]) -> dict[int, float]:
+    """
+    For the incremental-vs-full benchmark, bars alternate full/incr at each N.
+    Returns {incr_bar_index: speedup_ratio} for every such pair found.
+    """
+    pairs = {}
+    i = 0
+    while i < len(bars) - 1:
+        a, b = bars[i], bars[i + 1]
+        a_is_full = a["name"].startswith("full")
+        b_is_incr = b["name"].startswith("incr")
+        if a_is_full and b_is_incr and b["mean_ns"] > 0:
+            pairs[i + 1] = a["mean_ns"] / b["mean_ns"]
+            i += 2
+        else:
+            i += 1
+    return pairs
+
+
+# ── N-scaling reference line ──────────────────────────────────────────────────
+
+def extract_n_series(bars: list[dict]) -> tuple[list[int], list[float]] | None:
+    """
+    If every bar name is of the form 'N=<int>', return ([N, ...], [mean_ns, ...]).
+    """
+    ns, means = [], []
+    for b in bars:
+        name = b["name"].strip()
+        if name.startswith("N="):
+            try:
+                ns.append(int(name[2:]))
+                means.append(b["mean_ns"])
+            except ValueError:
+                return None
+        else:
+            return None
+    return (ns, means) if len(ns) >= 3 else None
+
+
 # ── plotting ─────────────────────────────────────────────────────────────────
 
 def plot_group(ax: plt.Axes, group: dict, use_log: bool) -> None:
@@ -90,7 +132,6 @@ def plot_group(ax: plt.Axes, group: dict, use_log: bool) -> None:
             ticker.FuncFormatter(lambda v, _: human_time(v)[0].__format__(".3g")
                                  + " " + human_time(v)[1]))
     else:
-        # Choose a common unit for all bars in this panel
         ref_val, ref_unit = human_time(max(means))
         scale = max(means) / ref_val
         ax.xaxis.set_major_formatter(
@@ -101,36 +142,94 @@ def plot_group(ax: plt.Axes, group: dict, use_log: bool) -> None:
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.6)
 
-    # Annotate each bar with its mean ± CI
+    # Mean ± CI labels
     for i, b in enumerate(bars):
         val, unit = human_time(b["mean_ns"])
-        lo_v = (b["mean_ns"] - b["lo_ns"])
-        hi_v = (b["hi_ns"] - b["mean_ns"])
+        lo_v = b["mean_ns"] - b["lo_ns"]
+        hi_v = b["hi_ns"] - b["mean_ns"]
         lo_s, _ = human_time(lo_v)
         hi_s, _ = human_time(hi_v)
         label = f"{val:.3g} {unit}  [−{lo_s:.2g}/+{hi_s:.2g}]"
         ax.text(b["mean_ns"] * (1.05 if use_log else 1.0),
                 i, label, va="center", fontsize=6.5, color="#333")
 
+    # Speedup annotations for full/incr pairs
+    speedup_pairs = detect_speedup_pairs(bars)
+    for incr_idx, ratio in speedup_pairs.items():
+        ax.annotate(f"  ×{ratio:.0f} faster",
+                    xy=(bars[incr_idx]["mean_ns"], incr_idx),
+                    xytext=(bars[incr_idx - 1]["mean_ns"] * 0.5, incr_idx),
+                    fontsize=7, color="#1a7abf", fontweight="bold",
+                    va="center",
+                    arrowprops=dict(arrowstyle="-", color="#1a7abf",
+                                   lw=0.8, linestyle="dashed"))
 
-def make_figure(groups: list[dict], out_path: str | None) -> None:
-    # Decide which panels need log scale (span > 100×)
+
+def plot_n_scaling_inset(ax: plt.Axes, group: dict) -> None:
+    """
+    Overlay a log-log N vs time scatter + O(N²) reference line on a twin axis,
+    when the group contains only 'N=<int>' bars.
+    """
+    result = extract_n_series(group["bars"])
+    if result is None:
+        return
+    ns, means = result
+    ns_arr = np.array(ns, dtype=float)
+    means_arr = np.array(means)
+
+    ax2 = ax.inset_axes([0.55, 0.05, 0.42, 0.38])
+    ax2.scatter(ns_arr, means_arr, s=30, color="#c0392b", zorder=5)
+    ax2.plot(ns_arr, means_arr, color="#c0392b", linewidth=1)
+
+    # O(N²) reference anchored at first point
+    ref = means_arr[0] * (ns_arr / ns_arr[0]) ** 2
+    ax2.plot(ns_arr, ref, "--", color="#888", linewidth=1, label="O(N²)")
+    ax2.legend(fontsize=6, loc="upper left")
+
+    ax2.set_xscale("log")
+    ax2.set_yscale("log")
+    ax2.set_xlabel("N", fontsize=6)
+    ax2.set_ylabel("time", fontsize=6)
+    ax2.tick_params(labelsize=5)
+    ax2.set_title("scaling", fontsize=6)
+    ax2.spines[["top", "right"]].set_visible(False)
+
+
+def make_figure(groups: list[dict], out_path: str | None, n_cols: int) -> None:
     use_log = []
+    has_n_scaling = []
     for g in groups:
         means = [b["mean_ns"] for b in g["bars"]]
-        use_log.append(max(means) / min(means) > 100)
+        use_log.append(max(means) / max(min(means), 1e-9) > 100)
+        has_n_scaling.append(extract_n_series(g["bars"]) is not None)
 
     n = len(groups)
-    fig, axes = plt.subplots(1, n, figsize=(5.5 * n, max(3.5, 0.55 * max(len(g["bars"]) for g in groups) + 2)))
-    if n == 1:
-        axes = [axes]
+    n_cols = min(n_cols, n)
+    n_rows = (n + n_cols - 1) // n_cols
+
+    max_bars = max(len(g["bars"]) for g in groups)
+    panel_h = max(3.5, 0.55 * max_bars + 2.0)
+    fig, axes_grid = plt.subplots(
+        n_rows, n_cols,
+        figsize=(5.5 * n_cols, panel_h * n_rows),
+        squeeze=False,
+    )
 
     fig.patch.set_facecolor("#f8f8f8")
-    for ax, group, log in zip(axes, groups, use_log):
+    axes_flat = axes_grid.flatten()
+
+    for idx, (group, log, scaling) in enumerate(zip(groups, use_log, has_n_scaling)):
+        ax = axes_flat[idx]
         ax.set_facecolor("#f8f8f8")
         plot_group(ax, group, log)
+        if scaling:
+            plot_n_scaling_inset(ax, group)
 
-    fig.suptitle("RMC benchmark results  (500 steps · 95 % CI error bars)",
+    # Hide unused panels
+    for idx in range(n, len(axes_flat)):
+        axes_flat[idx].set_visible(False)
+
+    fig.suptitle("RMC benchmark results  (95 % CI error bars)",
                  fontsize=11, fontweight="bold", y=1.01)
     plt.tight_layout()
 
@@ -151,6 +250,11 @@ def main() -> None:
                     help="Catch2 --benchmark-samples (default 30)")
     ap.add_argument("--out", default=None,
                     help="Save figure to this path instead of opening a window")
+    ap.add_argument("--tags", default="[!benchmark]",
+                    help='Catch2 tag filter (default "[!benchmark]"). '
+                         'Use "[!benchmark][tbb]" for TBB/incremental benchmarks only.')
+    ap.add_argument("--cols", type=int, default=3,
+                    help="Number of panel columns in the figure (default 3)")
     args = ap.parse_args()
 
     # locate binary
@@ -166,9 +270,9 @@ def main() -> None:
         if binary is None:
             sys.exit("Cannot find RMC_tests. Build the project first or pass --binary.")
 
-    print(f"Running {binary}  (samples={args.samples}) …")
+    print(f"Running {binary}  tags={args.tags!r}  samples={args.samples} …")
     result = subprocess.run(
-        [str(binary), "[!benchmark]",
+        [str(binary), args.tags,
          "--reporter", "XML",
          "--benchmark-samples", str(args.samples)],
         capture_output=True, text=True
@@ -182,7 +286,7 @@ def main() -> None:
 
     print(f"Parsed {sum(len(g['bars']) for g in groups)} benchmarks "
           f"across {len(groups)} groups.")
-    make_figure(groups, args.out)
+    make_figure(groups, args.out, args.cols)
 
 
 if __name__ == "__main__":

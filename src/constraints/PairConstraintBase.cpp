@@ -201,7 +201,7 @@ void PairConstraintBase::initialise() {
   const auto r_hi = r_lo + bin_width_;
   shell_vols_ = (4.0 * std::numbers::pi / 3.0) * (r_hi.cube() - r_lo.cube());
 
-  std::unordered_map<std::string, uint8_t> name_to_id;
+  std::unordered_map<std::string_view, uint8_t> name_to_id;
   uint8_t next_id = 0;
   elem_id_.resize(elements_.size());
   for (std::size_t i = 0; i < elements_.size(); ++i) {
