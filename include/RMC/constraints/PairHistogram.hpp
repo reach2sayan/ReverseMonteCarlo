@@ -42,7 +42,7 @@ using PairWeightTable = boost::container::flat_map<PairIdKey, double>;
 void accumulate_pair_histogram(
     vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
     const std::vector<uint8_t> &elem_id, const PairWeightTable &weight_table,
-    double r_min, double r_max, double bin_width, int n_bins,
+    double r_min, double r_max, int n_bins,
     std::span<const std::size_t> molecule_ids = {},
     bool exclude_intra = false);
 
@@ -146,7 +146,7 @@ public:
                 std::span<const std::size_t>) const {
     computed_.setZero();
     accumulate_pair_histogram(computed_, coords, bc_, elem_id_, weight_table_,
-                              r_min_, r_max_, bin_width_, n_bins_,
+                              r_min_, r_max_, n_bins_,
                               molecule_ids_, exclude_intra_);
 
     const Eigen::Index N = coords.rows();

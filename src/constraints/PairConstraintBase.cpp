@@ -1,27 +1,64 @@
 #include <RMC/constraints/PairHistogram.hpp>
+#include <boost/histogram.hpp>
 #include <cmath>
 #include <numbers>
 #include <unordered_map>
 
 namespace RMC {
 
-void accumulate_pair_histogram(
-    vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
-    const std::vector<uint8_t> &elem_id, const PairWeightTable &weight_table,
-    double r_min, double r_max, double bin_width, int n_bins,
-    std::span<const std::size_t> molecule_ids, bool exclude_intra) {
+void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
+                               const BoundaryConditions *bc,
+                               const std::vector<uint8_t> &elem_id,
+                               const PairWeightTable &weight_table,
+                               double r_min, double r_max, int n_bins,
+                               std::span<const std::size_t> molecule_ids,
+                               bool exclude_intra) {
+  namespace bh = boost::histogram;
+
+  auto make_h = [&] {
+    return bh::make_histogram_with(bh::dense_storage<double>{},
+                                   bh::axis::regular<>(n_bins, r_min, r_max));
+  };
+
   const Eigen::Index N = coords.rows();
   const bool weighted = !weight_table.empty();
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
 
 #ifdef _OPENMP
   const int nthreads = omp_get_max_threads();
-  std::vector<vec_t> partial(static_cast<std::size_t>(nthreads),
-                             vec_t::Zero(n_bins));
+  std::vector<decltype(make_h())> partial(static_cast<std::size_t>(nthreads),
+                                          make_h());
 
 #pragma omp parallel for schedule(static)
   for (Eigen::Index i = 0; i < N - 1; ++i) {
-    vec_t &local = partial[static_cast<std::size_t>(omp_get_thread_num())];
+    auto &local = partial[static_cast<std::size_t>(omp_get_thread_num())];
+    for (Eigen::Index j = i + 1; j < N; ++j) {
+      if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
+                              molecule_ids[static_cast<std::size_t>(j)])
+        continue;
+      vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
+      if (bc) {
+        delta = bc_min_image(*bc, delta);
+      }
+      const double d = delta.norm();
+      double w = 1.0;
+      if (weighted) {
+        PairIdKey key{elem_id[static_cast<std::size_t>(i)],
+                      elem_id[static_cast<std::size_t>(j)]};
+        if (auto it = weight_table.find(key); it != weight_table.end()) {
+          w = it->second;
+        }
+      }
+      local(bh::weight(2.0 * w), d);
+    }
+  }
+
+  auto h = make_h();
+  for (auto &p : partial)
+    h += p;
+#else
+  auto h = make_h();
+  for (Eigen::Index i = 0; i < N - 1; ++i) {
     for (Eigen::Index j = i + 1; j < N; ++j) {
       if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
                               molecule_ids[static_cast<std::size_t>(j)]) {
@@ -32,13 +69,6 @@ void accumulate_pair_histogram(
         delta = bc_min_image(*bc, delta);
       }
       const double d = delta.norm();
-      if (d < r_min || d >= r_max) {
-        continue;
-      }
-      const int bin = static_cast<int>((d - r_min) / bin_width);
-      if (bin < 0 || bin >= n_bins) {
-        continue;
-      }
       double w = 1.0;
       if (weighted) {
         PairIdKey key{elem_id[static_cast<std::size_t>(i)],
@@ -47,43 +77,13 @@ void accumulate_pair_histogram(
           w = it->second;
         }
       }
-      local(bin) += 2.0 * w;
+      h(bh::weight(2.0 * w), d);
     }
-  }
-
-  for (auto &p : partial) {
-    hist += p;
-  }
-
-#else
-  for (auto [i, j] : upper_triangle_pairs(N)) {
-    if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                            molecule_ids[static_cast<std::size_t>(j)]) {
-      continue;
-    }
-    vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-    if (bc) {
-      delta = bc_min_image(*bc, delta);
-    }
-    const double d = delta.norm();
-    if (d < r_min || d >= r_max) {
-      continue;
-    }
-    const int bin = static_cast<int>((d - r_min) / bin_width);
-    if (bin < 0 || bin >= n_bins) {
-      continue;
-    }
-    double w = 1.0;
-    if (weighted) {
-      PairIdKey key{elem_id[static_cast<std::size_t>(i)],
-                    elem_id[static_cast<std::size_t>(j)]};
-      if (auto it = weight_table.find(key); it != weight_table.end()) {
-        w = it->second;
-      }
-    }
-    hist(bin) += 2.0 * w;
   }
 #endif
+
+  for (int k = 0; k < n_bins; ++k)
+    hist(k) = h[k];
 }
 
 void PairConstraintBase::initialise() {
