@@ -26,8 +26,8 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
 
 #ifdef _OPENMP
   const int nthreads = omp_get_max_threads();
-  std::vector<decltype(make_histogram())> partial(static_cast<std::size_t>(nthreads),
-                                          make_histogram());
+  std::vector<decltype(make_histogram())> partial(
+      static_cast<std::size_t>(nthreads), make_histogram());
 
 #pragma omp parallel for schedule(static)
   for (Eigen::Index i = 0; i < N - 1; ++i) {
@@ -59,26 +59,26 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
   }
 #else
   auto h = make_histogram();
-  for (auto [i,j] : upper_triangle_pairs(N)) {
-      if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                              molecule_ids[static_cast<std::size_t>(j)]) {
-        continue;
-      }
-      vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-      if (bc) {
-        delta = bc_min_image(*bc, delta);
-      }
-      const double d = delta.norm();
-      double w = 1.0;
-      if (weighted) {
-        PairIdKey key{elem_id[static_cast<std::size_t>(i)],
-                      elem_id[static_cast<std::size_t>(j)]};
-        if (auto it = weight_table.find(key); it != weight_table.end()) {
-          w = it->second;
-        }
-      }
-      h(bh::weight(2.0 * w), d);
+  for (auto [i, j] : upper_triangle_pairs(N)) {
+    if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
+                            molecule_ids[static_cast<std::size_t>(j)]) {
+      continue;
     }
+    vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
+    if (bc) {
+      delta = bc_min_image(*bc, delta);
+    }
+    const double d = delta.norm();
+    double w = 1.0;
+    if (weighted) {
+      PairIdKey key{elem_id[static_cast<std::size_t>(i)],
+                    elem_id[static_cast<std::size_t>(j)]};
+      if (auto it = weight_table.find(key); it != weight_table.end()) {
+        w = it->second;
+      }
+    }
+    h(bh::weight(2.0 * w), d);
+  }
 #endif
   for (int k = 0; k < n_bins; ++k) {
     hist(k) = h[k];

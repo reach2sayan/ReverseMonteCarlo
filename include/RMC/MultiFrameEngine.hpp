@@ -1,9 +1,5 @@
 #pragma once
-#include <RMC/constraints/ConstraintCollection.hpp>
-#include <RMC/core/BoundaryConditions.hpp>
-#include <RMC/core/Group.hpp>
-#include <RMC/core/Structure.hpp>
-#include <RMC/core/Types.hpp>
+#include <RMC/EngineBase.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
 
@@ -33,22 +29,16 @@ namespace RMC {
 //   eng.add_constraint(pdf_constraint);  // must call set_n_frames after add
 //   eng.initialise();                    // pre-populates frame histograms
 //   eng.run(100'000);
-class MultiFrameEngine {
+class MultiFrameEngine : public EngineBase<MultiFrameEngine> {
 public:
   explicit MultiFrameEngine(BoundaryConditions bc,
                             std::uint32_t frame_rng_seed = 42,
                             std::uint32_t group_rng_seed = 43)
-      : bc_(bc), frame_selector_(RandomSelector{frame_rng_seed}),
+      : EngineBase<MultiFrameEngine>(bc),
+        frame_selector_(RandomSelector{frame_rng_seed}),
         group_selector_(RandomSelector{group_rng_seed}) {}
 
   void add_frame(AtomicStructure s) { frames_.push_back(std::move(s)); }
-
-  void add_group(Group g) { groups_.push_back(std::move(g)); }
-
-  void add_constraint(Constraint c) {
-    c.set_boundary_conditions(bc_);
-    constraints_.add(std::move(c));
-  }
 
   void set_frame_selector(IGroupSelector s) {
     frame_selector_ = std::move(s);
@@ -80,24 +70,6 @@ public:
     constraints_.set_active_frame(0);
   }
 
-  void run(std::uint64_t n_steps) {
-    BOOST_ASSERT_MSG(!frames_.empty(),
-                     "MultiFrameEngine::run: call initialise() first");
-    for (std::uint64_t i = 0; i < n_steps; ++i) {
-      step();
-    }
-  }
-
-  void run_until(double target_chi2, std::uint64_t max_steps = 0) {
-    std::uint64_t i = 0;
-    while (constraints_.total_error() > target_chi2) {
-      if (max_steps > 0 && i >= max_steps)
-        break;
-      step();
-      ++i;
-    }
-  }
-
   [[nodiscard]] const std::vector<AtomicStructure> &frames() const noexcept {
     return frames_;
   }
@@ -107,44 +79,41 @@ public:
     // who need the absolute best should compare external metrics).
     return frames_[0];
   }
-  [[nodiscard]] double total_error() const noexcept {
-    return constraints_.total_error();
-  }
-  [[nodiscard]] std::uint64_t steps_total() const noexcept {
-    return n_steps_total_;
-  }
-  [[nodiscard]] std::uint64_t steps_accepted() const noexcept {
-    return n_steps_accepted_;
-  }
 
 private:
-  void step() {
-    ++n_steps_total_;
+  friend class EngineBase<MultiFrameEngine>;
 
-    // Pick frame and group.
+  struct TrialCtx {
+    std::size_t fi;
+    std::size_t gi;
+    AtomicStructure *frame;
+    Group *group;
+  };
+
+  std::optional<TrialCtx> select_frame_and_group() {
     const std::size_t fi = frame_selector_.select(frames_.size());
     const std::size_t gi = group_selector_.select(groups_.size());
     Group &g = groups_[gi];
     if (!g.refine || g.empty() || !g.generator)
-      return;
-
-    AtomicStructure &frame = frames_[fi];
-
-    // Activate this frame in constraints, save snapshot, score before.
-    constraints_.set_active_frame(fi);
-    frame.save_snapshot(g.span());
-    constraints_.compute_before_move(frame.coordinates, g.span());
-
-    // Propose move.
-    g.generator->generate(frame.coordinates, g.span());
-    apply_pbc(fi, g.span());
-
-    // Score after.
-    constraints_.compute_after_move(frame.coordinates, g.span());
-
-    // Accept / reject.
+      return std::nullopt;
+    return TrialCtx{fi, gi, &frames_[fi], &g};
+  }
+  void snapshot_and_score_before(TrialCtx &c) {
+    ++n_steps_tried_;
+    constraints_.set_active_frame(c.fi);
+    c.frame->save_snapshot(c.group->span());
+    constraints_.compute_before_move(c.frame->coordinates, c.group->span());
+  }
+  void propose_move(TrialCtx &c) {
+    c.group->generator->generate(c.frame->coordinates, c.group->span());
+    apply_pbc_to(*c.frame, c.group->span());
+  }
+  void score_after(TrialCtx &c) {
+    constraints_.compute_after_move(c.frame->coordinates, c.group->span());
+  }
+  void settle(TrialCtx &c) {
     if (constraints_.should_reject()) {
-      frame.restore_snapshot(g.span());
+      c.frame->restore_snapshot(c.group->span());
       constraints_.reject();
     } else {
       constraints_.accept();
@@ -152,25 +121,18 @@ private:
     }
   }
 
-  void apply_pbc(std::size_t fi, std::span<const std::size_t> moved) {
-    for (std::size_t i : moved) {
-      vec3_t r = frames_[fi].coordinates.row(
-                     static_cast<Eigen::Index>(i)).transpose();
-      r = bc_wrap(bc_, r);
-      frames_[fi].coordinates.row(static_cast<Eigen::Index>(i)) =
-          r.transpose();
-    }
+  void step() {
+    ++n_steps_total_;
+    select_frame_and_group()
+        .and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
+        .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
+        .and_then(stage([&](TrialCtx &c) { score_after(c); }))
+        .and_then(stage([&](TrialCtx &c) { settle(c); }));
   }
 
   std::vector<AtomicStructure> frames_;
-  std::vector<Group> groups_;
-  ConstraintCollection constraints_;
-  BoundaryConditions bc_;
   IGroupSelector frame_selector_;
   IGroupSelector group_selector_;
-
-  std::uint64_t n_steps_total_{0};
-  std::uint64_t n_steps_accepted_{0};
 };
 
 } // namespace RMC

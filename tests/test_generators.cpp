@@ -4,6 +4,7 @@
 #include <RMC/generators/Rotations.hpp>
 #include <RMC/generators/Swaps.hpp>
 #include <RMC/generators/Translations.hpp>
+#include <RMC/selectors/DirectionalOrderSelector.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -368,4 +369,56 @@ TEST_CASE("RotationAboutAxisPath - net rotation after full cycle is identity",
   gen.generate(c, all);
   gen.generate(c, all);
   REQUIRE_THAT((c - orig).norm(), WithinAbs(0.0, 1e-9));
+}
+
+// ---- DirectionalOrderSelector ----
+
+TEST_CASE("DirectionalOrderSelector - nearest-first order", "[selectors]") {
+  // 4 groups at (1,0,0), (3,0,0), (2,0,0), (5,0,0) relative to origin.
+  // Distances: 1, 3, 2, 5. Nearest-first order: 0, 2, 1, 3.
+  std::vector<vec3_t> cents = {vec3_t{1, 0, 0}, vec3_t{3, 0, 0},
+                               vec3_t{2, 0, 0}, vec3_t{5, 0, 0}};
+  IGroupSelector sel =
+      DirectionalOrderSelector{vec3_t{0, 0, 0}, cents, /*nearest_first=*/true};
+
+  std::vector<std::size_t> got;
+  for (int i = 0; i < 4; ++i)
+    got.push_back(sel.select(4));
+
+  REQUIRE(got[0] == 0); // dist 1 — nearest
+  REQUIRE(got[1] == 2); // dist 2
+  REQUIRE(got[2] == 1); // dist 3
+  REQUIRE(got[3] == 3); // dist 5 — farthest
+}
+
+TEST_CASE("DirectionalOrderSelector - farthest-first order", "[selectors]") {
+  std::vector<vec3_t> cents = {vec3_t{1, 0, 0}, vec3_t{3, 0, 0},
+                               vec3_t{2, 0, 0}, vec3_t{5, 0, 0}};
+  IGroupSelector sel = DirectionalOrderSelector{vec3_t{0, 0, 0}, cents,
+                                                /*nearest_first=*/false};
+
+  std::vector<std::size_t> got;
+  for (int i = 0; i < 4; ++i)
+    got.push_back(sel.select(4));
+
+  REQUIRE(got[0] == 3); // dist 5 — farthest
+  REQUIRE(got[1] == 1); // dist 3
+  REQUIRE(got[2] == 2); // dist 2
+  REQUIRE(got[3] == 0); // dist 1 — nearest
+}
+
+TEST_CASE("DirectionalOrderSelector - cycles correctly", "[selectors]") {
+  std::vector<vec3_t> cents = {vec3_t{1, 0, 0}, vec3_t{2, 0, 0},
+                               vec3_t{3, 0, 0}};
+  IGroupSelector sel =
+      DirectionalOrderSelector{vec3_t{0, 0, 0}, cents, /*nearest_first=*/true};
+
+  // First 3 calls give [0, 1, 2]; next 3 should repeat.
+  std::vector<std::size_t> pass1, pass2;
+  for (int i = 0; i < 3; ++i)
+    pass1.push_back(sel.select(3));
+  for (int i = 0; i < 3; ++i)
+    pass2.push_back(sel.select(3));
+
+  REQUIRE(pass1 == pass2);
 }

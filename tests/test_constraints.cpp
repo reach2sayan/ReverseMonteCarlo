@@ -1,4 +1,6 @@
+#include <RMC/MultiFrameEngine.hpp>
 #include <RMC/constraints/AngleConstraint.hpp>
+#include <RMC/generators/Translations.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/ConstraintCollection.hpp>
 #include <RMC/constraints/CoordinationConstraint.hpp>
@@ -487,4 +489,176 @@ TEST_CASE("ReducedStructureFactorConstraint - accept/reject cycle",
   c.accept();
   // After accept, standard_error() should reflect the accepted (after) state.
   REQUIRE_THAT(c.standard_error(), WithinAbs(err_after, EPS));
+}
+
+// ---- ShapeFunction ----
+
+static PairDistributionConstraint make_pdf(int n_bins = 50,
+                                           double dr = 0.1) {
+  PairDistributionConstraint pdc;
+  mat_t exp_data(n_bins, 2);
+  for (int i = 0; i < n_bins; ++i) {
+    exp_data(i, 0) = dr * (i + 1);
+    exp_data(i, 1) = 0.0;
+  }
+  pdc.set_experimental_data(exp_data);
+  pdc.set_number_density(0.03);
+
+  const std::size_t N = 8;
+  std::vector<std::string> els(N, "C");
+  pdc.set_elements(els);
+  pdc.initialise();
+  return pdc;
+}
+
+static coords_t make_chain(int N, double spacing = 3.0) {
+  coords_t c(N, 3);
+  for (int i = 0; i < N; ++i)
+    c.row(i) << i * spacing, 0.0, 0.0;
+  return c;
+}
+
+TEST_CASE("ShapeFunction - spherical_shape_fn zero beyond diameter",
+          "[constraints][shape]") {
+  auto fn = spherical_shape_fn(5.0);
+  REQUIRE_THAT(fn(0.0), WithinAbs(1.0, 1e-9));
+  REQUIRE_THAT(fn(5.0), WithinAbs(0.0, 1e-9));
+  REQUIRE_THAT(fn(6.0), WithinAbs(0.0, 1e-9));
+  // At r = 5/2 = 2.5 (x = 0.5): 1 - 0.75 + 0.0625 = 0.3125
+  REQUIRE_THAT(fn(2.5), WithinAbs(0.3125, 1e-9));
+}
+
+TEST_CASE("ShapeFunction - gaussian_shape_fn is 1 at r=0", "[constraints][shape]") {
+  auto fn = gaussian_shape_fn(3.0);
+  REQUIRE_THAT(fn(0.0), WithinAbs(1.0, 1e-9));
+  // exp(-(15/3)²) = exp(-25) ≈ 1.4e-11
+  REQUIRE(fn(15.0) < 1e-10);
+}
+
+TEST_CASE("ShapeFunction - applying shape damps computed G(r)",
+          "[constraints][shape]") {
+  const int N = 8;
+  std::vector<std::size_t> all(N);
+  std::iota(all.begin(), all.end(), std::size_t{0});
+  coords_t c = make_chain(N);
+
+  auto pdc_no_shape = make_pdf();
+  double err_no_shape = pdc_no_shape.compute_error(c, all);
+  vec_t g_no_shape = pdc_no_shape.computed_G();
+
+  auto pdc_shape = make_pdf();
+  pdc_shape.set_shape_function(spherical_shape_fn(10.0));
+  double err_shape = pdc_shape.compute_error(c, all);
+  vec_t g_shape = pdc_shape.computed_G();
+
+  // Shaped G(r) should have smaller or equal norm than unshaped (truncated)
+  REQUIRE(g_shape.norm() <= g_no_shape.norm() + 1e-9);
+  // Errors are finite
+  REQUIRE(std::isfinite(err_no_shape));
+  REQUIRE(std::isfinite(err_shape));
+}
+
+TEST_CASE("ShapeFunction - shape function zeros high-r bins",
+          "[constraints][shape]") {
+  const int N = 8;
+  std::vector<std::size_t> all(N);
+  std::iota(all.begin(), all.end(), std::size_t{0});
+  coords_t c = make_chain(N);
+
+  auto pdc = make_pdf(50, 0.5); // bins up to 25 Å
+  pdc.set_shape_function(spherical_shape_fn(5.0));
+  (void)pdc.compute_error(c, all);
+  const vec_t &g = pdc.computed_G();
+
+  // All bins beyond 5 Å should be zero (shape function = 0)
+  for (int i = 0; i < g.size(); ++i) {
+    const double r = 0.5 * (i + 1);
+    if (r >= 5.0)
+      REQUIRE_THAT(g[i], WithinAbs(0.0, 1e-9));
+  }
+}
+
+// ---- MultiFrameEngine ----
+
+static AtomicStructure make_mono_structure(int N, double spacing = 3.0) {
+  AtomicStructure s;
+  s.coordinates = make_chain(N, spacing);
+  s.elements.assign(N, "C");
+  s.atomic_numbers.resize(N);
+  s.atomic_numbers.setConstant(6);
+  return s;
+}
+
+TEST_CASE("MultiFrameEngine - initialise populates frame histograms",
+          "[multiframe]") {
+  const int N = 6;
+  const int n_frames = 3;
+
+  // Build a flat target (zero G(r)) and a PDF constraint.
+  PairDistributionConstraint pdf;
+  mat_t exp_data(30, 2);
+  for (int i = 0; i < 30; ++i) {
+    exp_data(i, 0) = 0.5 * (i + 1);
+    exp_data(i, 1) = 0.0;
+  }
+  pdf.set_experimental_data(exp_data);
+  pdf.set_number_density(0.03);
+  std::vector<std::string> els(N, "C");
+  pdf.set_elements(els);
+  pdf.initialise();
+
+  MultiFrameEngine eng(InfiniteBC{});
+  for (int f = 0; f < n_frames; ++f)
+    eng.add_frame(make_mono_structure(N));
+
+  Group g;
+  g.name = "all";
+  for (int i = 0; i < N; ++i)
+    g.indices.push_back(static_cast<std::size_t>(i));
+  g.generator = TranslationGenerator(0.01, 0.1, /*seed=*/7 + 0);
+  eng.add_group(std::move(g));
+
+  eng.add_constraint(Constraint{std::move(pdf)});
+  eng.initialise();
+
+  // After initialise, total_error() must be finite and non-negative.
+  const double err0 = eng.total_error();
+  REQUIRE(std::isfinite(err0));
+  REQUIRE(err0 >= 0.0);
+}
+
+TEST_CASE("MultiFrameEngine - run accepts some moves", "[multiframe]") {
+  const int N = 6;
+  const int n_frames = 2;
+
+  PairDistributionConstraint pdf;
+  mat_t exp_data(20, 2);
+  for (int i = 0; i < 20; ++i) {
+    exp_data(i, 0) = 0.5 * (i + 1);
+    exp_data(i, 1) = 0.0;
+  }
+  pdf.set_experimental_data(exp_data);
+  pdf.set_number_density(0.03);
+  std::vector<std::string> els(N, "C");
+  pdf.set_elements(els);
+  pdf.initialise();
+
+  MultiFrameEngine eng(InfiniteBC{});
+  for (int f = 0; f < n_frames; ++f)
+    eng.add_frame(make_mono_structure(N, 2.0 + 0.1 * f));
+
+  Group g;
+  g.name = "all";
+  for (int i = 0; i < N; ++i)
+    g.indices.push_back(static_cast<std::size_t>(i));
+  g.generator = TranslationGenerator(0.0, 0.3, /*seed=*/99);
+  eng.add_group(std::move(g));
+
+  eng.add_constraint(Constraint{std::move(pdf)});
+  eng.initialise();
+  eng.run(500);
+
+  REQUIRE(eng.steps_accepted() > 0);
+  REQUIRE(eng.steps_total() == 500);
+  REQUIRE(std::isfinite(eng.total_error()));
 }

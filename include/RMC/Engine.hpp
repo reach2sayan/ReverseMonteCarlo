@@ -1,65 +1,32 @@
 #pragma once
-#include <RMC/constraints/ConstraintCollection.hpp>
+#include <RMC/EngineBase.hpp>
 #include <RMC/core/AtomsCollector.hpp>
-#include <RMC/core/BoundaryConditions.hpp>
-#include <RMC/core/Group.hpp>
-#include <RMC/core/Structure.hpp>
-#include <RMC/core/Types.hpp>
 #include <RMC/io/Checkpoint.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
 
-#include <boost/accumulators/accumulators.hpp>
-#include <boost/accumulators/statistics/count.hpp>
-#include <boost/accumulators/statistics/mean.hpp>
 #include <boost/log/trivial.hpp>
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
-#include <vector>
 
 namespace RMC {
 
 using StepCallback =
     std::function<void(std::uint64_t, std::uint64_t, std::uint64_t, double)>;
 
-// Lifts void(T&) into optional<T>(T) for and_then chaining.
-// T is deduced at the call site by optional::and_then — never named here.
-namespace {
-constexpr auto stage(auto &&fn) {
-  return [fn = std::forward<decltype(fn)>(fn)](
-             auto c) -> std::optional<decltype(c)> {
-    std::invoke(fn, c);
-    return c;
-  };
-}
-} // namespace
-
-class Engine {
+class Engine : public EngineBase<Engine> {
 public:
   explicit Engine(AtomicStructure structure, BoundaryConditions bc);
-  constexpr void add_group(Group g) { groups_.push_back(std::move(g)); }
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
 
   constexpr void set_selector(IGroupSelector s) { selector_ = std::move(s); }
-  constexpr void add_constraint(Constraint c) {
-    c.set_boundary_conditions(bc_);
-    constraints_.add(std::move(c));
-  }
 
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
   void set_step_callback(StepCallback cb, std::uint64_t log_every = 1000);
-
-  constexpr void run(std::uint64_t n_steps) {
-    BOOST_ASSERT_MSG(!groups_.empty(), "Engine::run: no groups defined");
-    for (std::uint64_t i = 0; i < n_steps; ++i) {
-      step();
-    }
-  }
-  constexpr void run_until(double target_chi2, std::uint64_t max_steps = 0);
 
   [[nodiscard]] constexpr const AtomicStructure &structure() const noexcept {
     return structure_;
@@ -67,20 +34,16 @@ public:
   [[nodiscard]] constexpr AtomicStructure &structure() noexcept {
     return structure_;
   }
-  [[nodiscard]] constexpr const BoundaryConditions &boundary() const noexcept {
-    return bc_;
-  }
   [[nodiscard]] constexpr io::EngineStats stats() const noexcept {
     return io::EngineStats{.steps_total = n_steps_total_,
                            .steps_accepted = n_steps_accepted_,
                            .steps_tried = n_steps_tried_,
                            .last_total_err = constraints_.total_error()};
   }
-  [[nodiscard]] constexpr ConstraintCollection &constraints() noexcept {
-    return constraints_;
-  }
 
 private:
+  friend class EngineBase<Engine>;
+
   struct TrialCtx {
     std::size_t gi;
     Group *group;
@@ -104,7 +67,7 @@ private:
   }
   constexpr void propose_move(TrialCtx &c) {
     c.group->generator->generate(structure_.coordinates, c.group->span());
-    apply_pbc(c.group->span());
+    apply_pbc_to(structure_, c.group->span());
   }
   constexpr void score_after(TrialCtx &c) {
     constraints_.compute_after_move(structure_.coordinates, c.group->span());
@@ -162,25 +125,9 @@ private:
     maybe_checkpoint();
   }
 
-  constexpr void apply_pbc(std::span<const std::size_t> moved) {
-    std::ranges::for_each(moved, [&](auto i) {
-      vec3_t r = structure_.coordinates.row(i).transpose();
-      r = bc_wrap(bc_, r);
-      structure_.coordinates.row(i) = r.transpose();
-    });
-  }
-
   AtomicStructure structure_;
-  BoundaryConditions bc_;
-  std::vector<Group> groups_;
   IGroupSelector selector_;
-  ConstraintCollection constraints_;
   AtomsCollector collector_;
-
-  // Statistics
-  std::uint64_t n_steps_total_{0};
-  std::uint64_t n_steps_tried_{0};
-  std::uint64_t n_steps_accepted_{0};
 
   // Checkpoint state
   std::optional<std::filesystem::path> checkpoint_path_;
