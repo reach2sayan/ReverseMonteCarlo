@@ -15,7 +15,7 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                                bool exclude_intra) {
   namespace bh = boost::histogram;
 
-  auto make_h = [&] {
+  auto make_histogram = [&] {
     return bh::make_histogram_with(bh::dense_storage<double>{},
                                    bh::axis::regular<>(n_bins, r_min, r_max));
   };
@@ -26,8 +26,8 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
 
 #ifdef _OPENMP
   const int nthreads = omp_get_max_threads();
-  std::vector<decltype(make_h())> partial(static_cast<std::size_t>(nthreads),
-                                          make_h());
+  std::vector<decltype(make_histogram())> partial(static_cast<std::size_t>(nthreads),
+                                          make_histogram());
 
 #pragma omp parallel for schedule(static)
   for (Eigen::Index i = 0; i < N - 1; ++i) {
@@ -53,13 +53,13 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
     }
   }
 
-  auto h = make_h();
-  for (auto &p : partial)
+  auto h = make_histogram();
+  for (auto &p : partial) {
     h += p;
+  }
 #else
-  auto h = make_h();
-  for (Eigen::Index i = 0; i < N - 1; ++i) {
-    for (Eigen::Index j = i + 1; j < N; ++j) {
+  auto h = make_histogram();
+  for (auto [i,j] : upper_triangle_pairs(N)) {
       if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
                               molecule_ids[static_cast<std::size_t>(j)]) {
         continue;
@@ -79,11 +79,10 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
       }
       h(bh::weight(2.0 * w), d);
     }
-  }
 #endif
-
-  for (int k = 0; k < n_bins; ++k)
+  for (int k = 0; k < n_bins; ++k) {
     hist(k) = h[k];
+  }
 }
 
 void PairConstraintBase::initialise() {
