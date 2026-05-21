@@ -694,9 +694,9 @@ PairDistributionConstraint make_2frame_pdf(const coords_t &f0,
   std::iota(all.begin(), all.end(), std::size_t{0});
 
   pdf.set_active_frame_idx(0);
-  pdf.compute_error(f0, all);
+  (void)pdf.compute_error(f0, all);
   pdf.set_active_frame_idx(1);
-  pdf.compute_error(f1, all);
+  (void)pdf.compute_error(f1, all);
   return pdf;
 }
 
@@ -726,7 +726,7 @@ TEST_CASE("PairFunctionConstraint - incremental update matches full recompute",
     std::vector<std::size_t> all(static_cast<std::size_t>(N));
     std::iota(all.begin(), all.end(), std::size_t{0});
     pdf_ref.set_active_frame_idx(0);
-    pdf_ref.compute_error(f0_mod, all);
+    (void)pdf_ref.compute_error(f0_mod, all);
     return pdf_ref.computed_G();
   }();
 
@@ -735,8 +735,8 @@ TEST_CASE("PairFunctionConstraint - incremental update matches full recompute",
   const std::vector<std::size_t> moved = {0};
 
   pdf_inc.set_active_frame_idx(0);
-  pdf_inc.compute_error(f0, moved);     // before-move: saves delta for atom 0
-  pdf_inc.compute_error(f0_mod, moved); // after-move: O(K·N) incremental update
+  (void)pdf_inc.compute_error(f0, moved);     // before-move: saves delta for atom 0
+  (void)pdf_inc.compute_error(f0_mod, moved); // after-move: O(K·N) incremental update
 
   const vec_t &inc_G = pdf_inc.computed_G();
   REQUIRE(inc_G.size() == ref_G.size());
@@ -763,7 +763,7 @@ TEST_CASE("PairFunctionConstraint - rollback restores histogram",
     std::vector<std::size_t> all(static_cast<std::size_t>(N));
     std::iota(all.begin(), all.end(), std::size_t{0});
     pdf.set_active_frame_idx(0);
-    pdf.compute_error(f0, all);
+    (void)pdf.compute_error(f0, all);
   }
   const vec_t G_before = pdf.computed_G();
 
@@ -773,8 +773,8 @@ TEST_CASE("PairFunctionConstraint - rollback restores histogram",
   const std::vector<std::size_t> moved = {1};
 
   pdf.set_active_frame_idx(0);
-  pdf.compute_error(f0, moved);     // before-move
-  pdf.compute_error(f0_mod, moved); // after-move (incremental)
+  (void)pdf.compute_error(f0_mod, moved); // after-move (incremental)
+  (void)pdf.compute_error(f0, moved);     // before-move
 
   // Reject: rollback should restore to the pre-step state.
   pdf.rollback_frame();
@@ -783,7 +783,7 @@ TEST_CASE("PairFunctionConstraint - rollback restores histogram",
   std::vector<std::size_t> all(static_cast<std::size_t>(N));
   std::iota(all.begin(), all.end(), std::size_t{0});
   pdf.set_active_frame_idx(0);
-  pdf.compute_error(f0, all);
+  (void)pdf.compute_error(f0, all);
 
   const vec_t &G_after_rollback = pdf.computed_G();
   for (Eigen::Index i = 0; i < G_before.size(); ++i) {
@@ -810,7 +810,7 @@ TEST_CASE("PairFunctionConstraint - frame switch resets incremental state",
   // Trigger incremental_ready_ on frame 0.
   const std::vector<std::size_t> moved0 = {0};
   pdf.set_active_frame_idx(0);
-  pdf.compute_error(f0,
+  (void)pdf.compute_error(f0,
                     moved0); // before-move on frame 0 → incremental_ready_=true
 
   // Switch to frame 1 — must clear incremental_ready_.
