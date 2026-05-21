@@ -290,8 +290,8 @@ TEST_CASE("bench: selector overhead (N=256, no constraints)", "[!benchmark]") {
 // Compares wall-clock time of running 1, 2, 4, 8 independent replicas with
 // run_ensemble vs the equivalent sequential steps on a single engine.
 // Ideal parallel speedup = replica_count × (single_time / ensemble_time).
-TEST_CASE("bench: ensemble parallelism scaling (N=256, PDF)", "[!benchmark]") {
-  constexpr int N = 256;
+TEST_CASE("bench: ensemble parallelism scaling (N=500, PDF)", "[!benchmark][ensemble]") {
+  constexpr int N = 500;
   constexpr std::uint64_t STEPS = 200;
 
   auto make = [&](std::size_t i) {
@@ -323,7 +323,7 @@ TEST_CASE("bench: ensemble parallelism scaling (N=256, PDF)", "[!benchmark]") {
 // Shorter sync_every = more broadcasts (higher overhead, faster convergence);
 // longer = less overhead (approaches independent run_ensemble).
 TEST_CASE("bench: cooperative ensemble sync interval (N=256, 4 replicas)",
-          "[!benchmark]") {
+          "[!benchmark][ensemble][cooperative]") {
   constexpr int N = 256;
   constexpr std::uint64_t TOTAL = 400;
 

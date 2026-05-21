@@ -152,7 +152,7 @@ if (RMC_USE_OPENMP AND OpenMP_CXX_FOUND)
     endif ()
 endif ()
 
-option(RMC_USE_TBB "Use Intel TBB for parallel full-histogram builds (off by default)" ON)
+option(RMC_USE_TBB "Use Intel TBB for parallel full-histogram builds (off by default)" OFF)
 if (RMC_USE_TBB)
     find_package(TBB REQUIRED)
     target_link_libraries(RMC PUBLIC TBB::tbb)
