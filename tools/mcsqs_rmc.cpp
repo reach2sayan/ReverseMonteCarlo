@@ -230,11 +230,11 @@ int main(int argc, char *argv[]) {
       RMC::Group g;
       g.name = "site_" + std::to_string(i);
       g.indices = {i};
-      g.generator = RMC::IMoveGenerator{gen}; // each group shares same gen
+      g.generator = RMC::MoveGenerator{gen}; // each group shares same gen
       eng.add_group(std::move(g));
     }
 
-    eng.set_selector(RMC::IGroupSelector{
+    eng.set_selector(RMC::GroupSelector{
         RMC::SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
     eng.set_step_callback(
         [log_ev](std::uint64_t total, std::uint64_t accepted,

@@ -33,19 +33,15 @@ class MultiFrameEngine : public EngineBase<MultiFrameEngine> {
 public:
   explicit MultiFrameEngine(BoundaryConditions bc,
                             std::uint32_t frame_rng_seed = 42,
-                            std::uint32_t group_rng_seed = 43)
+                            std::uint32_t group_rng_seed = 1729)
       : EngineBase<MultiFrameEngine>(bc),
         frame_selector_(RandomSelector{frame_rng_seed}),
         group_selector_(RandomSelector{group_rng_seed}) {}
 
   void add_frame(AtomicStructure s) { frames_.push_back(std::move(s)); }
 
-  void set_frame_selector(GroupSelector s) {
-    frame_selector_ = std::move(s);
-  }
-  void set_group_selector(GroupSelector s) {
-    group_selector_ = std::move(s);
-  }
+  void set_frame_selector(GroupSelector s) { frame_selector_ = std::move(s); }
+  void set_group_selector(GroupSelector s) { group_selector_ = std::move(s); }
 
   // Call once after all frames/groups/constraints have been added.
   // Informs pair constraints of the frame count and pre-populates their
@@ -70,10 +66,11 @@ public:
     constraints_.set_active_frame(0);
   }
 
-  [[nodiscard]] const std::vector<AtomicStructure> &frames() const noexcept {
+  [[nodiscard]] constexpr const std::vector<AtomicStructure> &
+  frames() const noexcept {
     return frames_;
   }
-  [[nodiscard]] const AtomicStructure &best_frame() const {
+  [[nodiscard]] constexpr const AtomicStructure &best_frame() const {
     // Returns frame closest to lowest total error (all frames contribute
     // equally to the averaged constraint, so we just return frame 0; callers
     // who need the absolute best should compare external metrics).
@@ -94,8 +91,9 @@ private:
     const std::size_t fi = frame_selector_.select(frames_.size());
     const std::size_t gi = group_selector_.select(groups_.size());
     Group &g = groups_[gi];
-    if (!g.refine || g.empty() || !g.generator)
+    if (!g.refine || g.empty() || !g.generator) {
       return std::nullopt;
+    }
     return TrialCtx{fi, gi, &frames_[fi], &g};
   }
   void snapshot_and_score_before(TrialCtx &c) {
@@ -128,6 +126,7 @@ private:
         .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
         .and_then(stage([&](TrialCtx &c) { score_after(c); }))
         .and_then(stage([&](TrialCtx &c) { settle(c); }));
+    maybe_log();
   }
 
   std::vector<AtomicStructure> frames_;

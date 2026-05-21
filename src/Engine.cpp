@@ -26,9 +26,4 @@ void Engine::set_checkpoint(std::filesystem::path path, std::uint64_t every) {
   checkpoint_every_ = every;
 }
 
-void Engine::set_step_callback(StepCallback cb, std::uint64_t log_every) {
-  step_cb_ = std::move(cb);
-  log_every_ = log_every;
-}
-
 } // namespace RMC

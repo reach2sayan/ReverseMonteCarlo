@@ -8,13 +8,9 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <optional>
 
 namespace RMC {
-
-using StepCallback =
-    std::function<void(std::uint64_t, std::uint64_t, std::uint64_t, double)>;
 
 class Engine : public EngineBase<Engine> {
 public:
@@ -26,7 +22,6 @@ public:
 
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
-  void set_step_callback(StepCallback cb, std::uint64_t log_every = 1000);
 
   [[nodiscard]] constexpr const AtomicStructure &structure() const noexcept {
     return structure_;
@@ -98,12 +93,6 @@ private:
     }
     selector_.feedback(c.gi, !rejected);
   }
-  constexpr void maybe_log() {
-    if (step_cb_ && (n_steps_total_ % log_every_ == 0)) {
-      step_cb_(n_steps_total_, n_steps_accepted_, n_steps_tried_,
-               constraints_.total_error());
-    }
-  }
   constexpr void maybe_checkpoint() {
     if (checkpoint_path_ && n_steps_accepted_ > 0 &&
         n_steps_accepted_ % checkpoint_every_ == 0) {
@@ -132,10 +121,6 @@ private:
   // Checkpoint state
   std::optional<std::filesystem::path> checkpoint_path_;
   std::uint64_t checkpoint_every_{5000};
-
-  // Logging callback
-  StepCallback step_cb_;
-  std::uint64_t log_every_{1000};
 };
 
 } // namespace RMC
