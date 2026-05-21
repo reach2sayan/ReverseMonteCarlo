@@ -25,7 +25,7 @@ static AtomicStructure load(const char *path) {
   return std::move(*r);
 }
 
-static void run_single(const char *label, IMoveGenerator gen,
+static void run_single(const char *label, MoveGenerator gen,
                        const AtomicStructure &tmpl, std::uint64_t n = 200) {
   Engine eng(tmpl, InfiniteBC{});
   Group g;
@@ -40,7 +40,7 @@ static void run_single(const char *label, IMoveGenerator gen,
             << c(0,2) << ")\n";
 }
 
-static void run_rotation(const char *label, IMoveGenerator gen,
+static void run_rotation(const char *label, MoveGenerator gen,
                          const AtomicStructure &tmpl) {
   double d01 = (tmpl.coordinates.row(0) - tmpl.coordinates.row(1)).norm();
   double d23 = (tmpl.coordinates.row(2) - tmpl.coordinates.row(3)).norm();

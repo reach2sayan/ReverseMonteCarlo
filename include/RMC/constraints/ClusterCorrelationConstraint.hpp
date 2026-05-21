@@ -65,7 +65,7 @@ public:
   }
 
   // More expensive than cheap geometric constraints.
-  [[nodiscard]] double computation_cost(IConstraint::Token) const noexcept {
+  [[nodiscard]] double computation_cost(Constraint::Token) const noexcept {
     return static_cast<double>(total_instances_) * 10.0;
   }
 

@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
     RMC::Engine eng{structure, RMC::InfiniteBC{}};
 
     // Add the cluster correlation constraint.
-    eng.add_constraint(RMC::IConstraint{RMC::ClusterCorrelationConstraint{
+    eng.add_constraint(RMC::Constraint{RMC::ClusterCorrelationConstraint{
         eng.structure(), species_map, orbits}});
 
     // One group per site; generator performs sublattice-aware species swap.
@@ -228,7 +228,7 @@ int main(int argc, char *argv[]) {
       RMC::Group g;
       g.name = "site_" + std::to_string(i);
       g.indices = {i};
-      g.generator = RMC::IMoveGenerator{gen};
+      g.generator = RMC::MoveGenerator{gen};
       eng.add_group(std::move(g));
     }
 

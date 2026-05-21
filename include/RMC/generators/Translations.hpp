@@ -17,7 +17,7 @@ struct TranslationGenerator : MoveGeneratorBase<TranslationGenerator> {
   TranslationGenerator(double mn, double mx, std::uint32_t seed = 42)
       : min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     vec3_t delta = random_unit_vector() * amp;
@@ -49,7 +49,7 @@ struct TranslationAlongAxisGenerator
                                 std::uint32_t seed = 42)
       : axis(ax.normalized()), min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double magnitude =
         (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
@@ -73,7 +73,7 @@ struct TranslationTowardsCentreGenerator
                                     std::uint32_t seed = 42)
       : centre(c), min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     vec3_t gc = centroid(coords, indices);
@@ -103,7 +103,7 @@ struct TranslationTowardsAxisGenerator
       : point(std::move(pt)), direction(dir.normalized()), min_amp(mn),
         max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     vec3_t gc = centroid(coords, indices);
@@ -131,7 +131,7 @@ struct TranslationAlongSymmetryAxisGenerator
                                         std::uint32_t seed = 42)
       : axis(ax), min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double magnitude =
         (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
@@ -162,7 +162,7 @@ struct TranslationTowardsSymmetryAxisGenerator
                                           std::uint32_t seed = 42)
       : axis(ax), min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     vec3_t gc = centroid(coords, indices);

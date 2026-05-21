@@ -15,7 +15,7 @@ namespace RMC {
 //
 // Usage:
 //   SpeciesSwapGenerator gen{engine.structure(), sublattices};
-//   Group g{"site_0", {0}, IMoveGenerator{gen}};
+//   Group g{"site_0", {0}, MoveGenerator{gen}};
 //   engine.add_group(g);
 //
 // sublattices: outer index = sublattice id; inner = site indices in that
@@ -45,7 +45,7 @@ public:
   // indices must contain exactly one element: the selected site i.
   // Picks a random site j from the same sublattice with a different element
   // and swaps their species labels.
-  void generate(IMoveGenerator::Token, coords_t & /*coords*/,
+  void generate(MoveGenerator::Token, coords_t & /*coords*/,
                 std::span<const std::size_t> indices) {
     if (indices.empty() || !structure)
       return;

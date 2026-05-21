@@ -127,7 +127,7 @@ int main() {
         g.generator.emplace(
             TranslationGenerator(0.0, 0.1, static_cast<std::uint32_t>(i + 10)));
       else
-        g.generator = IMoveGenerator{swap_gen};
+        g.generator = MoveGenerator{swap_gen};
       eng.add_group(std::move(g));
     }
     eng.set_selector(SmartRandomSelector{1.1, 3});

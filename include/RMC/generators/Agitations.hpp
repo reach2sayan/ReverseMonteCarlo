@@ -22,7 +22,7 @@ struct DistanceAgitationGenerator
                              double mx, std::uint32_t seed = 42)
       : i(ai), j(aj), min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> /*indices*/) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     if (rng.uniform() < 0.5) {
@@ -57,7 +57,7 @@ struct AngleAgitationGenerator : MoveGeneratorBase<AngleAgitationGenerator> {
                           double mn, double mx, std::uint32_t seed = 42)
       : i(ai), j(aj), k(ak), min_amp(mn), max_amp(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> /*indices*/) {
     double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
     if (rng.uniform() < 0.5)

@@ -46,7 +46,7 @@ TEST_CASE("BondConstraint - should_reject after worsening move",
           "[constraints]") {
   BondConstraint bc;
   bc.add_bond(0, 1, 1.0, 2.0);
-  IConstraint c = std::move(bc);
+  Constraint c = std::move(bc);
 
   coords_t good = make2(0.0, 1.5);
   coords_t bad = make2(0.0, 0.5);
@@ -60,7 +60,7 @@ TEST_CASE("BondConstraint - accept then error_before updates",
           "[constraints]") {
   BondConstraint bc;
   bc.add_bond(0, 1, 1.0, 2.0);
-  IConstraint c = std::move(bc);
+  Constraint c = std::move(bc);
 
   coords_t c1 = make2(0.0, 1.2);
   coords_t c2 = make2(0.0, 1.8);
@@ -326,7 +326,7 @@ TEST_CASE(
     "[constraints][rigid]") {
   BondConstraint bc;
   bc.add_bond(0, 1, 1.0, 2.0);
-  IConstraint c = std::move(bc);
+  Constraint c = std::move(bc);
 
   coords_t good = make2(0.0, 1.5);
   coords_t bad = make2(0.0, 0.3); // too short: violates [1.0, 2.0]
@@ -380,7 +380,7 @@ TEST_CASE("SingularConstraintBase - is_singular flag",
   pdc.set_experimental_data(exp);
   pdc.set_number_density(0.03);
   pdc.initialise();
-  IConstraint c = std::move(pdc);
+  Constraint c = std::move(pdc);
 
   REQUIRE(c.is_singular());
   REQUIRE_FALSE(c.is_rigid());
@@ -402,14 +402,14 @@ static ReducedStructureFactorConstraint make_rfq(int nQ = 20) {
 
 TEST_CASE("ReducedStructureFactorConstraint - name and cost", "[constraints]") {
   ReducedStructureFactorConstraint rfq = make_rfq();
-  IConstraint c = std::move(rfq);
+  Constraint c = std::move(rfq);
   REQUIRE(c.name() == "ReducedStructureFactorConstraint");
   REQUIRE(c.computation_cost() >= 1e6);
 }
 
 TEST_CASE("ReducedStructureFactorConstraint - is_singular not rigid",
           "[constraints]") {
-  IConstraint c = make_rfq();
+  Constraint c = make_rfq();
   REQUIRE(c.is_singular());
   REQUIRE_FALSE(c.is_rigid());
 }
@@ -470,7 +470,7 @@ TEST_CASE("ReducedStructureFactorConstraint - F(Q) differs from S(Q)",
 TEST_CASE("ReducedStructureFactorConstraint - accept/reject cycle",
           "[constraints]") {
   ReducedStructureFactorConstraint rfq = make_rfq();
-  IConstraint c = std::move(rfq);
+  Constraint c = std::move(rfq);
 
   const int N = 4;
   coords_t c1(N, 3), c2(N, 3);

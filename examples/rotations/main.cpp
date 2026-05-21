@@ -33,20 +33,20 @@ int main() {
 
   struct Case {
     const char *label;
-    IMoveGenerator gen;
+    MoveGenerator gen;
   };
   std::vector<Case> cases;
-  cases.push_back({"about X axis", IMoveGenerator{RotationAboutAxisGenerator(
+  cases.push_back({"about X axis", MoveGenerator{RotationAboutAxisGenerator(
                                        {1, 0, 0}, 0.0, 0.5, 1)}});
-  cases.push_back({"about Y axis", IMoveGenerator{RotationAboutAxisGenerator(
+  cases.push_back({"about Y axis", MoveGenerator{RotationAboutAxisGenerator(
                                        {0, 1, 0}, 0.0, 0.5, 2)}});
-  cases.push_back({"about Z axis", IMoveGenerator{RotationAboutAxisGenerator(
+  cases.push_back({"about Z axis", MoveGenerator{RotationAboutAxisGenerator(
                                        {0, 0, 1}, 0.0, 0.5, 3)}});
   cases.push_back(
       {"about (1,1,1) axis",
-       IMoveGenerator{RotationAboutAxisGenerator({1, 1, 1}, 0.0, 0.5, 4)}});
+       MoveGenerator{RotationAboutAxisGenerator({1, 1, 1}, 0.0, 0.5, 4)}});
   cases.push_back(
-      {"random axis", IMoveGenerator{RotationGenerator(0.0, 0.5, 5)}});
+      {"random axis", MoveGenerator{RotationGenerator(0.0, 0.5, 5)}});
 
   for (auto &[label, gen] : cases) {
     auto s = make_mol();

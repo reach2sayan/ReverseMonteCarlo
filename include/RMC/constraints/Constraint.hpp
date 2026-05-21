@@ -7,13 +7,13 @@
 
 namespace RMC {
 
-class IConstraint; // forward for friend declaration
+class Constraint; // forward for friend declaration
 
 namespace detail {
 struct ConstraintToken {
 private:
   constexpr ConstraintToken() = default;
-  friend class ::RMC::IConstraint;
+  friend class ::RMC::Constraint;
 };
 } // namespace detail
 
@@ -35,20 +35,20 @@ concept CConstraint =
       { c.is_singular(tok) } -> std::convertible_to<bool>;
     };
 
-class IConstraint {
+class Constraint {
 public:
   using Token = detail::ConstraintToken;
 
   template <CConstraint T>
-  constexpr IConstraint(T x)
+  constexpr Constraint(T x)
       : self_(std::make_unique<ConstraintModel<T>>(std::move(x))) {}
-  constexpr IConstraint(const IConstraint &s) : self_{s.self_->clone()} {}
-  constexpr IConstraint(IConstraint &&s) noexcept : self_{std::move(s.self_)} {}
-  constexpr IConstraint &operator=(const IConstraint &s) {
+  constexpr Constraint(const Constraint &s) : self_{s.self_->clone()} {}
+  constexpr Constraint(Constraint &&s) noexcept : self_{std::move(s.self_)} {}
+  constexpr Constraint &operator=(const Constraint &s) {
     self_ = s.self_->clone();
     return *this;
   }
-  constexpr IConstraint &operator=(IConstraint &&s) noexcept {
+  constexpr Constraint &operator=(Constraint &&s) noexcept {
     self_ = std::move(s.self_);
     return *this;
   }
@@ -172,7 +172,7 @@ public:
   double tolerance = 0.0;
 
   constexpr void
-  set_boundary_conditions(IConstraint::Token,
+  set_boundary_conditions(Constraint::Token,
                           const BoundaryConditions &bc) noexcept {
     bc_ = &bc;
   }
@@ -181,41 +181,41 @@ public:
     bc_ = &bc;
   }
 
-  constexpr void compute_before_move(IConstraint::Token, const coords_t &coords,
+  constexpr void compute_before_move(Constraint::Token, const coords_t &coords,
                                      std::span<const std::size_t> moved) {
     err_before_ = static_cast<Derived *>(this)->compute_error(coords, moved);
   }
-  constexpr void compute_after_move(IConstraint::Token, const coords_t &coords,
+  constexpr void compute_after_move(Constraint::Token, const coords_t &coords,
                                     std::span<const std::size_t> moved) {
     err_after_ = static_cast<Derived *>(this)->compute_error(coords, moved);
   }
-  constexpr void accept(IConstraint::Token) noexcept {
+  constexpr void accept(Constraint::Token) noexcept {
     err_before_ = err_after_;
   }
-  constexpr void reject(IConstraint::Token) noexcept {
+  constexpr void reject(Constraint::Token) noexcept {
     // Reset err_after_ so total_error() stays consistent after short-circuited
     // compute_after_move (i.e. when this constraint was skipped).
     err_after_ = err_before_;
   }
 
   [[nodiscard]] constexpr double
-  standard_error(IConstraint::Token) const noexcept {
+  standard_error(Constraint::Token) const noexcept {
     return err_after_;
   }
   [[nodiscard]] constexpr bool
-  should_reject(IConstraint::Token) const noexcept {
+  should_reject(Constraint::Token) const noexcept {
     return flexible ? (err_after_ > err_before_ + tolerance)
                     : (err_after_ > err_before_);
   }
   // Default cost: O(1) or O(bonds). Override in O(N) / O(N²) constraints.
   [[nodiscard]] constexpr double
-  computation_cost(IConstraint::Token) const noexcept {
+  computation_cost(Constraint::Token) const noexcept {
     return 1.0;
   }
-  [[nodiscard]] static constexpr bool is_rigid(IConstraint::Token) noexcept {
+  [[nodiscard]] static constexpr bool is_rigid(Constraint::Token) noexcept {
     return false;
   }
-  [[nodiscard]] static constexpr bool is_singular(IConstraint::Token) noexcept {
+  [[nodiscard]] static constexpr bool is_singular(Constraint::Token) noexcept {
     return false;
   }
 
@@ -235,28 +235,27 @@ protected:
 };
 
 // Hard gate: rejects moves that worsen it, but standard_error() == 0 so it
-// does NOT contribute to the engine's total chi² (mirrors fullrmc
-// RigidConstraint).
+// does NOT contribute to the engine's total chi²
 template <typename Derived>
 class RigidConstraintBase : public ConstraintBase<Derived> {
 public:
   [[nodiscard]] static constexpr double
-  standard_error(IConstraint::Token) noexcept {
+  standard_error(Constraint::Token) noexcept {
     return 0.0;
   }
 
-  [[nodiscard]] static constexpr bool is_rigid(IConstraint::Token) noexcept {
+  [[nodiscard]] static constexpr bool is_rigid(Constraint::Token) noexcept {
     return true;
   }
 };
 
 // Only one instance of this constraint type is allowed per ConstraintCollection
-// (mirrors fullrmc SingularConstraint). standard_error() is NOT overridden —
+// standard_error() is NOT overridden —
 // singular constraints still contribute to total chi².
 template <typename Derived>
 class SingularConstraintBase : public ConstraintBase<Derived> {
 public:
-  [[nodiscard]] static constexpr bool is_singular(IConstraint::Token) noexcept {
+  [[nodiscard]] static constexpr bool is_singular(Constraint::Token) noexcept {
     return true;
   }
 };

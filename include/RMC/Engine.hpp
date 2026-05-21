@@ -44,7 +44,7 @@ public:
                            std::uint32_t seed = 42);
 
   constexpr void set_selector(IGroupSelector s) { selector_ = std::move(s); }
-  constexpr void add_constraint(IConstraint c) {
+  constexpr void add_constraint(Constraint c) {
     c.set_boundary_conditions(bc_);
     constraints_.add(std::move(c));
   }

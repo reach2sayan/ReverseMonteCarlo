@@ -27,7 +27,7 @@ make_coords(std::initializer_list<std::array<double, 3>> atoms) {
 }
 
 TEST_CASE("TranslationGenerator - amplitude within bounds", "[generators]") {
-  IMoveGenerator gen = TranslationGenerator(0.1, 0.5, /*seed=*/99);
+  MoveGenerator gen = TranslationGenerator(0.1, 0.5, /*seed=*/99);
   coords_t c = make_coords({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}});
   coords_t orig = c;
   std::vector<index_t> all = {0, 1, 2};
@@ -49,7 +49,7 @@ TEST_CASE("TranslationGenerator - amplitude within bounds", "[generators]") {
 }
 
 TEST_CASE("TranslationGenerator - subset indices", "[generators]") {
-  IMoveGenerator gen = TranslationGenerator(0.0, 0.2, 7);
+  MoveGenerator gen = TranslationGenerator(0.0, 0.2, 7);
   coords_t c = make_coords({{0, 0, 0}, {1, 0, 0}, {2, 0, 0}});
   std::vector<index_t> subset = {0, 2};
 
@@ -61,7 +61,7 @@ TEST_CASE("TranslationGenerator - subset indices", "[generators]") {
 }
 
 TEST_CASE("RotationGenerator - preserves pairwise distances", "[generators]") {
-  IMoveGenerator gen = RotationGenerator(0.1, 0.5, 42);
+  MoveGenerator gen = RotationGenerator(0.1, 0.5, 42);
   coords_t c = make_coords({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
   std::vector<index_t> all = {0, 1, 2, 3};
 
@@ -76,7 +76,7 @@ TEST_CASE("RotationGenerator - preserves pairwise distances", "[generators]") {
 }
 
 TEST_CASE("SwapGenerator - exchanges positions correctly", "[generators]") {
-  IMoveGenerator gen = SwapGenerator({{{2, 3}}}, 1);
+  MoveGenerator gen = SwapGenerator({{{2, 3}}}, 1);
   coords_t c = make_coords({{1, 0, 0}, {2, 0, 0}, {3, 0, 0}, {4, 0, 0}});
   std::vector<index_t> groupA = {0, 1};
 
@@ -89,7 +89,7 @@ TEST_CASE("SwapGenerator - exchanges positions correctly", "[generators]") {
 }
 
 TEST_CASE("CombinedMoveGenerator - applies both generators", "[generators]") {
-  IMoveGenerator gen = CombinedMoveGenerator{TranslationGenerator(0.2, 0.2, 10),
+  MoveGenerator gen = CombinedMoveGenerator{TranslationGenerator(0.2, 0.2, 10),
                                              RotationGenerator(0.0, 0.0, 10)};
 
   coords_t c = make_coords({{0, 0, 0}});
@@ -108,7 +108,7 @@ TEST_CASE("TranslationTowardsAxisGenerator - moves centroid closer to axis",
   // After the move the perpendicular distance to Z should decrease.
   vec3_t pt{0, 0, 0};
   vec3_t dir{0, 0, 1};
-  IMoveGenerator gen = TranslationTowardsAxisGenerator(pt, dir, 0.5, 0.5, 1);
+  MoveGenerator gen = TranslationTowardsAxisGenerator(pt, dir, 0.5, 0.5, 1);
   coords_t c = make_coords({{3, 4, 0}, {3, 4, 1}});
   std::vector<index_t> all = {0, 1};
 
@@ -127,7 +127,7 @@ TEST_CASE("TranslationTowardsAxisGenerator - no-op when centroid on axis",
           "[generators]") {
   vec3_t pt{0, 0, 0};
   vec3_t dir{0, 0, 1};
-  IMoveGenerator gen = TranslationTowardsAxisGenerator(pt, dir, 0.5, 0.5, 1);
+  MoveGenerator gen = TranslationTowardsAxisGenerator(pt, dir, 0.5, 0.5, 1);
   coords_t c = make_coords({{0, 0, 0}, {0, 0, 2}});
   coords_t orig = c;
   std::vector<index_t> all = {0, 1};
@@ -142,7 +142,7 @@ TEST_CASE(
   for (auto [ax, col] :
        {std::pair{SymmetryAxis::X, 0}, std::pair{SymmetryAxis::Y, 1},
         std::pair{SymmetryAxis::Z, 2}}) {
-    IMoveGenerator gen = TranslationAlongSymmetryAxisGenerator(ax, 0.3, 0.3, 5);
+    MoveGenerator gen = TranslationAlongSymmetryAxisGenerator(ax, 0.3, 0.3, 5);
     coords_t c = make_coords({{1, 1, 1}});
     coords_t orig = c;
     std::vector<index_t> idx = {0};
@@ -161,7 +161,7 @@ TEST_CASE(
     "TranslationTowardsSymmetryAxisGenerator - perpendicular dist decreases",
     "[generators]") {
   // Group centroid at (3, 4, 7), symmetry axis Z. Perp dist = 5.
-  IMoveGenerator gen =
+  MoveGenerator gen =
       TranslationTowardsSymmetryAxisGenerator(SymmetryAxis::Z, 1.0, 1.0, 2);
   coords_t c = make_coords({{3, 4, 7}});
   std::vector<index_t> idx = {0};
@@ -177,7 +177,7 @@ TEST_CASE(
 TEST_CASE("RotationAboutSymmetryAxisGenerator - preserves pairwise distances",
           "[generators]") {
   for (auto ax : {SymmetryAxis::X, SymmetryAxis::Y, SymmetryAxis::Z}) {
-    IMoveGenerator gen = RotationAboutSymmetryAxisGenerator(ax, 0.3, 0.3, 7);
+    MoveGenerator gen = RotationAboutSymmetryAxisGenerator(ax, 0.3, 0.3, 7);
     coords_t c = make_coords({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
     double d01 = (c.row(0) - c.row(1)).norm();
     double d23 = (c.row(2) - c.row(3)).norm();
@@ -192,7 +192,7 @@ TEST_CASE("RotationAboutSymmetryAxisGenerator - preserves pairwise distances",
 TEST_CASE("OrientationGenerator - preserves pairwise distances",
           "[generators]") {
   vec3_t target{0, 0, 1};
-  IMoveGenerator gen = OrientationGenerator(target, 0.05, 3);
+  MoveGenerator gen = OrientationGenerator(target, 0.05, 3);
   coords_t c = make_coords({{0, 0, 0}, {1, 0, 0}, {2, 0, 0}});
   double d01 = (c.row(0) - c.row(1)).norm();
   double d12 = (c.row(1) - c.row(2)).norm();
@@ -206,7 +206,7 @@ TEST_CASE("OrientationGenerator - aligns axis approximately toward target",
           "[generators]") {
   // Group along X. Target is Z. Zero offset → exact alignment.
   vec3_t target{0, 0, 1};
-  IMoveGenerator gen = OrientationGenerator(target, 0.0, 11);
+  MoveGenerator gen = OrientationGenerator(target, 0.0, 11);
   coords_t c = make_coords({{-1, 0, 0}, {0, 0, 0}, {1, 0, 0}});
   std::vector<index_t> all = {0, 1, 2};
   gen.generate(c, all);
@@ -219,7 +219,7 @@ TEST_CASE("OrientationGenerator - aligns axis approximately toward target",
 
 // ---- DistanceAgitationGenerator ----
 TEST_CASE("DistanceAgitationGenerator - midpoint preserved", "[generators]") {
-  IMoveGenerator gen = DistanceAgitationGenerator(0, 1, 0.1, 0.1, 4);
+  MoveGenerator gen = DistanceAgitationGenerator(0, 1, 0.1, 0.1, 4);
   coords_t c = make_coords({{0, 0, 0}, {2, 0, 0}});
   coords_t orig = c;
   std::vector<index_t> all = {0, 1};
@@ -234,7 +234,7 @@ TEST_CASE("DistanceAgitationGenerator - midpoint preserved", "[generators]") {
 }
 
 TEST_CASE("DistanceAgitationGenerator - bond length changes", "[generators]") {
-  IMoveGenerator gen = DistanceAgitationGenerator(0, 1, 0.2, 0.2, 4);
+  MoveGenerator gen = DistanceAgitationGenerator(0, 1, 0.2, 0.2, 4);
   coords_t c = make_coords({{0, 0, 0}, {2, 0, 0}});
   std::vector<index_t> all = {0, 1};
   double before = (c.row(1) - c.row(0)).norm();
@@ -246,7 +246,7 @@ TEST_CASE("DistanceAgitationGenerator - bond length changes", "[generators]") {
 // ---- AngleAgitationGenerator ----
 TEST_CASE("AngleAgitationGenerator - bond lengths preserved", "[generators]") {
   // Triplet (0,1,2): atom 1 at origin, atom 0 along x, atom 2 along y.
-  IMoveGenerator gen = AngleAgitationGenerator(0, 1, 2, 0.1, 0.1, 5);
+  MoveGenerator gen = AngleAgitationGenerator(0, 1, 2, 0.1, 0.1, 5);
   coords_t c = make_coords({{1, 0, 0}, {0, 0, 0}, {0, 1, 0}});
   std::vector<index_t> all = {0, 1, 2};
   double d01 = (c.row(0) - c.row(1)).norm();
@@ -257,7 +257,7 @@ TEST_CASE("AngleAgitationGenerator - bond lengths preserved", "[generators]") {
 }
 
 TEST_CASE("AngleAgitationGenerator - angle changes", "[generators]") {
-  IMoveGenerator gen = AngleAgitationGenerator(0, 1, 2, 0.2, 0.2, 5);
+  MoveGenerator gen = AngleAgitationGenerator(0, 1, 2, 0.2, 0.2, 5);
   coords_t c = make_coords({{1, 0, 0}, {0, 0, 0}, {0, 1, 0}});
   std::vector<index_t> all = {0, 1, 2};
   // Initial angle at vertex 1 = 90 degrees.
@@ -276,7 +276,7 @@ TEST_CASE("AngleAgitationGenerator - angle changes", "[generators]") {
 TEST_CASE("SwapCentersGenerator - moves group centroid to candidate centroid",
           "[generators]") {
   // Group = {0}, candidate = {1}. After move, atom 0 should be at atom 1's pos.
-  IMoveGenerator gen = SwapCentersGenerator({{std::vector<std::size_t>{1}}}, 1);
+  MoveGenerator gen = SwapCentersGenerator({{std::vector<std::size_t>{1}}}, 1);
   coords_t c = make_coords({{0, 0, 0}, {5, 3, 1}});
   std::vector<index_t> group = {0};
   gen.generate(c, group);
@@ -289,7 +289,7 @@ TEST_CASE("SwapCentersGenerator - moves group centroid to candidate centroid",
 
 TEST_CASE("SwapCentersGenerator - no-op with empty candidates",
           "[generators]") {
-  IMoveGenerator gen = SwapCentersGenerator({}, 1);
+  MoveGenerator gen = SwapCentersGenerator({}, 1);
   coords_t c = make_coords({{1, 2, 3}});
   coords_t orig = c;
   std::vector<index_t> idx = {0};
@@ -306,7 +306,7 @@ TEST_CASE("MoveGeneratorCollector - applies exactly one generator",
   MoveGeneratorCollector col(99);
   col.add(TranslationAlongSymmetryAxisGenerator(SymmetryAxis::X, 1.0, 1.0, 1));
   col.add(TranslationAlongSymmetryAxisGenerator(SymmetryAxis::Y, 1.0, 1.0, 2));
-  IMoveGenerator gen = std::move(col);
+  MoveGenerator gen = std::move(col);
 
   int x_moves = 0, y_moves = 0;
   for (int trial = 0; trial < 40; ++trial) {
@@ -328,7 +328,7 @@ TEST_CASE("MoveGeneratorCollector - applies exactly one generator",
 TEST_CASE("TranslationAlongAxisPath - applies steps sequentially and cycles",
           "[generators]") {
   std::vector<double> steps = {1.0, -2.0, 0.5};
-  IMoveGenerator gen = TranslationAlongAxisPath({1, 0, 0}, steps);
+  MoveGenerator gen = TranslationAlongAxisPath({1, 0, 0}, steps);
   coords_t c = make_coords({{0, 0, 0}});
   std::vector<index_t> idx = {0};
 
@@ -344,7 +344,7 @@ TEST_CASE("TranslationAlongAxisPath - applies steps sequentially and cycles",
 TEST_CASE("RotationAboutAxisPath - preserves distances and cycles",
           "[generators]") {
   std::vector<double> angles = {std::numbers::pi / 6, -std::numbers::pi / 6};
-  IMoveGenerator gen = RotationAboutAxisPath({0, 0, 1}, angles);
+  MoveGenerator gen = RotationAboutAxisPath({0, 0, 1}, angles);
   coords_t c = make_coords({{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}});
   std::vector<index_t> all = {0, 1, 2};
   double d01 = (c.row(0) - c.row(1)).norm();
@@ -361,7 +361,7 @@ TEST_CASE("RotationAboutAxisPath - net rotation after full cycle is identity",
           "[generators]") {
   // +π/2 then -π/2 → net zero.
   std::vector<double> angles = {std::numbers::pi / 2, -std::numbers::pi / 2};
-  IMoveGenerator gen = RotationAboutAxisPath({0, 0, 1}, angles);
+  MoveGenerator gen = RotationAboutAxisPath({0, 0, 1}, angles);
   coords_t c = make_coords({{1, 0, 0}, {0, 0, 0}});
   coords_t orig = c;
   std::vector<index_t> all = {0, 1};

@@ -41,7 +41,7 @@ struct LeapfrogTranslationGenerator
                                std::uint32_t seed = 42)
       : n_steps(L), step_size(eps), constraints(&c), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     BOOST_ASSERT_MSG(
         constraints,
@@ -95,8 +95,9 @@ struct LeapfrogTranslationGenerator
         for (Eigen::Index ai = 0; ai < k; ++ai) {
           const auto atom =
               static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
-          r_diff_flat.segment<3>(3 * ai) =
-              coords.row(atom).transpose() - saved.row(ai).transpose();
+          for (int d : {0, 1, 2}) {
+            r_diff_flat(3 * ai + d) = coords(atom, d) - saved(ai, d);
+          }
         }
         if (p.dot(r_diff_flat) < 0.0)
           break;

@@ -15,7 +15,7 @@ public:
   void set_experimental_data(const mat_t &data); // columns: Q, F(Q)
 
   constexpr void
-  set_boundary_conditions(IConstraint::Token tok,
+  set_boundary_conditions(Constraint::Token tok,
                           const BoundaryConditions &bc) noexcept {
     SingularConstraintBase::set_boundary_conditions(tok, bc);
     pdf_.set_boundary_conditions(bc);
@@ -39,7 +39,7 @@ public:
     return "ReducedStructureFactorConstraint";
   }
   [[nodiscard]] static constexpr double
-  computation_cost(IConstraint::Token) noexcept {
+  computation_cost(Constraint::Token) noexcept {
     return 2e6;
   }
 

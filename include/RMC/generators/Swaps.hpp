@@ -21,7 +21,7 @@ struct SwapGenerator : MoveGeneratorBase<SwapGenerator> {
                          std::uint32_t seed = 42)
       : candidates(std::move(cands)), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     if (candidates.empty()) {
       return;
@@ -49,7 +49,7 @@ struct SwapCentersGenerator : MoveGeneratorBase<SwapCentersGenerator> {
                                 std::uint32_t seed = 42)
       : candidates(std::move(cands)), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     if (candidates.empty())
       return;

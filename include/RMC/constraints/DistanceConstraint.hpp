@@ -34,7 +34,7 @@ class DistanceConstraint : public RigidConstraintBase<DistanceConstraint<S>> {
 public:
   void set_minimum_distance(const std::string &el1, const std::string &el2,
                             double d_min) {
-    d_min_[ElemPair{el1, el2}] = d_min;
+    d_min_.insert_or_assign(ElemPair{el1, el2}, d_min);
     cache_.invalidate();
   }
 
@@ -47,10 +47,12 @@ public:
   }
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
-    if constexpr (S == DistanceScope::Inter)
+    if constexpr (S == DistanceScope::Inter) {
       return "InterMolecularDistanceConstraint";
-    else
+    }
+    else {
       return "IntraMolecularDistanceConstraint";
+    }
   }
 
   [[nodiscard]] constexpr double compute_error(const coords_t &coords,

@@ -52,13 +52,12 @@ template <typename Item> struct ItemCache {
     }
     for (auto atom : moved) {
       auto it = atom_map.find(atom);
-      if (it == atom_map.end()) {
-        continue;
-      }
-      for (auto idx : it->second) {
-        const double ne = err_of(coords, items[idx]);
-        total += ne - errs[idx];
-        errs[idx] = ne;
+      if (it != atom_map.end()) {
+        for (auto idx : it->second) {
+          const double ne = err_of(coords, items[idx]);
+          total += ne - errs[idx];
+          errs[idx] = ne;
+        }
       }
     }
     return total;

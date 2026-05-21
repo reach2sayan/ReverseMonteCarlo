@@ -16,7 +16,7 @@ struct TranslationAlongAxisPath : MoveGeneratorBase<TranslationAlongAxisPath> {
   TranslationAlongAxisPath(vec3_t ax, std::vector<double> displacements)
       : axis(ax.normalized()), path(std::move(displacements)) {}
 
-  constexpr void generate(IMoveGenerator::Token, coords_t &coords,
+  constexpr void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     if (path.empty()) {
       return;
@@ -41,7 +41,7 @@ struct RotationAboutAxisPath : MoveGeneratorBase<RotationAboutAxisPath> {
   RotationAboutAxisPath(vec3_t ax, std::vector<double> angles)
       : axis(ax.normalized()), path(std::move(angles)) {}
 
-  constexpr void generate(IMoveGenerator::Token, coords_t &coords,
+  constexpr void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     if (path.empty()) {
       return;

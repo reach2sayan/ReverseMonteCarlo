@@ -80,7 +80,7 @@ TEST_CASE(
   // Select site 0 (Cu); generator must swap it with one of sites 2 or 3 (Au).
   coords_t coords = s.coordinates;
   std::vector<std::size_t> idx = {0};
-  IMoveGenerator wrapped{gen};
+  MoveGenerator wrapped{gen};
   wrapped.generate(coords, idx);
 
   // Coordinates must be unchanged.
@@ -118,7 +118,7 @@ TEST_CASE(
 
   std::vector<std::vector<std::size_t>> groups = {{0, 1, 2, 3}};
   SpeciesSwapGenerator gen{s, groups, 42};
-  IMoveGenerator wrapped{gen};
+  MoveGenerator wrapped{gen};
 
   coords_t coords = s.coordinates;
   for (std::size_t site = 0; site < 4; ++site) {
@@ -148,7 +148,7 @@ TEST_CASE("SpeciesSwapGenerator - respects sublattice boundary",
 
   std::vector<std::vector<std::size_t>> groups = {{0, 1}, {2, 3}};
   SpeciesSwapGenerator gen{s, groups, 1};
-  IMoveGenerator wrapped{gen};
+  MoveGenerator wrapped{gen};
 
   // Run many steps selecting site 0; site 2 and 3 must never change element.
   for (int trial = 0; trial < 50; ++trial) {
@@ -167,14 +167,14 @@ TEST_CASE("SpeciesSwapGenerator - modifies_species returns true",
           "[species_swap]") {
   auto s = make_4site_single_sublattice();
   std::vector<std::vector<std::size_t>> groups = {{0, 1, 2, 3}};
-  IMoveGenerator wrapped{SpeciesSwapGenerator{s, groups}};
+  MoveGenerator wrapped{SpeciesSwapGenerator{s, groups}};
   REQUIRE(wrapped.modifies_species());
 }
 
 TEST_CASE(
     "SpeciesSwapGenerator - normal generators report modifies_species false",
     "[species_swap]") {
-  IMoveGenerator t = TranslationGenerator(0.1, 0.2, 1);
+  MoveGenerator t = TranslationGenerator(0.1, 0.2, 1);
   REQUIRE_FALSE(t.modifies_species());
 }
 
@@ -274,7 +274,7 @@ TEST_CASE("ClusterCorrelationConstraint - should_reject worsening move",
   nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
 
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
-  IConstraint cc{ClusterCorrelationConstraint{s, sm, {nn}}};
+  Constraint cc{ClusterCorrelationConstraint{s, sm, {nn}}};
   cc.set_boundary_conditions(InfiniteBC{});
 
   coords_t c = s.coordinates;
@@ -318,7 +318,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator restores elements on rejection",
   Engine eng{s, InfiniteBC{}};
 
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
-  eng.add_constraint(IConstraint{
+  eng.add_constraint(Constraint{
       ClusterCorrelationConstraint{eng.structure(), sm, {perfect_nn}}});
 
   std::vector<std::vector<std::size_t>> groups = {{0, 1, 2, 3}};
@@ -328,7 +328,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator restores elements on rejection",
     Group g;
     g.name = "site_" + std::to_string(i);
     g.indices = {i};
-    g.generator = IMoveGenerator{gen};
+    g.generator = MoveGenerator{gen};
     eng.add_group(std::move(g));
   }
   eng.set_selector(IGroupSelector{OrderedSelector{}});
@@ -357,7 +357,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator accepts improving moves",
   Engine eng{s, InfiniteBC{}};
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
   eng.add_constraint(
-      IConstraint{ClusterCorrelationConstraint{eng.structure(), sm, {nn}}});
+      Constraint{ClusterCorrelationConstraint{eng.structure(), sm, {nn}}});
 
   std::vector<std::vector<std::size_t>> groups = {{0, 1, 2, 3}};
   SpeciesSwapGenerator gen{eng.structure(), groups, 17};
@@ -366,7 +366,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator accepts improving moves",
     Group g;
     g.name = "site_" + std::to_string(i);
     g.indices = {i};
-    g.generator = IMoveGenerator{gen};
+    g.generator = MoveGenerator{gen};
     eng.add_group(std::move(g));
   }
   eng.set_selector(IGroupSelector{OrderedSelector{}});

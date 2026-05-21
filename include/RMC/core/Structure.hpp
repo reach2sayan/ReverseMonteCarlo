@@ -22,7 +22,6 @@ struct AtomicStructure {
   }
 
   // ---- Snapshot support for move revert ----
-  // Only saves rows identified by `indices`; restore puts them back.
   void save_snapshot(std::span<const std::size_t> indices);
   void restore_snapshot(std::span<const std::size_t> indices);
 
@@ -32,9 +31,9 @@ struct AtomicStructure {
   void save_species_snapshot();
   void restore_species_snapshot();
 
-  // ---- Convenience: pairwise distance (with PBC) ----
-  [[nodiscard]] double distance(std::size_t i, std::size_t j,
-                                const BoundaryConditions &bc) const noexcept {
+  [[nodiscard]] FORCE_INLINE double
+  distance(std::size_t i, std::size_t j,
+           const BoundaryConditions &bc) const noexcept {
     return bc_min_image(bc, coordinates.row(j) - coordinates.row(i)).norm();
   }
 

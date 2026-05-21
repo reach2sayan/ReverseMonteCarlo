@@ -25,7 +25,7 @@ struct LangevinRotationGenerator
                             std::uint32_t seed = 42)
       : step_size(eps), constraints(&c), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     BOOST_ASSERT_MSG(constraints,
                      "LangevinRotationGenerator: constraints pointer is null");

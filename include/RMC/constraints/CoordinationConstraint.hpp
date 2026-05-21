@@ -46,15 +46,16 @@ public:
     return "CoordinationConstraint";
   }
   [[nodiscard]] static constexpr double
-  computation_cost(IConstraint::Token) noexcept {
+  computation_cost(Constraint::Token) noexcept {
     return 10.0;
   }
 
   // Override ConstraintBase defaults so each step is O(N) not O(N²).
-  void compute_before_move(IConstraint::Token, const coords_t &coords,
+  void compute_before_move(Constraint::Token, const coords_t &coords,
                            std::span<const std::size_t> moved) {
-    if (!cn_ready_)
+    if (!cn_ready_) {
       full_compute(coords);
+    }
     old_cn_ = cn_;
     last_moved_.assign(moved.begin(), moved.end());
     saved_positions_.clear();
@@ -65,16 +66,16 @@ public:
     err_before_ = error_from_cn();
   }
 
-  void compute_after_move(IConstraint::Token, const coords_t &coords,
+  void compute_after_move(Constraint::Token, const coords_t &coords,
                           std::span<const std::size_t> moved) {
     cn_ = old_cn_;
     incremental_update(coords, moved);
     err_after_ = error_from_cn();
   }
 
-  void accept(IConstraint::Token tok) noexcept { ConstraintBase::accept(tok); }
+  void accept(Constraint::Token tok) noexcept { ConstraintBase::accept(tok); }
 
-  void reject(IConstraint::Token tok) noexcept {
+  void reject(Constraint::Token tok) noexcept {
     ConstraintBase::reject(tok);
     cn_ = old_cn_;
   }
@@ -109,8 +110,9 @@ private:
     elem_id_.resize(elements_.size());
     for (std::size_t i = 0; i < elements_.size(); ++i) {
       auto [it, ins] = name_to_id.try_emplace(elements_[i], next_id);
-      if (ins)
+      if (ins) {
         ++next_id;
+      }
       elem_id_[i] = it->second;
     }
     shell_nb_id_.resize(shells_.size());
@@ -124,8 +126,9 @@ private:
   }
 
   void full_compute(const coords_t &coords) const noexcept {
-    if (!ids_ready_ && !elements_.empty())
+    if (!ids_ready_ && !elements_.empty()) {
       build_ids();
+    }
     const std::size_t N = static_cast<std::size_t>(coords.rows());
     cn_.resize(shells_.size());
     const auto ns = static_cast<std::ptrdiff_t>(shells_.size());
@@ -147,22 +150,26 @@ private:
     if (elem_id_.empty()) {
       // No element filtering.
       for (std::size_t j = 0; j < N; ++j) {
-        if (j == sh.centre_idx)
+        if (j == sh.centre_idx) {
           continue;
+        }
         const double d2 = distance_sq(coords, sh.centre_idx, j);
-        if (d2 >= r2_min && d2 <= r2_max)
+        if (d2 >= r2_min && d2 <= r2_max) {
           ++cn;
+        }
       }
     } else {
       const uint8_t nb_id = shell_nb_id_[si];
       for (std::size_t j = 0; j < N; ++j) {
-        if (j == sh.centre_idx)
+        if (j == sh.centre_idx) {
           continue;
-        if (elem_id_[j] != nb_id)
+        } else if (elem_id_[j] != nb_id) {
           continue;
+        }
         const double d2 = distance_sq(coords, sh.centre_idx, j);
-        if (d2 >= r2_min && d2 <= r2_max)
+        if (d2 >= r2_min && d2 <= r2_max) {
           ++cn;
+        }
       }
     }
     return cn;

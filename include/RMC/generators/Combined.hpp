@@ -8,8 +8,6 @@
 namespace RMC {
 
 // Applies a sequence of generators to the same group in order.
-// Generator types are fixed at compile time in a std::tuple — zero overhead,
-// no type erasure, direct dispatch.
 template <CMoveGenerator... TMoveGenerators>
 class CombinedMoveGenerator
     : MoveGeneratorBase<CombinedMoveGenerator<TMoveGenerators...>> {
@@ -21,7 +19,7 @@ public:
     requires(sizeof...(Gs) > 0) && (CMoveGenerator<std::decay_t<Gs>> && ...)
   constexpr explicit CombinedMoveGenerator(Gs &&...gens)
       : generators_(std::forward<Gs>(gens)...) {}
-  constexpr void generate(IMoveGenerator::Token tok, coords_t &coords,
+  constexpr void generate(MoveGenerator::Token tok, coords_t &coords,
                           std::span<const std::size_t> indices) {
     std::apply([&](auto &...g) { (g.generate(tok, coords, indices), ...); },
                generators_);
@@ -33,16 +31,15 @@ CombinedMoveGenerator(Gs &&...) -> CombinedMoveGenerator<std::decay_t<Gs>...>;
 
 // Randomly selects ONE generator from a runtime collection and applies it.
 // Unlike CombinedMoveGenerator (which applies all), this picks one per step.
-// Supports optional per-generator weights (uniform by default).
 class MoveGeneratorCollector : MoveGeneratorBase<MoveGeneratorCollector> {
-  std::vector<IMoveGenerator> generators_;
+  std::vector<MoveGenerator> generators_;
   std::vector<double> cumulative_weights_;
   mutable RngBuffer<> rng_;
 
 public:
   MoveGeneratorCollector() = default;
   explicit MoveGeneratorCollector(std::uint32_t seed) : rng_(seed) {}
-  void add(IMoveGenerator gen, double weight = 1.0) {
+  void add(MoveGenerator gen, double weight = 1.0) {
     if (weight <= 0.0) {
       weight = 1.0;
     }
@@ -52,7 +49,7 @@ public:
     cumulative_weights_.push_back(prev + weight);
   }
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     if (generators_.empty()) {
       return;

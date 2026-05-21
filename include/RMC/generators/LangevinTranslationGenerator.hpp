@@ -25,7 +25,7 @@ struct LangevinTranslationGenerator
                                std::uint32_t seed = 42)
       : step_size(eps), constraints(&c), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     BOOST_ASSERT_MSG(
         constraints,
@@ -39,9 +39,16 @@ struct LangevinTranslationGenerator
     for (Eigen::Index ai = 0; ai < k; ++ai) {
       const auto atom =
           static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
-      coords.row(atom).transpose() +=
-          -half_eps_sq * g.segment<3>(3 * ai) +
+
+      auto pos = coords.row(atom).transpose();
+      vec3_t grad;
+      for (int d : {0, 1, 2}) {
+        grad[d] = -half_eps_sq * g(3 * ai + d);
+      }
+      const auto noise =
           step_size * vec3_t::NullaryExpr([&] { return rng.normal(); });
+
+      pos += grad + noise;
     }
   }
 };

@@ -17,7 +17,7 @@ struct RotationGenerator : MoveGeneratorBase<RotationGenerator> {
   RotationGenerator(double mn, double mx, std::uint32_t seed = 42)
       : min_angle(mn), max_angle(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double angle =
         (min_angle < max_angle) ? rng.uniform(min_angle, max_angle) : min_angle;
@@ -52,7 +52,7 @@ struct RotationAboutAxisGenerator
                              std::uint32_t seed = 42)
       : axis(ax.normalized()), min_angle(mn), max_angle(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double angle =
         (min_angle < max_angle) ? rng.uniform(min_angle, max_angle) : min_angle;
@@ -80,7 +80,7 @@ struct RotationAboutSymmetryAxisGenerator
                                      std::uint32_t seed = 42)
       : axis(ax), min_angle(mn), max_angle(mx), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     double angle =
         (min_angle < max_angle) ? rng.uniform(min_angle, max_angle) : min_angle;
@@ -109,7 +109,7 @@ struct OrientationGenerator : MoveGeneratorBase<OrientationGenerator> {
   OrientationGenerator(vec3_t target, double offset, std::uint32_t seed = 42)
       : target_axis(target.normalized()), max_offset(offset), rng(seed) {}
 
-  void generate(IMoveGenerator::Token, coords_t &coords,
+  void generate(MoveGenerator::Token, coords_t &coords,
                 std::span<const std::size_t> indices) {
     if (indices.size() < 2) {
       return;

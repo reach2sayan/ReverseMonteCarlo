@@ -410,7 +410,7 @@ TEST_CASE("coordNumConstraint - coordination number held at 2 after 2000 steps",
 TEST_CASE("removes - RemoveGenerator stages, commits, and rolls back correctly",
           "[example_removes]") {
   auto col = std::make_shared<AtomsCollector>();
-  IMoveGenerator gen = RemoveGenerator{col};
+  MoveGenerator gen = RemoveGenerator{col};
 
   coords_t c(6, 3);
   c.setZero();

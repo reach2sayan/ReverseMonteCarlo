@@ -46,10 +46,6 @@ void accumulate_pair_histogram(
     std::span<const std::size_t> molecule_ids = {},
     bool exclude_intra = false);
 
-// ---------------------------------------------------------------------------
-// Shared base: r-grid, shell volumes, element-ID table, weight table.
-// Derived classes (PairFunctionConstraint) supply the normalization formula.
-// ---------------------------------------------------------------------------
 class PairConstraintBase {
 protected:
   vec_t exp_r_, exp_data_;
@@ -80,8 +76,8 @@ public:
     computed_.resize(N);
   }
 
-  void set_weight(const std::string &el1, const std::string &el2, double w) {
-    weights_[PairElemKey{el1, el2}] = w;
+  constexpr void set_weight(const std::string &el1, const std::string &el2, double w) {
+    weights_.insert_or_assign(PairElemKey{el1, el2},w);// = w;
   }
   constexpr void set_elements(std::span<const std::string> e) noexcept {
     elements_ = e;
@@ -137,7 +133,7 @@ public:
   }
 
   [[nodiscard]] static constexpr double
-  computation_cost(IConstraint::Token) noexcept {
+  computation_cost(Constraint::Token) noexcept {
     return 1e6;
   }
 

@@ -31,16 +31,16 @@ int main() {
 
   struct Case {
     const char *label;
-    IMoveGenerator gen;
+    MoveGenerator gen;
   };
   std::vector<Case> cases;
   cases.push_back(
-      {"random direction", IMoveGenerator{TranslationGenerator(0.0, 0.3, 1)}});
-  cases.push_back({"along X axis", IMoveGenerator{TranslationAlongAxisGenerator(
+      {"random direction", MoveGenerator{TranslationGenerator(0.0, 0.3, 1)}});
+  cases.push_back({"along X axis", MoveGenerator{TranslationAlongAxisGenerator(
                                        {1, 0, 0}, 0.0, 0.3, 2)}});
-  cases.push_back({"along Y axis", IMoveGenerator{TranslationAlongAxisGenerator(
+  cases.push_back({"along Y axis", MoveGenerator{TranslationAlongAxisGenerator(
                                        {0, 1, 0}, 0.0, 0.3, 3)}});
-  cases.push_back({"along Z axis", IMoveGenerator{TranslationAlongAxisGenerator(
+  cases.push_back({"along Z axis", MoveGenerator{TranslationAlongAxisGenerator(
                                        {0, 0, 1}, 0.0, 0.3, 4)}});
 
   for (auto &[label, gen] : cases) {

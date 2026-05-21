@@ -6,13 +6,13 @@
 
 namespace RMC {
 
-class IMoveGenerator; // forward declaration for the friend declaration below
+class MoveGenerator; // forward declaration for the friend declaration below
 
 namespace detail {
 struct GeneratorToken {
 private:
   constexpr GeneratorToken() = default;
-  friend class ::RMC::IMoveGenerator;
+  friend class ::RMC::MoveGenerator;
 };
 } // namespace detail
 
@@ -24,7 +24,7 @@ concept CMoveGenerator =
     };
 
 // Optional extension: generator implements its own accept/reject (e.g. HMC).
-// If satisfied, IMoveGenerator exposes rejection_override() so Engine::settle()
+// If satisfied, MoveGenerator exposes rejection_override() so Engine::settle()
 // can defer to the generator instead of using constraints_.should_reject().
 template <typename T>
 concept CMoveGeneratorWithRejectionOverride =
@@ -41,21 +41,21 @@ concept CMoveGeneratorWithSpeciesModification =
       { gen.modifies_species() } -> std::convertible_to<bool>;
     };
 
-class IMoveGenerator {
+class MoveGenerator {
 public:
   using Token = detail::GeneratorToken;
 
   template <CMoveGenerator T>
-  constexpr IMoveGenerator(T x)
+  constexpr MoveGenerator(T x)
       : self_(std::make_unique<MoveGeneratorModel<T>>(std::move(x))) {}
-  constexpr IMoveGenerator(const IMoveGenerator &s) : self_{s.self_->clone()} {}
-  constexpr IMoveGenerator(IMoveGenerator &&s) noexcept
+  constexpr MoveGenerator(const MoveGenerator &s) : self_{s.self_->clone()} {}
+  constexpr MoveGenerator(MoveGenerator &&s) noexcept
       : self_{std::move(s.self_)} {}
-  constexpr IMoveGenerator &operator=(const IMoveGenerator &s) {
+  constexpr MoveGenerator &operator=(const MoveGenerator &s) {
     self_ = s.self_->clone();
     return *this;
   }
-  constexpr IMoveGenerator &operator=(IMoveGenerator &&s) noexcept {
+  constexpr MoveGenerator &operator=(MoveGenerator &&s) noexcept {
     self_ = std::move(s.self_);
     return *this;
   }

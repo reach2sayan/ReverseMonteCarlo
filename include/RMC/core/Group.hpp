@@ -11,7 +11,7 @@ namespace RMC {
 struct Group {
   std::string name;
   std::vector<std::size_t> indices;
-  std::optional<IMoveGenerator> generator;
+  std::optional<MoveGenerator> generator;
   bool refine = true;
 
   [[nodiscard]] constexpr std::size_t size() const noexcept {
