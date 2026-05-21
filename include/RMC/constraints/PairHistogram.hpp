@@ -145,6 +145,9 @@ public:
       frame_hists_[active_frame_] = saved_frame_hist_;
       sum_hist_ += saved_frame_hist_;
       frame_hist_current_[active_frame_] = true;
+    } else {
+      single_hist_ = saved_frame_hist_;
+      single_hist_current_ = true;
     }
     incremental_ready_ = false;
   }
@@ -161,6 +164,11 @@ public:
 
 protected:
   std::optional<std::function<double(double)>> shape_fn_;
+
+  // Single-frame incremental state
+  mutable vec_t single_hist_;
+  mutable bool single_hist_current_{
+      false}; // false → next call does full rebuild
 
   // Multi-frame state (mutable: modified inside const compute_error())
   std::size_t n_frames_{1};
@@ -216,88 +224,7 @@ public:
   }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
-                                     std::span<const std::size_t> moved) const {
-    const Eigen::Index N = coords.rows();
-
-    if (n_frames_ > 1) {
-      if (incremental_ready_ && !moved.empty()) {
-        // After-move: O(K·N) incremental update — only recompute pairs
-        // involving the moved atoms; skip the full O(N²) rebuild.
-        vec_t new_delta = vec_t::Zero(n_bins_);
-        accumulate_moved_pairs(new_delta, coords, bc_, elem_id_, weight_table_,
-                               r_min_, r_max_, n_bins_, moved, molecule_ids_,
-                               exclude_intra_);
-        const vec_t new_frame_hist =
-            saved_frame_hist_ - saved_moved_delta_ + new_delta;
-        sum_hist_ += new_frame_hist - frame_hists_[active_frame_];
-        frame_hists_[active_frame_] = new_frame_hist;
-        incremental_ready_ = false;
-      } else {
-        // Before-move path.
-        saved_frame_hist_ = frame_hists_[active_frame_];
-        if (!frame_hist_current_[active_frame_]) {
-          // First call for this frame (e.g. during initialise()): full rebuild.
-          vec_t tmp = vec_t::Zero(n_bins_);
-          accumulate_pair_histogram(tmp, coords, bc_, elem_id_, weight_table_,
-                                    r_min_, r_max_, n_bins_, molecule_ids_,
-                                    exclude_intra_);
-          sum_hist_ += tmp - saved_frame_hist_;
-          frame_hists_[active_frame_] = tmp;
-          saved_frame_hist_ = tmp;
-          frame_hist_current_[active_frame_] = true;
-        }
-        // Record moved-atom contributions for the upcoming after-move call.
-        if (!moved.empty()) {
-          saved_moved_delta_ = vec_t::Zero(n_bins_);
-          accumulate_moved_pairs(saved_moved_delta_, coords, bc_, elem_id_,
-                                 weight_table_, r_min_, r_max_, n_bins_, moved,
-                                 molecule_ids_, exclude_intra_);
-          incremental_ready_ = true;
-        }
-      }
-
-      // Normalise averaged histogram to G(r) / PCF.
-      computed_ = sum_hist_ / static_cast<double>(n_frames_);
-      if constexpr (Mode == PairNorm::PDF) {
-        const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
-        const auto r = r_min_ + (idx + 0.5) * bin_width_;
-        computed_.array() =
-            4.0 * std::numbers::pi * r * rho0_ *
-            (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
-      } else {
-        computed_.array() /= shell_vols_.array() * rho0_ * N;
-        computed_.array() -= 1.0;
-      }
-    } else {
-      // Single-frame path (unchanged).
-      computed_.setZero();
-      accumulate_pair_histogram(computed_, coords, bc_, elem_id_, weight_table_,
-                                r_min_, r_max_, n_bins_, molecule_ids_,
-                                exclude_intra_);
-      if constexpr (Mode == PairNorm::PDF) {
-        const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
-        const auto r = r_min_ + (idx + 0.5) * bin_width_;
-        computed_.array() =
-            4.0 * std::numbers::pi * r * rho0_ *
-            (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
-      } else {
-        computed_.array() /= shell_vols_.array() * rho0_ * N;
-        computed_.array() -= 1.0;
-      }
-    }
-
-    // Apply shape function (nanoparticle envelope), if set.
-    if (shape_fn_) {
-      const auto &fn = *shape_fn_;
-      for (int i = 0; i < n_bins_; ++i)
-        computed_[i] *= fn(r_min_ + (i + 0.5) * bin_width_);
-    }
-
-    const double denom = computed_.squaredNorm();
-    const double scale =
-        (denom > 1e-30) ? computed_.dot(exp_data_) / denom : 1.0;
-    return (scale * computed_ - exp_data_).squaredNorm();
-  }
+                                     std::span<const std::size_t> moved) const;
 
   // Token-gated wrappers for CConstraint compliance (multi-frame).
   void set_n_frames(Constraint::Token, std::size_t n) {
@@ -313,5 +240,113 @@ public:
     PairConstraintBase::rollback_frame();
   }
 };
+
+template <PairNorm Mode>
+double PairFunctionConstraint<Mode>::compute_error(
+    const coords_t &coords, std::span<const std::size_t> moved) const {
+  const Eigen::Index N = coords.rows();
+
+  if (n_frames_ > 1) {
+    if (incremental_ready_ && !moved.empty()) {
+      // After-move: O(K·N) incremental update — only recompute pairs
+      // involving the moved atoms; skip the full O(N²) rebuild.
+      vec_t new_delta = vec_t::Zero(n_bins_);
+      accumulate_moved_pairs(new_delta, coords, bc_, elem_id_, weight_table_,
+                             r_min_, r_max_, n_bins_, moved, molecule_ids_,
+                             exclude_intra_);
+      const vec_t new_frame_hist =
+          saved_frame_hist_ - saved_moved_delta_ + new_delta;
+      sum_hist_ += new_frame_hist - frame_hists_[active_frame_];
+      frame_hists_[active_frame_] = new_frame_hist;
+      incremental_ready_ = false;
+    } else {
+      // Before-move path.
+      saved_frame_hist_ = frame_hists_[active_frame_];
+      if (!frame_hist_current_[active_frame_]) {
+        // First call for this frame (e.g. during initialise()): full rebuild.
+        vec_t tmp = vec_t::Zero(n_bins_);
+        accumulate_pair_histogram(tmp, coords, bc_, elem_id_, weight_table_,
+                                  r_min_, r_max_, n_bins_, molecule_ids_,
+                                  exclude_intra_);
+        sum_hist_ += tmp - saved_frame_hist_;
+        frame_hists_[active_frame_] = tmp;
+        saved_frame_hist_ = tmp;
+        frame_hist_current_[active_frame_] = true;
+      }
+      // Record moved-atom contributions for the upcoming after-move call.
+      if (!moved.empty()) {
+        saved_moved_delta_ = vec_t::Zero(n_bins_);
+        accumulate_moved_pairs(saved_moved_delta_, coords, bc_, elem_id_,
+                               weight_table_, r_min_, r_max_, n_bins_, moved,
+                               molecule_ids_, exclude_intra_);
+        incremental_ready_ = true;
+      }
+    }
+
+    // Normalise averaged histogram to G(r) / PCF.
+    computed_ = sum_hist_ / static_cast<double>(n_frames_);
+    if constexpr (Mode == PairNorm::PDF) {
+      const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
+      const auto r = r_min_ + (idx + 0.5) * bin_width_;
+      computed_.array() =
+          4.0 * std::numbers::pi * r * rho0_ *
+          (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
+    } else {
+      computed_.array() /= shell_vols_.array() * rho0_ * N;
+      computed_.array() -= 1.0;
+    }
+  } else {
+    // Single-frame incremental path: O(K·N) per step after the first call.
+    if (incremental_ready_ && !moved.empty()) {
+      // After-move: patch the running histogram with the moved-atom delta.
+      vec_t new_delta = vec_t::Zero(n_bins_);
+      accumulate_moved_pairs(new_delta, coords, bc_, elem_id_, weight_table_,
+                             r_min_, r_max_, n_bins_, moved, molecule_ids_,
+                             exclude_intra_);
+      single_hist_ = saved_frame_hist_ - saved_moved_delta_ + new_delta;
+      incremental_ready_ = false;
+    } else {
+      // Before-move (or first call after initialise / set_experimental_data).
+      saved_frame_hist_ = single_hist_;
+      if (!single_hist_current_) {
+        single_hist_ = vec_t::Zero(n_bins_);
+        accumulate_pair_histogram(single_hist_, coords, bc_, elem_id_,
+                                  weight_table_, r_min_, r_max_, n_bins_,
+                                  molecule_ids_, exclude_intra_);
+        saved_frame_hist_ = single_hist_;
+        single_hist_current_ = true;
+      }
+      if (!moved.empty()) {
+        saved_moved_delta_ = vec_t::Zero(n_bins_);
+        accumulate_moved_pairs(saved_moved_delta_, coords, bc_, elem_id_,
+                               weight_table_, r_min_, r_max_, n_bins_, moved,
+                               molecule_ids_, exclude_intra_);
+        incremental_ready_ = true;
+      }
+    }
+    computed_ = single_hist_;
+    if constexpr (Mode == PairNorm::PDF) {
+      const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
+      const auto r = r_min_ + (idx + 0.5) * bin_width_;
+      computed_.array() =
+          4.0 * std::numbers::pi * r * rho0_ *
+          (computed_.array() / (shell_vols_.array() * rho0_ * N) - 1.0);
+    } else {
+      computed_.array() /= shell_vols_.array() * rho0_ * N;
+      computed_.array() -= 1.0;
+    }
+  }
+
+  // Apply shape function (nanoparticle envelope), if set.
+  if (shape_fn_) {
+    const auto &fn = *shape_fn_;
+    for (int i = 0; i < n_bins_; ++i)
+      computed_[i] *= fn(r_min_ + (i + 0.5) * bin_width_);
+  }
+
+  const double denom = computed_.squaredNorm();
+  const double scale = (denom > 1e-30) ? computed_.dot(exp_data_) / denom : 1.0;
+  return (scale * computed_ - exp_data_).squaredNorm();
+}
 
 } // namespace RMC

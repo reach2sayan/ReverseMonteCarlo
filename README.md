@@ -4,6 +4,8 @@ C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(
 
 **Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 13, Clang ≥ 17) · Eigen ≥ 3.4 · Boost ≥ 1.83 · Catch2 ≥ 3 (tests only)
 
+**Optional:** Intel oneAPI TBB ≥ 2021 (`RMC_USE_TBB=ON`) · Intel MKL (`ENABLE_MKL=ON`) · OpenMP (`RMC_USE_OPENMP=ON`, mutually exclusive with TBB)
+
 ## Build
 
 ```bash
@@ -14,6 +16,24 @@ ctest --test-dir build --output-on-failure
 
 If Boost is not on the default path: `-DBOOST_ROOT=/opt/boost`  
 To enable AddressSanitizer + UBSan: `-DENABLE_SANITIZERS=ON`
+
+### CMake options
+
+| Option | Default | Description |
+|---|---|---|
+| `RMC_USE_TBB` | `OFF` | Parallelise the O(N²) pair-histogram build with Intel TBB (`std::execution::par_unseq`). Requires oneAPI TBB ≥ 2021. **Mutually exclusive with `RMC_USE_OPENMP`.** |
+| `RMC_USE_OPENMP` | `OFF` | Parallelise the pair-histogram build with OpenMP. **Mutually exclusive with `RMC_USE_TBB`.** |
+| `ENABLE_MKL` | `ON` | Use Intel MKL as the Eigen BLAS/LAPACK backend. Falls back silently if MKL is not found. |
+| `ENABLE_NATIVE_ARCH` | `ON` | Compile with `-march=native` (AVX2 etc.). Set `OFF` for portable binaries. |
+| `RMC_BUILD_TESTS` | `ON` | Build the Catch2 test suite (`RMC_tests`). |
+| `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer + UBSan on all targets. |
+
+Example — TBB-enabled release build:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DRMC_USE_TBB=ON
+cmake --build build -j$(nproc)
+```
 
 ## CLI
 
@@ -156,9 +176,11 @@ engine.add_constraint(std::move(dc));
 
 // Pair distribution function G(r) vs experiment
 RMC::PairDistributionConstraint pdf;
-pdf.set_experimental("gr.dat");
-pdf.set_structure(engine.structure());
-pdf.set_rho0(0.033);
+// exp_data: Eigen matrix with columns [r, G(r)]
+pdf.set_experimental_data(exp_data);
+pdf.set_elements(engine.structure().elements);
+pdf.set_number_density(0.033);
+pdf.initialise();
 engine.add_constraint(std::move(pdf));
 ```
 
@@ -174,6 +196,17 @@ engine.add_constraint(std::move(pdf));
 | `PairDistributionConstraint` | `constraints/PairDistributionConstraint.hpp` |
 | `PairCorrelationConstraint` | `constraints/PairCorrelationConstraint.hpp` |
 | `StructureFactorConstraint` | `constraints/StructureFactorConstraint.hpp` |
+| `ReducedStructureFactorConstraint` | `constraints/ReducedStructureFactorConstraint.hpp` |
+
+`PairDistributionConstraint` and `PairCorrelationConstraint` accept an optional shape function for nanoparticle PDF corrections:
+
+```cpp
+// Spherical nanoparticle envelope (diameter in Å)
+pdf.set_shape_function(RMC::spherical_shape_fn(/*diameter*/ 30.0));
+
+// Gaussian damping
+pdf.set_shape_function(RMC::gaussian_shape_fn(/*sigma*/ 15.0));
+```
 
 ### Selectors
 
@@ -251,3 +284,67 @@ RMC::Engine best = RMC::run_ensemble_cooperative(
 ```
 
 Both functions require that `make_engine(i)` constructs a fully configured, ready-to-run `Engine` for replica `i`. All engines are constructed in the calling thread (required for correct `boost::context` fibre lifetimes); background threads only call `.run()`.
+
+#### TBB + ensemble thread budgeting
+
+When `RMC_USE_TBB=ON`, each replica thread also uses TBB's thread pool for the
+O(N²) histogram kernel. To prevent oversubscription, both ensemble functions
+automatically cap TBB's global thread count to `allocated_cpus / n_replicas`,
+where `allocated_cpus` is read from the scheduler environment in priority order:
+
+1. `SLURM_CPUS_PER_TASK` (SLURM)
+2. `PBS_NUM_PPN` (PBS/Torque)
+3. `LSB_DJOB_NUMPROC` (LSF)
+4. `std::thread::hardware_concurrency()` (local fallback)
+
+For schedulers that don't export these variables, pass the budget explicitly:
+
+```cpp
+// 4 replicas, 2 TBB workers each on a 32-core allocation
+RMC::run_ensemble_cooperative(make_engine, 4, 0.05, 1000, 0,
+                              /*tbb_threads_per_replica*/ 8);
+```
+
+### Multi-frame engine
+
+`MultiFrameEngine` refines N structural frames simultaneously against a single
+experimental dataset. The chi² is evaluated on the *average* computed profile
+across all frames, helping prevent over-fitting to a single configuration.
+
+```cpp
+#include <RMC/MultiFrameEngine.hpp>
+
+RMC::MultiFrameEngine eng(bc);
+
+// Add frames (typically loaded from an MD trajectory)
+for (auto &frame : trajectory)
+    eng.add_frame(frame);
+
+// Groups and constraints are shared across all frames
+eng.add_group(std::move(g));
+
+RMC::PairDistributionConstraint pdf;
+// ... configure pdf ...
+eng.add_constraint(std::move(pdf));
+
+eng.initialise();   // pre-populates per-frame histograms
+eng.run(100'000);
+```
+
+Each MC step picks one frame and one group at random, proposes a move, and
+accepts or rejects based on whether the *averaged* chi² improves. Per-step
+histogram updates are O(K·N) incremental (K = atoms in the moved group) rather
+than O(N²), so cost per step is independent of N for K ≪ N.
+
+### Pair histogram performance
+
+| Scenario | Cost per step |
+|---|---|
+| Single-frame, serial | O(N²) full rebuild every step |
+| Single-frame, `RMC_USE_TBB=ON` | O(N²) full rebuild, parallelised over rows |
+| Multi-frame (any backend) | O(K·N) incremental update (K = group size) |
+
+The TBB backend is most beneficial for single-engine use with large N (≥ 512).
+For ensemble runs the replica-level parallelism is the primary speedup source;
+TBB provides a secondary boost within each replica subject to the thread budget
+described above.
