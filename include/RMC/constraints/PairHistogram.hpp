@@ -12,7 +12,7 @@
 #include <span>
 #include <string>
 #include <vector>
-#ifdef _OPENMP
+#if defined(_OPENMP)
 #include <omp.h>
 #endif
 
@@ -44,8 +44,9 @@ using PairWeightTable = boost::container::flat_map<PairIdKey, double>;
 //   f(r) = 1 - (3/2)(r/d) + (1/2)(r/d)³   for r < d, else 0
 inline auto spherical_shape_fn(double diameter) {
   return [d = diameter](double r) -> double {
-    if (r >= d)
+    if (r >= d) {
       return 0.0;
+    }
     const double x = r / d;
     return 1.0 - 1.5 * x + 0.5 * x * x * x;
   };
@@ -53,21 +54,32 @@ inline auto spherical_shape_fn(double diameter) {
 
 // Gaussian damping envelope:  f(r) = exp(-r²/σ²)
 inline auto gaussian_shape_fn(double sigma) {
-  return [s = sigma](double r) -> double {
-    return std::exp(-(r * r) / (s * s));
-  };
+  return
+      [s = sigma](double r) -> double { return std::exp(-(r * r) / (s * s)); };
 }
 
 // Accumulate a raw pair-count histogram into `hist`.
 // Each pair (i<j) contributes 2*w to hist[bin].
 // If molecule_ids is non-empty and exclude_intra is true, same-molecule pairs
 // are skipped (useful for modelling molecular liquids).
-void accumulate_pair_histogram(
+void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
+                               const BoundaryConditions *bc,
+                               const std::vector<uint8_t> &elem_id,
+                               const PairWeightTable &weight_table,
+                               double r_min, double r_max, int n_bins,
+                               std::span<const std::size_t> molecule_ids = {},
+                               bool exclude_intra = false);
+
+// Accumulate only the pairs that involve at least one atom from `moved`.
+// Used for O(K·N) incremental histogram updates in the multi-frame MC path.
+// Adds into `hist` (caller should zero-initialise before calling).
+// Double-counting of moved-moved pairs is avoided: pair (k,j) with both in
+// moved is counted once, when k appears before j in the moved array.
+void accumulate_moved_pairs(
     vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
     const std::vector<uint8_t> &elem_id, const PairWeightTable &weight_table,
-    double r_min, double r_max, int n_bins,
-    std::span<const std::size_t> molecule_ids = {},
-    bool exclude_intra = false);
+    double r_min, double r_max, int n_bins, std::span<const std::size_t> moved,
+    std::span<const std::size_t> molecule_ids = {}, bool exclude_intra = false);
 
 class PairConstraintBase {
 protected:
@@ -87,20 +99,11 @@ protected:
   PairWeightTable weight_table_;
 
 public:
-  void set_experimental_data(const mat_t &data) {
-    BOOST_ASSERT_MSG(data.cols() >= 2, "PairConstraint: need 2-column r/data");
-    const Eigen::Index N = data.rows();
-    exp_r_ = data.col(0);
-    exp_data_ = data.col(1);
-    r_min_ = exp_r_(0);
-    r_max_ = exp_r_(N - 1);
-    bin_width_ = (N > 1) ? (exp_r_(1) - exp_r_(0)) : 0.1;
-    n_bins_ = static_cast<int>(N);
-    computed_.resize(N);
-  }
+  void set_experimental_data(const mat_t &data);
 
-  constexpr void set_weight(const std::string &el1, const std::string &el2, double w) {
-    weights_.insert_or_assign(PairElemKey{el1, el2},w);// = w;
+  constexpr void set_weight(const std::string &el1, const std::string &el2,
+                            double w) {
+    weights_.insert_or_assign(PairElemKey{el1, el2}, w); // = w;
   }
   constexpr void set_elements(std::span<const std::string> e) noexcept {
     elements_ = e;
@@ -124,10 +127,15 @@ public:
                      "call set_experimental_data before set_n_frames");
     n_frames_ = n;
     frame_hists_.assign(n, vec_t::Zero(n_bins_));
+    frame_hist_current_.assign(n, false);
     sum_hist_ = vec_t::Zero(n_bins_);
     saved_frame_hist_.resize(n_bins_);
+    incremental_ready_ = false;
   }
-  void set_active_frame_idx(std::size_t k) noexcept { active_frame_ = k; }
+  void set_active_frame_idx(std::size_t k) noexcept {
+    active_frame_ = k;
+    incremental_ready_ = false; // frame switch invalidates any pending delta
+  }
 
   // Roll back the active frame's histogram to the state saved during the last
   // compute_error() call (used by PairFunctionConstraint::reject()).
@@ -136,7 +144,9 @@ public:
       sum_hist_ -= frame_hists_[active_frame_];
       frame_hists_[active_frame_] = saved_frame_hist_;
       sum_hist_ += saved_frame_hist_;
+      frame_hist_current_[active_frame_] = true;
     }
+    incremental_ready_ = false;
   }
 
   [[nodiscard]] constexpr const vec_t &computed_G() const noexcept {
@@ -156,8 +166,14 @@ protected:
   std::size_t n_frames_{1};
   std::size_t active_frame_{0};
   mutable std::vector<vec_t> frame_hists_;
+  mutable std::vector<bool>
+      frame_hist_current_; // true after first full build per frame
   mutable vec_t sum_hist_;
   mutable vec_t saved_frame_hist_;
+  mutable vec_t
+      saved_moved_delta_; // pair contributions from moved atoms (old pos)
+  mutable bool incremental_ready_{
+      false}; // set by before-move, cleared by after-move/reject
 };
 
 // ---------------------------------------------------------------------------
@@ -199,20 +215,46 @@ public:
     return 1e6;
   }
 
-  [[nodiscard]] double
-  compute_error(const coords_t &coords,
-                std::span<const std::size_t>) const {
+  [[nodiscard]] double compute_error(const coords_t &coords,
+                                     std::span<const std::size_t> moved) const {
     const Eigen::Index N = coords.rows();
 
     if (n_frames_ > 1) {
-      // Delta-update: recompute only the active frame's histogram.
-      saved_frame_hist_ = frame_hists_[active_frame_];
-      vec_t tmp = vec_t::Zero(n_bins_);
-      accumulate_pair_histogram(tmp, coords, bc_, elem_id_, weight_table_,
-                                r_min_, r_max_, n_bins_,
-                                molecule_ids_, exclude_intra_);
-      sum_hist_ += tmp - saved_frame_hist_;
-      frame_hists_[active_frame_] = std::move(tmp);
+      if (incremental_ready_ && !moved.empty()) {
+        // After-move: O(K·N) incremental update — only recompute pairs
+        // involving the moved atoms; skip the full O(N²) rebuild.
+        vec_t new_delta = vec_t::Zero(n_bins_);
+        accumulate_moved_pairs(new_delta, coords, bc_, elem_id_, weight_table_,
+                               r_min_, r_max_, n_bins_, moved, molecule_ids_,
+                               exclude_intra_);
+        const vec_t new_frame_hist =
+            saved_frame_hist_ - saved_moved_delta_ + new_delta;
+        sum_hist_ += new_frame_hist - frame_hists_[active_frame_];
+        frame_hists_[active_frame_] = new_frame_hist;
+        incremental_ready_ = false;
+      } else {
+        // Before-move path.
+        saved_frame_hist_ = frame_hists_[active_frame_];
+        if (!frame_hist_current_[active_frame_]) {
+          // First call for this frame (e.g. during initialise()): full rebuild.
+          vec_t tmp = vec_t::Zero(n_bins_);
+          accumulate_pair_histogram(tmp, coords, bc_, elem_id_, weight_table_,
+                                    r_min_, r_max_, n_bins_, molecule_ids_,
+                                    exclude_intra_);
+          sum_hist_ += tmp - saved_frame_hist_;
+          frame_hists_[active_frame_] = tmp;
+          saved_frame_hist_ = tmp;
+          frame_hist_current_[active_frame_] = true;
+        }
+        // Record moved-atom contributions for the upcoming after-move call.
+        if (!moved.empty()) {
+          saved_moved_delta_ = vec_t::Zero(n_bins_);
+          accumulate_moved_pairs(saved_moved_delta_, coords, bc_, elem_id_,
+                                 weight_table_, r_min_, r_max_, n_bins_, moved,
+                                 molecule_ids_, exclude_intra_);
+          incremental_ready_ = true;
+        }
+      }
 
       // Normalise averaged histogram to G(r) / PCF.
       computed_ = sum_hist_ / static_cast<double>(n_frames_);
@@ -230,8 +272,8 @@ public:
       // Single-frame path (unchanged).
       computed_.setZero();
       accumulate_pair_histogram(computed_, coords, bc_, elem_id_, weight_table_,
-                                r_min_, r_max_, n_bins_,
-                                molecule_ids_, exclude_intra_);
+                                r_min_, r_max_, n_bins_, molecule_ids_,
+                                exclude_intra_);
       if constexpr (Mode == PairNorm::PDF) {
         const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
         const auto r = r_min_ + (idx + 0.5) * bin_width_;

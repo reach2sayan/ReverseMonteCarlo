@@ -1,6 +1,5 @@
 #include <RMC/MultiFrameEngine.hpp>
 #include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/generators/Translations.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/ConstraintCollection.hpp>
 #include <RMC/constraints/CoordinationConstraint.hpp>
@@ -10,6 +9,7 @@
 #include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <RMC/constraints/ReducedStructureFactorConstraint.hpp>
 #include <RMC/constraints/StructureFactorConstraint.hpp>
+#include <RMC/generators/Translations.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <numbers>
@@ -493,8 +493,7 @@ TEST_CASE("ReducedStructureFactorConstraint - accept/reject cycle",
 
 // ---- ShapeFunction ----
 
-static PairDistributionConstraint make_pdf(int n_bins = 50,
-                                           double dr = 0.1) {
+static PairDistributionConstraint make_pdf(int n_bins = 50, double dr = 0.1) {
   PairDistributionConstraint pdc;
   mat_t exp_data(n_bins, 2);
   for (int i = 0; i < n_bins; ++i) {
@@ -528,7 +527,8 @@ TEST_CASE("ShapeFunction - spherical_shape_fn zero beyond diameter",
   REQUIRE_THAT(fn(2.5), WithinAbs(0.3125, 1e-9));
 }
 
-TEST_CASE("ShapeFunction - gaussian_shape_fn is 1 at r=0", "[constraints][shape]") {
+TEST_CASE("ShapeFunction - gaussian_shape_fn is 1 at r=0",
+          "[constraints][shape]") {
   auto fn = gaussian_shape_fn(3.0);
   REQUIRE_THAT(fn(0.0), WithinAbs(1.0, 1e-9));
   // exp(-(15/3)²) = exp(-25) ≈ 1.4e-11
@@ -661,4 +661,180 @@ TEST_CASE("MultiFrameEngine - run accepts some moves", "[multiframe]") {
   REQUIRE(eng.steps_accepted() > 0);
   REQUIRE(eng.steps_total() == 500);
   REQUIRE(std::isfinite(eng.total_error()));
+}
+
+// ---- Incremental histogram tests (direct, no engine type-eraser) ----
+
+namespace {
+
+// Build and fully initialise a 2-frame PairDistributionConstraint with the
+// given coordinate sets.  Returns the constraint with both frame histograms
+// populated.
+PairDistributionConstraint make_2frame_pdf(const coords_t &f0,
+                                           const coords_t &f1,
+                                           const BoundaryConditions &bc,
+                                           int n_bins = 20, double dr = 0.25) {
+  const int N = static_cast<int>(f0.rows());
+  mat_t exp_data(n_bins, 2);
+  for (int i = 0; i < n_bins; ++i) {
+    exp_data(i, 0) = dr * (i + 1);
+    exp_data(i, 1) = 0.0;
+  }
+  std::vector<std::string> els(static_cast<std::size_t>(N), "C");
+
+  PairDistributionConstraint pdf;
+  pdf.set_experimental_data(exp_data);
+  pdf.set_number_density(0.03);
+  pdf.set_elements(els);
+  pdf.initialise();
+  pdf.set_boundary_conditions(bc);
+  static_cast<PairConstraintBase &>(pdf).set_n_frames(2);
+
+  std::vector<std::size_t> all(static_cast<std::size_t>(N));
+  std::iota(all.begin(), all.end(), std::size_t{0});
+
+  pdf.set_active_frame_idx(0);
+  pdf.compute_error(f0, all);
+  pdf.set_active_frame_idx(1);
+  pdf.compute_error(f1, all);
+  return pdf;
+}
+
+} // namespace
+
+TEST_CASE("PairFunctionConstraint - incremental update matches full recompute",
+          "[constraints][incremental]") {
+  // Verify that the O(K·N) after-move incremental path gives the same
+  // computed_G() as a fresh full O(N²) rebuild with the moved coordinates.
+
+  const int N = 8;
+  const BoundaryConditions bc = InfiniteBC{};
+
+  coords_t f0 = make_chain(N, 2.0);
+  coords_t f1 = make_chain(N, 2.5);
+
+  // Perturb atom 0 in frame 0.
+  coords_t f0_mod = f0;
+  f0_mod(0, 0) += 0.35;
+  f0_mod(0, 1) += 0.12;
+
+  // Reference: full rebuild with f0_mod as frame 0.
+  const vec_t ref_G = [&] {
+    auto pdf_ref = make_2frame_pdf(f0_mod, f1, bc);
+    // make_2frame_pdf leaves active_frame = 1; switch to 0 and read computed_G
+    // after one more (before-move) call so computed_ reflects the current sum.
+    std::vector<std::size_t> all(static_cast<std::size_t>(N));
+    std::iota(all.begin(), all.end(), std::size_t{0});
+    pdf_ref.set_active_frame_idx(0);
+    pdf_ref.compute_error(f0_mod, all);
+    return pdf_ref.computed_G();
+  }();
+
+  // Incremental: init with f0, then execute a before/after step on atom 0.
+  auto pdf_inc = make_2frame_pdf(f0, f1, bc);
+  const std::vector<std::size_t> moved = {0};
+
+  pdf_inc.set_active_frame_idx(0);
+  pdf_inc.compute_error(f0, moved);     // before-move: saves delta for atom 0
+  pdf_inc.compute_error(f0_mod, moved); // after-move: O(K·N) incremental update
+
+  const vec_t &inc_G = pdf_inc.computed_G();
+  REQUIRE(inc_G.size() == ref_G.size());
+  for (Eigen::Index i = 0; i < inc_G.size(); ++i) {
+    REQUIRE_THAT(inc_G(i), WithinAbs(ref_G(i), 1e-10));
+  }
+}
+
+TEST_CASE("PairFunctionConstraint - rollback restores histogram",
+          "[constraints][incremental]") {
+  // After an accepted incremental step, rollback_frame() must restore the
+  // histogram to the pre-step state and clear incremental_ready_.
+
+  const int N = 6;
+  const BoundaryConditions bc = InfiniteBC{};
+
+  coords_t f0 = make_chain(N, 2.0);
+  coords_t f1 = make_chain(N, 2.5);
+
+  auto pdf = make_2frame_pdf(f0, f1, bc);
+
+  // Record computed_G before the step.
+  {
+    std::vector<std::size_t> all(static_cast<std::size_t>(N));
+    std::iota(all.begin(), all.end(), std::size_t{0});
+    pdf.set_active_frame_idx(0);
+    pdf.compute_error(f0, all);
+  }
+  const vec_t G_before = pdf.computed_G();
+
+  // Simulate a step: before-move, perturb, after-move.
+  coords_t f0_mod = f0;
+  f0_mod(1, 0) += 0.5;
+  const std::vector<std::size_t> moved = {1};
+
+  pdf.set_active_frame_idx(0);
+  pdf.compute_error(f0, moved);     // before-move
+  pdf.compute_error(f0_mod, moved); // after-move (incremental)
+
+  // Reject: rollback should restore to the pre-step state.
+  pdf.rollback_frame();
+
+  // One more call to materialise computed_ from the restored sum_hist_.
+  std::vector<std::size_t> all(static_cast<std::size_t>(N));
+  std::iota(all.begin(), all.end(), std::size_t{0});
+  pdf.set_active_frame_idx(0);
+  pdf.compute_error(f0, all);
+
+  const vec_t &G_after_rollback = pdf.computed_G();
+  for (Eigen::Index i = 0; i < G_before.size(); ++i) {
+    REQUIRE_THAT(G_after_rollback(i), WithinAbs(G_before(i), 1e-10));
+  }
+}
+
+TEST_CASE("PairFunctionConstraint - frame switch resets incremental state",
+          "[constraints][incremental]") {
+  // Switching the active frame must reset incremental_ready_ so that the next
+  // call for the new frame takes the before-move (full-save) path rather than
+  // attempting a spurious incremental update.
+
+  const int N = 6;
+  const BoundaryConditions bc = InfiniteBC{};
+
+  coords_t f0 = make_chain(N, 2.0);
+  coords_t f1 = make_chain(N, 2.5);
+  coords_t f1_mod = f1;
+  f1_mod(2, 0) += 0.4;
+
+  auto pdf = make_2frame_pdf(f0, f1, bc);
+
+  // Trigger incremental_ready_ on frame 0.
+  const std::vector<std::size_t> moved0 = {0};
+  pdf.set_active_frame_idx(0);
+  pdf.compute_error(f0,
+                    moved0); // before-move on frame 0 → incremental_ready_=true
+
+  // Switch to frame 1 — must clear incremental_ready_.
+  const std::vector<std::size_t> moved1 = {2};
+  pdf.set_active_frame_idx(1);
+
+  // Before-move call on frame 1 with atom 2 moved.
+  (void)pdf.compute_error(f1, moved1);
+
+  // After-move call: must apply the delta for frame 1, not frame 0.
+  (void)pdf.compute_error(f1_mod, moved1);
+
+  // Build reference via full rebuild.
+  const vec_t ref_G = [&] {
+    auto pdf_ref = make_2frame_pdf(f0, f1_mod, bc);
+    std::vector<std::size_t> all(static_cast<std::size_t>(N));
+    std::iota(all.begin(), all.end(), std::size_t{0});
+    pdf_ref.set_active_frame_idx(1);
+    (void)pdf_ref.compute_error(f1_mod, all);
+    return pdf_ref.computed_G();
+  }();
+
+  const vec_t &inc_G = pdf.computed_G();
+  for (Eigen::Index i = 0; i < inc_G.size(); ++i) {
+    REQUIRE_THAT(inc_G(i), WithinAbs(ref_G(i), 1e-10));
+  }
 }
