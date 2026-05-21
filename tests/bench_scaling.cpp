@@ -434,3 +434,148 @@ TEST_CASE("bench: PDF kernel OpenMP thread scaling (N=512)", "[!benchmark]") {
   };
 }
 #endif
+
+// 9. TBB vs serial full-histogram kernel (accumulate_pair_histogram).
+//
+// Benchmarks the raw O(N²) pair-counting kernel that is parallelised by TBB
+// (when RMC_USE_TBB=ON).  Each case calls the free function directly so there
+// is no engine or MC overhead — this isolates the histogram fill itself.
+//
+// Interpretation:
+//   Serial path  — the #else branch of the RMC_USE_TBB / _OPENMP dispatch.
+//   TBB path     — std::for_each(par_unseq) over row indices via TBB.
+//
+// Run with:   ./RMC_tests "[!benchmark][tbb]" --benchmark-samples 30
+//
+// TBB is most beneficial at large N (≥512) where O(N²) work dwarfs thread
+// overhead.  At small N the serial path can win due to scheduling costs.
+#include <RMC/constraints/PairHistogram.hpp>
+#include <numeric>
+
+namespace {
+
+// Build a uniform lattice of N atoms with 1-Å spacing.
+coords_t make_lattice(int N) {
+  coords_t c(N, 3);
+  c.setZero();
+  const int side = static_cast<int>(std::cbrt(static_cast<double>(N))) + 1;
+  for (int i = 0; i < N; ++i) {
+    c(i, 0) = static_cast<double>(i % side);
+    c(i, 1) = static_cast<double>((i / side) % side);
+    c(i, 2) = static_cast<double>(i / (side * side));
+  }
+  return c;
+}
+
+} // namespace
+
+TEST_CASE("bench: accumulate_pair_histogram kernel scaling", "[!benchmark][tbb]") {
+  // r range covers the full lattice extent; 200 bins.
+  constexpr double R_MIN  = 0.0;
+  constexpr double R_MAX  = 30.0;
+  constexpr int    N_BINS = 200;
+
+  auto run = [&](int N) {
+    const coords_t     coords = make_lattice(N);
+    const std::vector<uint8_t> elem_id(static_cast<std::size_t>(N), 0);
+    const PairWeightTable      weights{};  // no per-pair weights
+    vec_t hist(N_BINS);
+
+    return [=]() mutable {
+      hist.setZero();
+      accumulate_pair_histogram(hist, coords, nullptr, elem_id, weights,
+                                R_MIN, R_MAX, N_BINS);
+      return hist.sum();  // prevent dead-code elimination
+    };
+  };
+
+  BENCHMARK_ADVANCED("N=128")(Catch::Benchmark::Chronometer meter) {
+    auto fn = run(128);
+    meter.measure([&] { return fn(); });
+  };
+
+  BENCHMARK_ADVANCED("N=256")(Catch::Benchmark::Chronometer meter) {
+    auto fn = run(256);
+    meter.measure([&] { return fn(); });
+  };
+
+  BENCHMARK_ADVANCED("N=512")(Catch::Benchmark::Chronometer meter) {
+    auto fn = run(512);
+    meter.measure([&] { return fn(); });
+  };
+
+  BENCHMARK_ADVANCED("N=1024")(Catch::Benchmark::Chronometer meter) {
+    auto fn = run(1024);
+    meter.measure([&] { return fn(); });
+  };
+
+  BENCHMARK_ADVANCED("N=2048")(Catch::Benchmark::Chronometer meter) {
+    auto fn = run(2048);
+    meter.measure([&] { return fn(); });
+  };
+}
+
+// Incremental (O(K·N)) vs full (O(N²)) — shows the payoff of incremental
+// updates for K=1 (single-atom move) at several system sizes.
+TEST_CASE("bench: incremental vs full histogram (K=1)", "[!benchmark][tbb]") {
+  constexpr double R_MIN  = 0.0;
+  constexpr double R_MAX  = 30.0;
+  constexpr int    N_BINS = 200;
+
+  auto setup = [&](int N) {
+    coords_t coords = make_lattice(N);
+    std::vector<uint8_t> elem_id(static_cast<std::size_t>(N), 0);
+    PairWeightTable weights{};
+    return std::make_tuple(coords, elem_id, weights);
+  };
+
+  auto bench_full = [&](int N) {
+    auto [coords, elem_id, weights] = setup(N);
+    vec_t hist(N_BINS);
+    return [=]() mutable {
+      hist.setZero();
+      accumulate_pair_histogram(hist, coords, nullptr, elem_id, weights,
+                                R_MIN, R_MAX, N_BINS);
+      return hist.sum();
+    };
+  };
+
+  auto bench_incremental = [&](int N) {
+    auto [coords, elem_id, weights] = setup(N);
+    const std::vector<std::size_t> moved = {0};
+    vec_t hist(N_BINS);
+    return [=]() mutable {
+      hist.setZero();
+      accumulate_moved_pairs(hist, coords, nullptr, elem_id, weights,
+                             R_MIN, R_MAX, N_BINS, moved);
+      return hist.sum();
+    };
+  };
+
+  BENCHMARK_ADVANCED("full    N=256")(Catch::Benchmark::Chronometer meter) {
+    auto fn = bench_full(256);
+    meter.measure([&] { return fn(); });
+  };
+  BENCHMARK_ADVANCED("incr    N=256")(Catch::Benchmark::Chronometer meter) {
+    auto fn = bench_incremental(256);
+    meter.measure([&] { return fn(); });
+  };
+
+  BENCHMARK_ADVANCED("full    N=512")(Catch::Benchmark::Chronometer meter) {
+    auto fn = bench_full(512);
+    meter.measure([&] { return fn(); });
+  };
+  BENCHMARK_ADVANCED("incr    N=512")(Catch::Benchmark::Chronometer meter) {
+    auto fn = bench_incremental(512);
+    meter.measure([&] { return fn(); });
+  };
+
+  BENCHMARK_ADVANCED("full    N=1024")(Catch::Benchmark::Chronometer meter) {
+    auto fn = bench_full(1024);
+    meter.measure([&] { return fn(); });
+  };
+  BENCHMARK_ADVANCED("incr    N=1024")(Catch::Benchmark::Chronometer meter) {
+    auto fn = bench_incremental(1024);
+    meter.measure([&] { return fn(); });
+  };
+}
