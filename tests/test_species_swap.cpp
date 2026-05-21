@@ -331,7 +331,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator restores elements on rejection",
     g.generator = MoveGenerator{gen};
     eng.add_group(std::move(g));
   }
-  eng.set_selector(IGroupSelector{OrderedSelector{}});
+  eng.set_selector(GroupSelector{OrderedSelector{}});
 
   const std::vector<std::string> elems_before = eng.structure().elements;
   eng.run(40);
@@ -369,7 +369,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator accepts improving moves",
     g.generator = MoveGenerator{gen};
     eng.add_group(std::move(g));
   }
-  eng.set_selector(IGroupSelector{OrderedSelector{}});
+  eng.set_selector(GroupSelector{OrderedSelector{}});
 
   eng.run(200);
   REQUIRE(eng.stats().steps_accepted > 0);

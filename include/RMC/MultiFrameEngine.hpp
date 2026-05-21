@@ -40,10 +40,10 @@ public:
 
   void add_frame(AtomicStructure s) { frames_.push_back(std::move(s)); }
 
-  void set_frame_selector(IGroupSelector s) {
+  void set_frame_selector(GroupSelector s) {
     frame_selector_ = std::move(s);
   }
-  void set_group_selector(IGroupSelector s) {
+  void set_group_selector(GroupSelector s) {
     group_selector_ = std::move(s);
   }
 
@@ -131,8 +131,8 @@ private:
   }
 
   std::vector<AtomicStructure> frames_;
-  IGroupSelector frame_selector_;
-  IGroupSelector group_selector_;
+  GroupSelector frame_selector_;
+  GroupSelector group_selector_;
 };
 
 } // namespace RMC

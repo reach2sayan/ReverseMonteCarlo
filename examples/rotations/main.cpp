@@ -63,7 +63,7 @@ int main() {
     g.indices = {0, 1, 2, 3};
     g.generator = std::move(gen);
     eng.add_group(std::move(g));
-    eng.set_selector(IGroupSelector{OrderedSelector{}});
+    eng.set_selector(GroupSelector{OrderedSelector{}});
     eng.run(500);
 
     // Verify distances preserved.

@@ -37,7 +37,7 @@ struct DirectionalOrderSelector : SelectorBase<DirectionalOrderSelector> {
     });
   }
 
-  std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
+  std::size_t select(GroupSelector::Token, std::size_t n_groups) {
     if (order_.size() != n_groups) {
       return current_++ % n_groups;
     }
@@ -46,7 +46,7 @@ struct DirectionalOrderSelector : SelectorBase<DirectionalOrderSelector> {
     return idx;
   }
 
-  constexpr void feedback(IGroupSelector::Token, std::size_t,
+  constexpr void feedback(GroupSelector::Token, std::size_t,
                           bool) noexcept {}
 
 private:

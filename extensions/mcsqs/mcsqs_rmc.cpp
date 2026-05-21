@@ -232,7 +232,7 @@ int main(int argc, char *argv[]) {
       eng.add_group(std::move(g));
     }
 
-    eng.set_selector(RMC::IGroupSelector{
+    eng.set_selector(RMC::GroupSelector{
         RMC::SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
     eng.set_step_callback(
         [log_ev](std::uint64_t total, std::uint64_t accepted,

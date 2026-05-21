@@ -63,7 +63,7 @@ public:
   }
 
 protected:
-  explicit EngineBase(BoundaryConditions bc) : bc_(std::move(bc)) {}
+  constexpr explicit EngineBase(BoundaryConditions bc) : bc_(std::move(bc)) {}
 
   // Lifts void(T&) into optional<T>(T) for and_then chaining.
   static constexpr auto stage(auto &&fn) {

@@ -4,13 +4,13 @@
 
 namespace RMC {
 
-class IGroupSelector; // forward for friend declaration
+class GroupSelector; // forward for friend declaration
 
 namespace detail {
 struct SelectorToken {
 private:
   constexpr SelectorToken() = default;
-  friend class ::RMC::IGroupSelector;
+  friend class ::RMC::GroupSelector;
 };
 } // namespace detail
 
@@ -23,21 +23,21 @@ concept CGroupSelector =
       s.feedback(tok, group_idx, accepted);
     };
 
-class IGroupSelector {
+class GroupSelector {
 public:
   using Token = detail::SelectorToken;
 
   template <CGroupSelector T>
-  constexpr IGroupSelector(T x)
+  constexpr GroupSelector(T x)
       : self_(std::make_unique<SelectorModel<T>>(std::move(x))) {}
-  constexpr IGroupSelector(const IGroupSelector &s) : self_{s.self_->clone()} {}
-  constexpr IGroupSelector(IGroupSelector &&s) noexcept
+  constexpr GroupSelector(const GroupSelector &s) : self_{s.self_->clone()} {}
+  constexpr GroupSelector(GroupSelector &&s) noexcept
       : self_{std::move(s.self_)} {}
-  constexpr IGroupSelector &operator=(const IGroupSelector &s) {
+  constexpr GroupSelector &operator=(const GroupSelector &s) {
     self_ = s.self_->clone();
     return *this;
   }
-  constexpr IGroupSelector &operator=(IGroupSelector &&s) noexcept {
+  constexpr GroupSelector &operator=(GroupSelector &&s) noexcept {
     self_ = std::move(s.self_);
     return *this;
   }

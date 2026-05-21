@@ -174,7 +174,7 @@ Engine build_engine(Flags f, int group_size) {
     g.generator.emplace(TranslationGenerator(0.0, 0.15, seed++));
     eng.add_group(std::move(g));
   }
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 42}});
   return eng;
 }
 

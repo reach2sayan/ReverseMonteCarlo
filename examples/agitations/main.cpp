@@ -98,7 +98,7 @@ static void run_phase(const char *label, bool dist_agit, bool angle_agit) {
     seed += 10;
   }
 
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 42}});
   eng.run(5000);
   std::cout << label << ": accepted " << eng.stats().steps_accepted << " / "
             << eng.stats().steps_tried << "  err " << eng.stats().last_total_err

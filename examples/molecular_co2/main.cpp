@@ -103,7 +103,7 @@ int main() {
     eng.add_group(std::move(g));
   }
 
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 7}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 7}});
   eng.run(5000);
 
   std::cout << "CO2 (" << n_mol << " mol): accepted "

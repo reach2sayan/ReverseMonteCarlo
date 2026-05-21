@@ -122,7 +122,7 @@ int main() {
     eng.add_group(std::move(gr));
   }
 
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 13}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 13}});
   eng.run(20000);
 
   std::cout << "THF (" << n_mol << " mol): accepted "

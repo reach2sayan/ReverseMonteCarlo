@@ -58,7 +58,7 @@ static void run_phase(const char *label, double amp,
                       const mat_t &fq_data, std::uint64_t n_steps) {
   auto eng = build(tmpl, a, fq_data);
   eng.build_atomic_groups(0.0, amp, 42);
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 42}});
   eng.run(n_steps);
   std::cout << label << " (amp=" << amp << "): accepted "
             << eng.stats().steps_accepted << "  err "

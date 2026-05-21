@@ -32,7 +32,7 @@ static AtomicStructure make_10_atoms() {
   return s;
 }
 
-static void run_with(const std::string &label, IGroupSelector selector) {
+static void run_with(const std::string &label, GroupSelector selector) {
   auto s = make_10_atoms();
   Engine eng(std::move(s), InfiniteBC{});
 
@@ -62,6 +62,6 @@ static void run_with(const std::string &label, IGroupSelector selector) {
 }
 
 int main() {
-  run_with("RandomSelector     ", IGroupSelector{RandomSelector{42}});
-  run_with("SmartRandomSelector", IGroupSelector{SmartRandomSelector{1.1, 42}});
+  run_with("RandomSelector     ", GroupSelector{RandomSelector{42}});
+  run_with("SmartRandomSelector", GroupSelector{SmartRandomSelector{1.1, 42}});
 }

@@ -55,7 +55,7 @@ int main() {
     g.indices = {0};
     g.generator.emplace(TranslationAlongAxisPath({0, 0, 1}, steps));
     eng.add_group(std::move(g));
-    eng.set_selector(IGroupSelector{OrderedSelector{}});
+    eng.set_selector(GroupSelector{OrderedSelector{}});
 
     double expected_z = atom.coordinates(0, 2);
     for (int step = 0; step < 9; ++step) {
@@ -83,7 +83,7 @@ int main() {
     g.indices = {0, 1, 2, 3};
     g.generator.emplace(RotationAboutAxisPath({0, 0, 1}, angles));
     eng.add_group(std::move(g));
-    eng.set_selector(IGroupSelector{OrderedSelector{}});
+    eng.set_selector(GroupSelector{OrderedSelector{}});
 
     for (int step = 0; step < 8; ++step) {
       eng.run(1);

@@ -11,11 +11,11 @@ namespace RMC {
 struct RandomSelector : SelectorBase<RandomSelector> {
   mutable RngBuffer<> rng;
   explicit RandomSelector(std::uint32_t seed = 42) : rng(seed) {}
-  std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
+  std::size_t select(GroupSelector::Token, std::size_t n_groups) {
     return boost::random::uniform_int_distribution<std::size_t>{
         0, n_groups - 1}(rng.engine());
   }
-  constexpr void feedback(IGroupSelector::Token, std::size_t /*group_idx*/,
+  constexpr void feedback(GroupSelector::Token, std::size_t /*group_idx*/,
                           bool /*accepted*/) noexcept {}
 };
 
@@ -35,14 +35,14 @@ struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
     rebuild_cache();
   }
 
-  std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
+  std::size_t select(GroupSelector::Token, std::size_t n_groups) {
     if (weights.size() != n_groups) {
       return boost::random::uniform_int_distribution<std::size_t>{
           0, n_groups - 1}(rng.engine());
     }
     return std::invoke(*dist_cache_, rng.engine());
   }
-  constexpr void feedback(IGroupSelector::Token, std::size_t /*group_idx*/,
+  constexpr void feedback(GroupSelector::Token, std::size_t /*group_idx*/,
                           bool /*accepted*/) noexcept {}
 
 private:

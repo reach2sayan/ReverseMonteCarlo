@@ -378,7 +378,7 @@ TEST_CASE("DirectionalOrderSelector - nearest-first order", "[selectors]") {
   // Distances: 1, 3, 2, 5. Nearest-first order: 0, 2, 1, 3.
   std::vector<vec3_t> cents = {vec3_t{1, 0, 0}, vec3_t{3, 0, 0},
                                vec3_t{2, 0, 0}, vec3_t{5, 0, 0}};
-  IGroupSelector sel =
+  GroupSelector sel =
       DirectionalOrderSelector{vec3_t{0, 0, 0}, cents, /*nearest_first=*/true};
 
   std::vector<std::size_t> got;
@@ -394,7 +394,7 @@ TEST_CASE("DirectionalOrderSelector - nearest-first order", "[selectors]") {
 TEST_CASE("DirectionalOrderSelector - farthest-first order", "[selectors]") {
   std::vector<vec3_t> cents = {vec3_t{1, 0, 0}, vec3_t{3, 0, 0},
                                vec3_t{2, 0, 0}, vec3_t{5, 0, 0}};
-  IGroupSelector sel = DirectionalOrderSelector{vec3_t{0, 0, 0}, cents,
+  GroupSelector sel = DirectionalOrderSelector{vec3_t{0, 0, 0}, cents,
                                                 /*nearest_first=*/false};
 
   std::vector<std::size_t> got;
@@ -410,7 +410,7 @@ TEST_CASE("DirectionalOrderSelector - farthest-first order", "[selectors]") {
 TEST_CASE("DirectionalOrderSelector - cycles correctly", "[selectors]") {
   std::vector<vec3_t> cents = {vec3_t{1, 0, 0}, vec3_t{2, 0, 0},
                                vec3_t{3, 0, 0}};
-  IGroupSelector sel =
+  GroupSelector sel =
       DirectionalOrderSelector{vec3_t{0, 0, 0}, cents, /*nearest_first=*/true};
 
   // First 3 calls give [0, 1, 2]; next 3 should repeat.

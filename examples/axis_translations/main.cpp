@@ -33,7 +33,7 @@ static void run_single(const char *label, MoveGenerator gen,
   g.indices = {0};
   g.generator = std::move(gen);
   eng.add_group(std::move(g));
-  eng.set_selector(IGroupSelector{OrderedSelector{}});
+  eng.set_selector(GroupSelector{OrderedSelector{}});
   eng.run(n);
   const auto &c = eng.structure().coordinates;
   std::cout << label << ": final (" << c(0,0) << ", " << c(0,1) << ", "
@@ -50,7 +50,7 @@ static void run_rotation(const char *label, MoveGenerator gen,
   g.indices = {0, 1, 2, 3};
   g.generator = std::move(gen);
   eng.add_group(std::move(g));
-  eng.set_selector(IGroupSelector{OrderedSelector{}});
+  eng.set_selector(GroupSelector{OrderedSelector{}});
   eng.run(500);
   const auto &c = eng.structure().coordinates;
   double max_err = std::max(

@@ -9,7 +9,7 @@
 using namespace RMC;
 
 TEST_CASE("RandomSelector - always returns valid index", "[selectors]") {
-  IGroupSelector sel = RandomSelector{42};
+  GroupSelector sel = RandomSelector{42};
   for (int i = 0; i < 1000; ++i) {
     std::size_t idx = sel.select(10);
     REQUIRE(idx < 10);
@@ -17,7 +17,7 @@ TEST_CASE("RandomSelector - always returns valid index", "[selectors]") {
 }
 
 TEST_CASE("OrderedSelector - cycles deterministically", "[selectors]") {
-  IGroupSelector sel = OrderedSelector{};
+  GroupSelector sel = OrderedSelector{};
   for (std::size_t round = 0; round < 3; ++round)
     for (std::size_t i = 0; i < 5; ++i)
       REQUIRE(sel.select(5) == i);
@@ -25,7 +25,7 @@ TEST_CASE("OrderedSelector - cycles deterministically", "[selectors]") {
 
 TEST_CASE("WeightedRandomSelector - highly-weighted group selected more often",
           "[selectors]") {
-  IGroupSelector sel = WeightedRandomSelector{{1.0, 100.0, 1.0}, /*seed=*/42};
+  GroupSelector sel = WeightedRandomSelector{{1.0, 100.0, 1.0}, /*seed=*/42};
   std::unordered_map<std::size_t, int> counts;
   for (int i = 0; i < 10000; ++i)
     ++counts[sel.select(3)];
@@ -37,7 +37,7 @@ TEST_CASE("WeightedRandomSelector - highly-weighted group selected more often",
 
 TEST_CASE("SmartRandomSelector - accepted feedback increases weight",
           "[selectors]") {
-  IGroupSelector sel = SmartRandomSelector{2.0, 42};
+  GroupSelector sel = SmartRandomSelector{2.0, 42};
   sel.select(3); // triggers lazy initialise(3)
 
   for (int i = 0; i < 20; ++i)
@@ -50,7 +50,7 @@ TEST_CASE("SmartRandomSelector - accepted feedback increases weight",
 }
 
 TEST_CASE("SmartRandomSelector - rejection decreases weight", "[selectors]") {
-  IGroupSelector sel = SmartRandomSelector{2.0, 42};
+  GroupSelector sel = SmartRandomSelector{2.0, 42};
   sel.select(3); // triggers lazy initialise(3)
 
   for (int i = 0; i < 20; ++i)
@@ -68,7 +68,7 @@ TEST_CASE("RecursiveGroupSelector Refine - retries same group after acceptance",
   // Inner selector always picks group 0 first via OrderedSelector.
   // After accepting, the same group should be returned for max_retries more
   // steps.
-  IGroupSelector sel = RecursiveGroupSelector{
+  GroupSelector sel = RecursiveGroupSelector{
       OrderedSelector{}, RecursiveMode::Refine, /*max_retries=*/3};
 
   std::size_t first = sel.select(5); // picks 0 from OrderedSelector
@@ -85,7 +85,7 @@ TEST_CASE("RecursiveGroupSelector Refine - retries same group after acceptance",
 
 TEST_CASE("RecursiveGroupSelector Refine - rejection cancels retry",
           "[selectors]") {
-  IGroupSelector sel = RecursiveGroupSelector{
+  GroupSelector sel = RecursiveGroupSelector{
       OrderedSelector{}, RecursiveMode::Refine, /*max_retries=*/5};
 
   std::size_t first = sel.select(5);
@@ -101,7 +101,7 @@ TEST_CASE("RecursiveGroupSelector Refine - rejection cancels retry",
 
 TEST_CASE("RecursiveGroupSelector Explore - retries same group after rejection",
           "[selectors]") {
-  IGroupSelector sel = RecursiveGroupSelector{
+  GroupSelector sel = RecursiveGroupSelector{
       OrderedSelector{}, RecursiveMode::Explore, /*max_retries=*/3};
 
   std::size_t first = sel.select(5);
@@ -116,7 +116,7 @@ TEST_CASE("RecursiveGroupSelector Explore - retries same group after rejection",
 
 TEST_CASE("RecursiveGroupSelector Explore - acceptance cancels retry",
           "[selectors]") {
-  IGroupSelector sel = RecursiveGroupSelector{
+  GroupSelector sel = RecursiveGroupSelector{
       OrderedSelector{}, RecursiveMode::Explore, /*max_retries=*/5};
 
   std::size_t first = sel.select(5);

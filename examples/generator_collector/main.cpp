@@ -106,7 +106,7 @@ static void run(const char *label, bool use_collector,
     seed += 10;
   }
 
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 13}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 13}});
   eng.run(15000);
   std::cout << label << ": accepted " << eng.stats().steps_accepted << " / "
             << eng.stats().steps_tried << "  err " << eng.stats().last_total_err

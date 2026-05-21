@@ -22,7 +22,7 @@ public:
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
 
-  constexpr void set_selector(IGroupSelector s) { selector_ = std::move(s); }
+  constexpr void set_selector(GroupSelector s) { selector_ = std::move(s); }
 
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
@@ -126,7 +126,7 @@ private:
   }
 
   AtomicStructure structure_;
-  IGroupSelector selector_;
+  GroupSelector selector_;
   AtomsCollector collector_;
 
   // Checkpoint state

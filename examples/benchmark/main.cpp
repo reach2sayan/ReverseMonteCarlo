@@ -192,7 +192,7 @@ static Engine build_engine(const AtomicStructure &tmpl, const mat_t &gr_data,
     eng.add_group(std::move(g));
   }
 
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 42}});
   return eng;
 }
 

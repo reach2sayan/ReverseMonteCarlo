@@ -35,7 +35,7 @@ public:
     steps_since_renorm_ = 0;
   }
 
-  std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
+  std::size_t select(GroupSelector::Token, std::size_t n_groups) {
     if (static_cast<std::size_t>(weights_.size()) != n_groups) {
       initialise(n_groups);
     }
@@ -51,7 +51,7 @@ public:
     return static_cast<std::size_t>(weights_.size() - 1);
   }
 
-  void feedback(IGroupSelector::Token, std::size_t group_idx, bool accepted) {
+  void feedback(GroupSelector::Token, std::size_t group_idx, bool accepted) {
     if (weights_.size() == 0) {
       return;
     }

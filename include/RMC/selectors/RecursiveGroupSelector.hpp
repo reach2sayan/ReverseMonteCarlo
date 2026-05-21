@@ -10,7 +10,7 @@ enum class RecursiveMode {
   Explore, // retry same group while moves are REJECTED (find a good move)
 };
 
-// Wraps any IGroupSelector and retries the same group for up to `max_retries`
+// Wraps any GroupSelector and retries the same group for up to `max_retries`
 // additional steps after a triggering outcome.
 //
 //   Refine: on acceptance, lock onto that group for up to max_retries more
@@ -25,11 +25,11 @@ struct RecursiveGroupSelector : SelectorBase<RecursiveGroupSelector> {
   int max_retries{5};
 
   constexpr explicit RecursiveGroupSelector(
-      IGroupSelector inner, RecursiveMode m = RecursiveMode::Refine,
+      GroupSelector inner, RecursiveMode m = RecursiveMode::Refine,
       int retries = 5)
       : mode(m), max_retries(retries), inner_(std::move(inner)) {}
 
-  constexpr std::size_t select(IGroupSelector::Token, std::size_t n_groups) {
+  constexpr std::size_t select(GroupSelector::Token, std::size_t n_groups) {
     if (retries_left_ > 0 && last_gi_ < n_groups) {
       --retries_left_;
       return last_gi_;
@@ -39,7 +39,7 @@ struct RecursiveGroupSelector : SelectorBase<RecursiveGroupSelector> {
     return last_gi_;
   }
 
-  constexpr void feedback(IGroupSelector::Token /*tok*/, std::size_t gi,
+  constexpr void feedback(GroupSelector::Token /*tok*/, std::size_t gi,
                           bool accepted) {
     inner_.feedback(gi, accepted);
     const bool trigger = (mode == RecursiveMode::Refine) ? accepted : !accepted;
@@ -52,7 +52,7 @@ struct RecursiveGroupSelector : SelectorBase<RecursiveGroupSelector> {
   }
 
 private:
-  IGroupSelector inner_;
+  GroupSelector inner_;
   std::size_t last_gi_{0};
   int retries_left_{0};
 };

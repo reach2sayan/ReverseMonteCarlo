@@ -102,7 +102,7 @@ int main() {
     eng.add_group(std::move(g));
   }
 
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 7}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 7}});
   eng.run(20000);
 
   std::cout << "Final mean axis angle from Z:   " << mean_angle_deg(eng, mols)

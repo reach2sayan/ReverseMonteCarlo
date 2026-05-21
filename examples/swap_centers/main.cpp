@@ -98,7 +98,7 @@ int main() {
     eng.add_group(std::move(g));
   }
 
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 42}});
   eng.run(10000);
 
   std::cout << "Final centroid spread:   " << centroid_spread(eng, mols)

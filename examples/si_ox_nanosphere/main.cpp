@@ -77,7 +77,7 @@ static void run_phase(const char *label, double amp,
   eng.add_constraint(std::move(cc));
 
   eng.build_atomic_groups(0.0, amp, 42);
-  eng.set_selector(IGroupSelector{SmartRandomSelector{1.1, 42}});
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, 42}});
   eng.run(n_steps);
 
   std::cout << label << " (amp=" << amp << "): accepted "
