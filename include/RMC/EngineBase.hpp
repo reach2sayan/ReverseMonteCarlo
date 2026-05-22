@@ -93,9 +93,10 @@ protected:
   }
 
   constexpr void maybe_log() {
-    if (step_cb_ && (n_steps_total_ % log_every_ == 0))
-      step_cb_(n_steps_total_, n_steps_accepted_, n_steps_tried_,
-               constraints_.total_error());
+    if (step_cb_ && (n_steps_total_ % log_every_ == 0)) {
+      std::invoke(step_cb_, n_steps_total_, n_steps_accepted_, n_steps_tried_,
+                  constraints_.total_error());
+    }
   }
 
   BoundaryConditions bc_;
