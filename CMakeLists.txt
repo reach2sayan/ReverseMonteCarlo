@@ -5,6 +5,24 @@ endif ()
 
 project(ReverseMonteCarlo VERSION 1.0.0 LANGUAGES CXX)
 
+option(ENABLE_LTO "Enable link-time optimization" ON)
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+
+if (ENABLE_LTO AND ipo_supported)
+    message(STATUS "LTO: enabled")
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+else ()
+    message(STATUS "LTO: not supported: ${ipo_error}")
+endif ()
+
+option(ENABLE_PGO_GENERATE "Build with PGO profile generation" OFF)
+option(ENABLE_PGO_USE "Build with PGO profile use" OFF)
+
+if (ENABLE_PGO_GENERATE AND ENABLE_PGO_USE)
+    message(FATAL_ERROR "ENABLE_PGO_GENERATE and ENABLE_PGO_USE cannot both be ON")
+endif ()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
@@ -54,6 +72,16 @@ else ()
         endif ()
     else ()
         message(STATUS "AVX2: not supported by this compiler")
+    endif ()
+endif ()
+
+if (RMC_COMPILER_CLANG)
+    find_program(LLD_LINKER ld.lld lld)
+    if (LLD_LINKER)
+        add_link_options(-fuse-ld=lld)
+        message(STATUS "LLD: enabled")
+    else ()
+        message(STATUS "LLD: not found")
     endif ()
 endif ()
 
@@ -152,7 +180,7 @@ if (RMC_USE_OPENMP AND OpenMP_CXX_FOUND)
     endif ()
 endif ()
 
-option(RMC_USE_TBB "Use Intel TBB for parallel full-histogram builds (off by default)" OFF)
+option(RMC_USE_TBB "Use Intel TBB for parallel full-histogram builds (off by default)" ON)
 if (RMC_USE_TBB AND RMC_USE_OPENMP)
     message(FATAL_ERROR
         "RMC_USE_TBB and RMC_USE_OPENMP are mutually exclusive — "
