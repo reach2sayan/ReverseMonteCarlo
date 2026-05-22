@@ -13,7 +13,7 @@ public:
   constexpr void add(Constraint c) {
     if (c.is_singular()) {
       BOOST_ASSERT_MSG(std::ranges::none_of(constraints_,
-                                            [&c](const IConstraint &e) {
+                                            [&c](const Constraint &e) {
                                               return e.is_singular() &&
                                                      e.name() == c.name();
                                             }),
