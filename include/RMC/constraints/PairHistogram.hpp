@@ -340,8 +340,9 @@ double PairFunctionConstraint<Mode>::compute_error(
   // Apply shape function (nanoparticle envelope), if set.
   if (shape_fn_) {
     const auto &fn = *shape_fn_;
-    for (int i = 0; i < n_bins_; ++i)
-      computed_[i] *= fn(r_min_ + (i + 0.5) * bin_width_);
+    for (int i = 0; i < n_bins_; ++i) {
+      computed_[i] *= std::invoke(fn, r_min_ + (i + 0.5) * bin_width_);
+    }
   }
 
   const double denom = computed_.squaredNorm();
