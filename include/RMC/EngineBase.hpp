@@ -16,8 +16,9 @@
 
 namespace RMC {
 
-using StepCallback =
-    std::function<void(std::uint64_t, std::uint64_t, std::uint64_t, double)>;
+using StepCallback = std::function<void(std::uint64_t, std::uint64_t,
+                                        std::uint64_t, double,
+                                        const AtomicStructure &)>;
 
 // CRTP base for Engine and MultiFrameEngine.
 // Holds shared state (bc_, groups_, constraints_, stats) and provides
@@ -92,10 +93,10 @@ protected:
     });
   }
 
-  constexpr void maybe_log() {
+  constexpr void maybe_log(const AtomicStructure &current) {
     if (step_cb_ && (n_steps_total_ % log_every_ == 0)) {
       std::invoke(step_cb_, n_steps_total_, n_steps_accepted_, n_steps_tried_,
-                  constraints_.total_error());
+                  constraints_.total_error(), current);
     }
   }
 

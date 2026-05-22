@@ -123,7 +123,7 @@ constexpr void Engine::step() {
       .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
       .and_then(stage([&](TrialCtx &c) { score_after(c); }))
       .and_then(stage([&](TrialCtx &c) { settle(c); }));
-  maybe_log();
+  maybe_log(structure_);
   maybe_checkpoint();
 }
 

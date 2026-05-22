@@ -236,6 +236,7 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_engine.cpp
             tests/test_examples.cpp
             tests/test_species_swap.cpp
+            tests/test_callbacks.cpp
             tests/bench_scaling.cpp
             tests/bench_thf.cpp
     )

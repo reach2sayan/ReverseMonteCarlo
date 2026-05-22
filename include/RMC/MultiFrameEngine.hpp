@@ -117,12 +117,14 @@ constexpr void MultiFrameEngine::settle(TrialCtx &c) {
 
 constexpr void MultiFrameEngine::step() {
   ++n_steps_total_;
-  select_frame_and_group()
+  auto ctx_opt = select_frame_and_group();
+  ctx_opt
       .and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
       .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
       .and_then(stage([&](TrialCtx &c) { score_after(c); }))
       .and_then(stage([&](TrialCtx &c) { settle(c); }));
-  maybe_log();
+  const AtomicStructure &cur = ctx_opt ? *ctx_opt->frame : frames_[0];
+  maybe_log(cur);
 }
 
 inline void MultiFrameEngine::initialise() {

@@ -142,7 +142,7 @@ int main(int argc, char *argv[]) {
             e.set_checkpoint(vm["checkpoint"].as<std::string>());
           e.set_step_callback(
               [](std::uint64_t step, std::uint64_t acc, std::uint64_t tried,
-                 double chi2) {
+                 double chi2, const RMC::AtomicStructure &) {
                 double rate = tried > 0 ? 100.0 * static_cast<double>(acc) /
                                               static_cast<double>(tried)
                                         : 0.0;

@@ -238,7 +238,8 @@ int main(int argc, char *argv[]) {
         RMC::SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
     eng.set_step_callback(
         [log_ev](std::uint64_t total, std::uint64_t accepted,
-                 std::uint64_t /*tried*/, double err) {
+                 std::uint64_t /*tried*/, double err,
+                 const RMC::AtomicStructure &) {
           if (total % log_ev == 0)
             std::cout << "  step " << total << "  accepted " << accepted
                       << "  err " << std::scientific << err << "\n";
