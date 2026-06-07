@@ -10,7 +10,7 @@
 
 namespace RMC {
 
-// ── Type 1: ItemCache ────────────────────────────────────────────────────────
+// Type 1: ItemCache
 // Incremental cache for constraints defined over a fixed list of items (bonds,
 // angles, dihedrals, …). Each item touches a small set of atoms. On a move,
 // only items that include a moved atom are recomputed; all others retain their
@@ -27,7 +27,6 @@ template <typename Item> struct ItemCache {
   mutable double total{0.0};
   mutable std::vector<double> errs;
   mutable std::unordered_map<std::size_t, std::vector<std::size_t>> atom_map;
-
   constexpr void invalidate() noexcept { ready = false; }
 
   // AtomsOf : Item → iterable of std::size_t  (e.g. std::array<std::size_t,2>)

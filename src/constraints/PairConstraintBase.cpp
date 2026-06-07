@@ -185,6 +185,30 @@ void accumulate_moved_pairs(
   }
 }
 
+void PairConstraintBase::set_n_frames(std::size_t n) {
+  BOOST_ASSERT_MSG(n_bins_ > 0,
+                   "call set_experimental_data before set_n_frames");
+  n_frames_ = n;
+  frame_hists_.assign(n, vec_t::Zero(n_bins_));
+  frame_hist_current_.assign(n, false);
+  sum_hist_ = vec_t::Zero(n_bins_);
+  saved_frame_hist_.resize(n_bins_);
+  incremental_ready_ = false;
+}
+
+void PairConstraintBase::rollback_frame() noexcept {
+  if (n_frames_ > 1) {
+    sum_hist_ -= frame_hists_[active_frame_];
+    frame_hists_[active_frame_] = saved_frame_hist_;
+    sum_hist_ += saved_frame_hist_;
+    frame_hist_current_[active_frame_] = true;
+  } else {
+    single_hist_ = saved_frame_hist_;
+    single_hist_current_ = true;
+  }
+  incremental_ready_ = false;
+}
+
 void PairConstraintBase::set_experimental_data(const mat_t &data) {
   BOOST_ASSERT_MSG(data.cols() >= 2, "PairConstraint: need 2-column r/data");
   const Eigen::Index N = data.rows();

@@ -99,12 +99,12 @@ public:
     bc_ = &bc;
   }
 
-  constexpr void compute_before_move(Constraint::Token, const coords_t &coords,
-                                     std::span<const std::size_t> moved) {
+  void compute_before_move(Constraint::Token, const coords_t &coords,
+                           std::span<const std::size_t> moved) {
     err_before_ = static_cast<Derived *>(this)->compute_error(coords, moved);
   }
-  constexpr void compute_after_move(Constraint::Token, const coords_t &coords,
-                                    std::span<const std::size_t> moved) {
+  void compute_after_move(Constraint::Token, const coords_t &coords,
+                          std::span<const std::size_t> moved) {
     err_after_ = static_cast<Derived *>(this)->compute_error(coords, moved);
   }
   constexpr void accept(Constraint::Token) noexcept {
@@ -149,7 +149,7 @@ public:
   constexpr void initialise(Constraint::Token) noexcept {}
 
 protected:
-  [[nodiscard]] constexpr FORCE_INLINE double
+  [[nodiscard]] FORCE_INLINE double
   distance_sq(const coords_t &c, std::size_t i, std::size_t j) const noexcept {
     vec3_t d = c.row(j).transpose() - c.row(i).transpose();
     if (bc_) {
@@ -157,8 +157,8 @@ protected:
     }
     return d.squaredNorm();
   }
-  [[nodiscard]] constexpr FORCE_INLINE double
-  distance(const coords_t &c, std::size_t i, std::size_t j) const noexcept {
+  [[nodiscard]] FORCE_INLINE double distance(const coords_t &c, std::size_t i,
+                                             std::size_t j) const noexcept {
     return std::sqrt(distance_sq(c, i, j));
   }
 };

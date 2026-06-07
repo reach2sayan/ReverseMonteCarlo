@@ -22,12 +22,12 @@ namespace RMC {
 
 // --- Species snapshots (atom-swap moves) -----------------------------------
 struct WithSpecies {
-  static constexpr void save_before(AtomicStructure &f, Group &g) {
+  static void save_before(AtomicStructure &f, Group &g) {
     if (g.generator->modifies_species()) {
       f.save_species_snapshot();
     }
   }
-  static constexpr void restore_on_reject(AtomicStructure &f) {
+  static void restore_on_reject(AtomicStructure &f) {
     f.restore_species_snapshot(); // no-op if save was never called
   }
 };
@@ -37,8 +37,7 @@ struct NoSpecies {
 };
 
 struct WithFeedback {
-  static constexpr void feedback(GroupSelector &sel, std::size_t gi,
-                                 bool accepted) {
+  static void feedback(GroupSelector &sel, std::size_t gi, bool accepted) {
     sel.feedback(gi, accepted);
   }
 };
@@ -49,7 +48,7 @@ struct NoFeedback {
 // --- Pending atom removal (RemoveGenerator) --------------------------------
 struct WithCollector {
   AtomsCollector collector_;
-  constexpr void commit_or_rollback(bool accepted) {
+  void commit_or_rollback(bool accepted) {
     if (accepted && !collector_.pending().empty()) {
       collector_.commit_removal();
     } else {

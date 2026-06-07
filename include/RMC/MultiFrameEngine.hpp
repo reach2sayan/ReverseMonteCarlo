@@ -7,8 +7,6 @@
 #include <boost/assert.hpp>
 
 #include <cstdint>
-#include <numeric>
-#include <vector>
 
 namespace RMC {
 
@@ -43,12 +41,8 @@ public:
         group_selector_(RandomSelector{group_rng_seed}) {}
 
   void add_frame(AtomicStructure s) { store_.add(std::move(s)); }
-  constexpr void set_frame_selector(GroupSelector s) {
-    frame_selector_ = std::move(s);
-  }
-  constexpr void set_group_selector(GroupSelector s) {
-    group_selector_ = std::move(s);
-  }
+  void set_frame_selector(GroupSelector s) { frame_selector_ = std::move(s); }
+  void set_group_selector(GroupSelector s) { group_selector_ = std::move(s); }
 
   [[nodiscard]] constexpr const AtomicStructure &best_frame() const {
     // Returns frame closest to lowest total error (all frames contribute
@@ -75,22 +69,7 @@ private:
   // histograms (one compute_before_move pass per frame) so the averaged
   // sum_hist_ is correct from the first step. Run automatically on the first
   // run()/run_until() via EngineBase::ensure_initialised().
-  void do_initialise() {
-    BOOST_ASSERT_MSG(store_.size() > 0, "MultiFrameEngine: no frames added");
-    const std::size_t N = store_.size();
-    constraints_.set_n_frames(N);
-
-    const std::size_t n_atoms = store_[0].size();
-    std::vector<std::size_t> all_idx(n_atoms);
-    std::iota(all_idx.begin(), all_idx.end(), std::size_t{0});
-
-    for (std::size_t k = 0; k < N; ++k) {
-      constraints_.set_active_frame(k);
-      constraints_.compute_before_move(store_[k].coordinates, all_idx);
-    }
-    // Leave active_frame at 0 (arbitrary; reset per step).
-    constraints_.set_active_frame(0);
-  }
+  void do_initialise();
 
   [[nodiscard]] constexpr MultiFrameStore &store() noexcept { return store_; }
   [[nodiscard]] constexpr NoSpecies &species_policy() noexcept { return sp_; }

@@ -14,8 +14,8 @@ struct RemoveGenerator : MoveGeneratorBase<RemoveGenerator> {
   explicit RemoveGenerator(std::shared_ptr<AtomsCollector> c)
       : collector(std::move(c)) {}
 
-  constexpr FORCE_INLINE void generate(MoveGenerator::Token, coords_t &,
-                                       std::span<const std::size_t> indices) {
+  FORCE_INLINE void generate(MoveGenerator::Token, coords_t &,
+                             std::span<const std::size_t> indices) {
     if (collector) {
       collector->stage_removal(indices);
     }

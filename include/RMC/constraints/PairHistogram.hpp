@@ -27,16 +27,16 @@ struct PairElemKey {
 // Dense element-pair weight table for O(1) hot-path lookup. Element ids are the
 // small contiguous integers assigned in initialise() (0,1,2,…), so the weights
 // live in a flat n_types×n_types row-major matrix indexed directly by id — a
-// single load, no search. Replaces the flat_map<PairIdKey,double> whose per-pair
-// binary search showed up in the profile. The matrix is symmetric and defaults
-// to 1.0; `weighted == false` means every weight is 1, so callers skip the
-// lookup entirely.
+// single load, no search. Replaces the flat_map<PairIdKey,double> whose
+// per-pair binary search showed up in the profile. The matrix is symmetric and
+// defaults to 1.0; `weighted == false` means every weight is 1, so callers skip
+// the lookup entirely.
 struct PairWeightMatrix {
   int n_types{0};
   bool weighted{false};
   std::vector<double> w; // n_types*n_types, row-major, symmetric
 
-  [[nodiscard]] double at(uint8_t a, uint8_t b) const noexcept {
+  [[nodiscard]] constexpr double at(uint8_t a, uint8_t b) const noexcept {
     return w[static_cast<std::size_t>(a) * static_cast<std::size_t>(n_types) +
              static_cast<std::size_t>(b)];
   }
@@ -45,8 +45,9 @@ struct PairWeightMatrix {
   // touching `elem_id` at all when the table is unweighted — callers neither
   // branch nor index, so an empty/short elem_id (the unweighted case, where no
   // elements were registered) is never dereferenced.
-  [[nodiscard]] double weight_of(const std::vector<uint8_t> &elem_id,
-                                 std::size_t i, std::size_t j) const noexcept {
+  [[nodiscard]] constexpr double weight_of(const std::vector<uint8_t> &elem_id,
+                                           std::size_t i,
+                                           std::size_t j) const noexcept {
     return weighted ? at(elem_id[i], elem_id[j]) : 1.0;
   }
 };
@@ -79,8 +80,8 @@ FORCE_INLINE auto gaussian_shape_fn(double sigma) {
 void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                                const BoundaryConditions *bc,
                                const std::vector<uint8_t> &elem_id,
-                               const PairWeightMatrix &weights,
-                               double r_min, double r_max, int n_bins,
+                               const PairWeightMatrix &weights, double r_min,
+                               double r_max, int n_bins,
                                std::span<const std::size_t> molecule_ids = {},
                                bool exclude_intra = false);
 
@@ -115,8 +116,7 @@ protected:
 public:
   void set_experimental_data(const mat_t &data);
 
-  constexpr void set_weight(const std::string &el1, const std::string &el2,
-                            double w) {
+  void set_weight(const std::string &el1, const std::string &el2, double w) {
     weights_.insert_or_assign(PairElemKey{el1, el2}, w); // = w;
   }
   constexpr void set_elements(std::span<const std::string> e) noexcept {
@@ -136,16 +136,7 @@ public:
 
   // Multi-frame: allocate per-frame histograms. Must be called after
   // set_experimental_data() so that n_bins_ is known.
-  void set_n_frames(std::size_t n) {
-    BOOST_ASSERT_MSG(n_bins_ > 0,
-                     "call set_experimental_data before set_n_frames");
-    n_frames_ = n;
-    frame_hists_.assign(n, vec_t::Zero(n_bins_));
-    frame_hist_current_.assign(n, false);
-    sum_hist_ = vec_t::Zero(n_bins_);
-    saved_frame_hist_.resize(n_bins_);
-    incremental_ready_ = false;
-  }
+  void set_n_frames(std::size_t n);
   void set_active_frame_idx(std::size_t k) noexcept {
     active_frame_ = k;
     incremental_ready_ = false; // frame switch invalidates any pending delta
@@ -153,18 +144,7 @@ public:
 
   // Roll back the active frame's histogram to the state saved during the last
   // compute_error() call (used by PairFunctionConstraint::reject()).
-  void rollback_frame() noexcept {
-    if (n_frames_ > 1) {
-      sum_hist_ -= frame_hists_[active_frame_];
-      frame_hists_[active_frame_] = saved_frame_hist_;
-      sum_hist_ += saved_frame_hist_;
-      frame_hist_current_[active_frame_] = true;
-    } else {
-      single_hist_ = saved_frame_hist_;
-      single_hist_current_ = true;
-    }
-    incremental_ready_ = false;
-  }
+  void rollback_frame() noexcept;
 
   [[nodiscard]] constexpr const vec_t &computed_G() const noexcept {
     return computed_;
@@ -194,7 +174,8 @@ protected:
   mutable vec_t saved_frame_hist_;
   mutable vec_t
       saved_moved_delta_; // pair contributions from moved atoms (old pos)
-  mutable vec_t scratch_delta_; // reused after-move delta buffer (no per-step alloc)
+  mutable vec_t
+      scratch_delta_; // reused after-move delta buffer (no per-step alloc)
   mutable bool incremental_ready_{
       false}; // set by before-move, cleared by after-move/reject
 };
@@ -270,9 +251,9 @@ double PairFunctionConstraint<Mode>::compute_error(
       // After-move: O(K·N) incremental update — only recompute pairs
       // involving the moved atoms; skip the full O(N²) rebuild.
       scratch_delta_.setZero();
-      accumulate_moved_pairs(scratch_delta_, coords, bc_, elem_id_, weight_table_,
-                             r_min_, r_max_, n_bins_, moved, molecule_ids_,
-                             exclude_intra_);
+      accumulate_moved_pairs(scratch_delta_, coords, bc_, elem_id_,
+                             weight_table_, r_min_, r_max_, n_bins_, moved,
+                             molecule_ids_, exclude_intra_);
       const vec_t new_frame_hist =
           saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
       sum_hist_ += new_frame_hist - frame_hists_[active_frame_];
@@ -319,9 +300,9 @@ double PairFunctionConstraint<Mode>::compute_error(
     if (incremental_ready_ && !moved.empty()) {
       // After-move: patch the running histogram with the moved-atom delta.
       scratch_delta_.setZero();
-      accumulate_moved_pairs(scratch_delta_, coords, bc_, elem_id_, weight_table_,
-                             r_min_, r_max_, n_bins_, moved, molecule_ids_,
-                             exclude_intra_);
+      accumulate_moved_pairs(scratch_delta_, coords, bc_, elem_id_,
+                             weight_table_, r_min_, r_max_, n_bins_, moved,
+                             molecule_ids_, exclude_intra_);
       single_hist_ = saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
       incremental_ready_ = false;
     } else {

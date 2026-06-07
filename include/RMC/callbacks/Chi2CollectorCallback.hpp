@@ -3,10 +3,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <format>
-#include <fstream>
-#include <iostream>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -28,21 +24,13 @@ public:
   explicit Chi2CollectorCallback(std::filesystem::path csv_path = "chi2.csv")
       : csv_path_(std::move(csv_path)) {}
 
-  constexpr void operator()(std::uint64_t step, std::uint64_t /*acc*/,
-                            std::uint64_t /*tried*/, double chi2,
-                            const AtomicStructure & /*s*/) {
+  void operator()(std::uint64_t step, std::uint64_t /*acc*/,
+                  std::uint64_t /*tried*/, double chi2,
+                  const AtomicStructure & /*s*/) {
     history_.emplace_back(step, chi2);
   }
 
-  void finalize() {
-    if (finalized_ || history_.empty()) {
-      finalized_ = true;
-      return;
-    }
-    finalized_ = true;
-    write_csv();
-    print_ascii();
-  }
+  void finalize();
 
   ~Chi2CollectorCallback() { finalize(); }
   [[nodiscard]] const std::vector<std::pair<std::uint64_t, double>> &
@@ -51,38 +39,8 @@ public:
   }
 
 private:
-  void write_csv() const {
-    std::ofstream f(csv_path_);
-    if (!f) {
-      return;
-    }
-    f << "step,chi2\n";
-    for (auto [step, chi2] : history_) {
-      f << std::format("{},{:.10g}\n", step, chi2);
-    }
-  }
-
-  void print_ascii() const {
-    constexpr int bar_width = 40;
-    const double chi2_max =
-        std::ranges::max(history_, {},
-                         &std::pair<std::uint64_t, double>::second)
-            .second;
-
-    std::cout << std::format("\nChi² convergence ({} samples):\n",
-                             history_.size());
-    for (auto [step, chi2] : history_) {
-      const int bars =
-          (chi2_max > 0.0) ? static_cast<int>(bar_width * chi2 / chi2_max) : 0;
-      std::string blocks;
-      blocks.reserve(static_cast<std::size_t>(bars) * 3);
-      for (int i = 0; i < bars; ++i) {
-        blocks += "\xe2\x96\x88"; // U+2588 FULL BLOCK
-      }
-      std::cout << std::format("step {:>10}  {:.4f}  {}\n", step, chi2, blocks);
-    }
-    std::cout << '\n';
-  }
+  void write_csv() const;
+  void print_ascii() const;
 
   std::vector<std::pair<std::uint64_t, double>> history_;
   std::filesystem::path csv_path_;

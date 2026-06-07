@@ -32,7 +32,7 @@ public:
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
 
-  constexpr void set_selector(GroupSelector s) { selector_ = std::move(s); }
+  void set_selector(GroupSelector s) { selector_ = std::move(s); }
 
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
@@ -54,15 +54,13 @@ public:
     return best_.best_structure(store_.primary());
   }
 
-  [[nodiscard]] constexpr io::EngineStats stats() const noexcept {
-    return make_stats();
-  }
+  [[nodiscard]] io::EngineStats stats() const noexcept { return make_stats(); }
 
 private:
   friend class EngineBase<Engine>;
 
   // CRTP customization points called by EngineBase.
-  constexpr std::optional<TrialCtx> select() {
+  std::optional<TrialCtx> select() {
     const std::size_t gi = selector_.select(groups_.size());
     Group &g = groups_[gi];
     if (!g.refine || g.empty() || !g.generator) {

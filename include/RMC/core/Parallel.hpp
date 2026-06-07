@@ -4,7 +4,6 @@
 #include <utility>
 
 #if defined(RMC_USE_TBB)
-#include <cstdlib>
 #include <execution>
 #include <thread>
 
@@ -19,18 +18,7 @@ inline int default_concurrency() noexcept {
 
 // Process-wide arena. Concurrency defaults to all hardware threads, or to
 // $RMC_NUM_THREADS when that env var is set to a positive int.
-inline tbb::task_arena &arena() {
-  static tbb::task_arena a = [] {
-    int max_threads = default_concurrency();
-    if (const char *env = std::getenv("RMC_NUM_THREADS")) {
-      if (const int n = std::atoi(env); n > 0) {
-        max_threads = n;
-      }
-    }
-    return tbb::task_arena{max_threads};
-  }();
-  return a;
-}
+tbb::task_arena &arena();
 
 inline void set_max_concurrency(int n) {
   arena().terminate();

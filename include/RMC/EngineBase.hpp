@@ -54,7 +54,7 @@ public:
     Group *group;
   };
 
-  constexpr void add_group(Group g) { groups_.push_back(std::move(g)); }
+  void add_group(Group g) { groups_.push_back(std::move(g)); }
   void add_constraint(Constraint c) {
     c.set_boundary_conditions(bc_);
     constraints_.add(std::move(c));
@@ -62,14 +62,14 @@ public:
 
   void initialise() { ensure_initialised(); }
 
-  constexpr void run(std::uint64_t n_steps) {
+  void run(std::uint64_t n_steps) {
     BOOST_ASSERT_MSG(!groups_.empty(), "no groups defined");
     ensure_initialised();
     for ([[maybe_unused]] auto _ : std::views::iota(std::uint64_t{0}, n_steps)) {
       self().step();
     }
   }
-  constexpr void run_until(double target_chi2, std::uint64_t max_steps = 0) {
+  void run_until(double target_chi2, std::uint64_t max_steps = 0) {
     BOOST_ASSERT_MSG(!groups_.empty(), "no groups defined");
     ensure_initialised();
     std::uint64_t s = 0;
@@ -88,7 +88,7 @@ public:
   [[nodiscard]] constexpr const BoundaryConditions &boundary() const noexcept {
     return bc_;
   }
-  [[nodiscard]] constexpr double total_error() const noexcept {
+  [[nodiscard]] double total_error() const noexcept {
     return constraints_.total_error();
   }
   [[nodiscard]] constexpr std::uint64_t steps_total() const noexcept {
@@ -97,7 +97,7 @@ public:
   [[nodiscard]] constexpr std::uint64_t steps_accepted() const noexcept {
     return n_steps_accepted_;
   }
-  [[nodiscard]] constexpr io::EngineStats make_stats() const noexcept {
+  [[nodiscard]] io::EngineStats make_stats() const noexcept {
     return io::EngineStats{.steps_total = n_steps_total_,
                            .steps_accepted = n_steps_accepted_,
                            .steps_tried = n_steps_tried_,
@@ -119,12 +119,12 @@ public:
   }
 
 protected:
-  constexpr explicit EngineBase(BoundaryConditions bc) : bc_(std::move(bc)) {}
+  explicit EngineBase(BoundaryConditions bc) : bc_(std::move(bc)) {}
 
   // One trial step: select → snapshot/score-before → propose → score-after →
   // settle, then log and (policy-gated) checkpoint. select() short-circuits the
   // and_then chain when no eligible group is available.
-  constexpr void step() {
+  void step() {
     ++n_steps_total_;
     auto ctx = self().select();
     ctx.and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
@@ -138,18 +138,18 @@ protected:
                                      n_steps_accepted_);
   }
 
-  constexpr void snapshot_and_score_before(TrialCtx &c) {
+  void snapshot_and_score_before(TrialCtx &c) {
     ++n_steps_tried_;
     constraints_.set_active_frame(c.fi); // no-op for non-frame constraints
     c.frame->save_snapshot(c.group->span());
     self().species_policy().save_before(*c.frame, *c.group);
     constraints_.compute_before_move(c.frame->coordinates, c.group->span());
   }
-  constexpr void propose_move(TrialCtx &c) {
+  void propose_move(TrialCtx &c) {
     c.group->generator->generate(c.frame->coordinates, c.group->span());
     apply_pbc_to(*c.frame, c.group->span());
   }
-  constexpr void score_after(TrialCtx &c) {
+  void score_after(TrialCtx &c) {
     constraints_.compute_after_move(c.frame->coordinates, c.group->span());
   }
 
@@ -158,7 +158,7 @@ protected:
   //   2. otherwise any worsened RIGID constraint is a hard rejection;
   //   3. otherwise the Sampler decides from the soft total error — greedy
   //      (strict downhill) by default, Metropolis/annealing when configured.
-  [[nodiscard]] constexpr bool decide_rejection(TrialCtx &c) {
+  [[nodiscard]] bool decide_rejection(TrialCtx &c) {
     if (auto override_rej = c.group->generator->rejection_override()) {
       return *override_rej;
     }
@@ -170,7 +170,7 @@ protected:
                             accept_rng_.uniform());
   }
 
-  constexpr void settle(TrialCtx &c) {
+  void settle(TrialCtx &c) {
     const bool rejected = decide_rejection(c);
     self().collector_policy().commit_or_rollback(!rejected);
     if (rejected) {
@@ -208,8 +208,7 @@ protected:
     };
   }
 
-  constexpr void apply_pbc_to(AtomicStructure &s,
-                              std::span<const std::size_t> moved) {
+  void apply_pbc_to(AtomicStructure &s, std::span<const std::size_t> moved) {
     std::ranges::for_each(moved, [&](auto i) {
       vec3_t r = s.coordinates.row(static_cast<Eigen::Index>(i)).transpose();
       r = bc_wrap(bc_, r);
@@ -217,7 +216,7 @@ protected:
     });
   }
 
-  constexpr void maybe_log(const AtomicStructure &current) {
+  void maybe_log(const AtomicStructure &current) {
     if (step_cb_ && (n_steps_total_ % log_every_ == 0)) {
       std::invoke(step_cb_, n_steps_total_, n_steps_accepted_, n_steps_tried_,
                   constraints_.total_error(), current);

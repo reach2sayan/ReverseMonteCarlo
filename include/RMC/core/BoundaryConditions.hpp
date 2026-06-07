@@ -8,11 +8,7 @@ namespace RMC {
 class PeriodicBC {
 public:
   explicit PeriodicBC(const mat3_t &box) { set_box(box); }
-  void set_box(const mat3_t &box) {
-    box_ = box;
-    inv_box_ = box.inverse();
-    volume_ = std::abs(box.determinant());
-  }
+  void set_box(const mat3_t &box);
 
   [[nodiscard]] constexpr const mat3_t &box() const noexcept { return box_; }
   [[nodiscard]] constexpr const mat3_t &inv_box() const noexcept {

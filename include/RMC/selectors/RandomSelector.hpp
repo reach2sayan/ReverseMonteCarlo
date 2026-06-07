@@ -48,7 +48,7 @@ struct WeightedRandomSelector : SelectorBase<WeightedRandomSelector> {
 private:
   mutable std::optional<boost::random::discrete_distribution<std::size_t>>
       dist_cache_;
-  constexpr void rebuild_cache() {
+  void rebuild_cache() {
     if (!weights.empty()) {
       dist_cache_.emplace(weights.begin(), weights.end());
     }

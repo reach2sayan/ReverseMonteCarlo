@@ -154,13 +154,28 @@ find_package(Threads REQUIRED)
 
 add_library(RMC SHARED
         src/core/Structure.cpp
+        src/core/BoundaryConditions.cpp
+        src/core/Parallel.cpp
         src/constraints/PairConstraintBase.cpp
         src/constraints/StructureFactorConstraint.cpp
         src/constraints/ReducedStructureFactorConstraint.cpp
+        src/constraints/ConstraintCollection.cpp
+        src/constraints/CoordinationConstraint.cpp
+        src/constraints/ClusterCorrelationConstraint.cpp
+        src/constraints/AngleConstraint.cpp
+        src/constraints/BondConstraint.cpp
+        src/constraints/DihedralAngleConstraint.cpp
+        src/constraints/ImproperAngleConstraint.cpp
+        src/callbacks/Chi2CollectorCallback.cpp
+        src/callbacks/PDBSnapshotCallback.cpp
+        src/callbacks/HistogramCallback.cpp
+        src/selectors/DirectionalOrderSelector.cpp
         src/io/PdbReader.cpp
         src/io/DataReader.cpp
         src/io/Checkpoint.cpp
         src/Engine.cpp
+        src/MultiFrameEngine.cpp
+        src/Ensemble.cpp
 )
 target_include_directories(RMC PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

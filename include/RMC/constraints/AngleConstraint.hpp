@@ -1,9 +1,6 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/IncrementalCache.hpp>
-#include <array>
-#include <cmath>
-#include <string>
 #include <vector>
 
 namespace RMC {
@@ -19,8 +16,8 @@ public:
     double lo, hi;
   };
 
-  constexpr void add_angle(std::size_t i, std::size_t j, std::size_t k,
-                           double lo_rad, double hi_rad) {
+  void add_angle(std::size_t i, std::size_t j, std::size_t k, double lo_rad,
+                 double hi_rad) {
     triplets_.push_back({i, j, k, lo_rad, hi_rad});
     cache_.invalidate();
   }
@@ -28,31 +25,11 @@ public:
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     return "AngleConstraint";
   }
-  [[nodiscard]] constexpr double
-  compute_error(const coords_t &coords,
-                std::span<const std::size_t> moved) const {
-    return cache_.compute(
-        triplets_, [](const Triplet &t) { return std::array{t.i, t.j, t.k}; },
-        [this](const coords_t &c, const Triplet &t) {
-          return triplet_error(c, t);
-        },
-        coords, moved);
-  }
+  [[nodiscard]] double compute_error(const coords_t &coords,
+                                     std::span<const std::size_t> moved) const;
 
 private:
-  double triplet_error(const coords_t &coords,
-                       const Triplet &t) const noexcept {
-    vec3_t v1 = (coords.row(t.i) - coords.row(t.j)).transpose();
-    vec3_t v2 = (coords.row(t.k) - coords.row(t.j)).transpose();
-    if (bc_) {
-      v1 = bc_min_image(*bc_, v1);
-      v2 = bc_min_image(*bc_, v2);
-    }
-    const double cos_a = v1.dot(v2) / (v1.norm() * v2.norm() + 1e-30);
-    const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
-    return range_violation(angle, t.lo, t.hi);
-  }
-
+  double triplet_error(const coords_t &coords, const Triplet &t) const noexcept;
   std::vector<Triplet> triplets_;
   mutable ItemCache<Triplet> cache_;
 };
