@@ -17,18 +17,19 @@
 
 namespace RMC::atat {
 
-// One lattice site: position + the species it may hold, with target occupations.
+// One lattice site: position + the species it may hold, with target
+// occupations.
 struct LatticeSite {
-  vec3_t frac{vec3_t::Zero()};                       // axes coords
-  std::vector<std::pair<std::string, double>> occ;   // (species, occupation)
+  vec3_t frac{vec3_t::Zero()};                     // axes coords
+  std::vector<std::pair<std::string, double>> occ; // (species, occupation)
 };
 
 // A parsed rndstr.in / lat.in lattice.
 struct AtatLattice {
-  mat3_t axes{mat3_t::Identity()}; // columns: coordinate-system vectors (Cartesian)
-  mat3_t cell{mat3_t::Identity()}; // columns: primitive cell vectors (axes coords)
+  mat3_t axes{mat3_t::Identity()}; // cols: coordinate-system (Cartesian)
+  mat3_t cell{mat3_t::Identity()}; // cols: cell vectors (axes coords)
   std::vector<LatticeSite> sites;
-  std::vector<std::string> labels; // global species labels, alphabetically sorted
+  std::vector<std::string> labels; // global species labels, alphabetical
 
   // Occupation index of a species (its position in `labels`); -1 if absent.
   // Matches ATAT's atom_type convention for single-sublattice systems.
@@ -65,15 +66,11 @@ std::vector<SymOp> parse_sym(const std::filesystem::path &path);
 std::vector<RawOrbit> parse_clusters(std::istream &in);
 std::vector<RawOrbit> parse_clusters(const std::filesystem::path &path);
 
-// corrdump prints one tab/space-separated correlation per orbit (first line).
 std::vector<double> parse_correlations(std::istream &in);
 
-// ---- writer ----
-// Emit an ATAT str.out: the 3 axes vectors, then the 3 supercell vectors (in
-// axes coords), then one "fx fy fz Species" line per atom (axes coords). This
-// is the structure file fed to `corrdump -s=...` and the basis of bestsqs.out.
 void write_str_out(const std::filesystem::path &path, const mat3_t &axes,
-                   const mat3_t &supercell, const std::vector<vec3_t> &positions,
+                   const mat3_t &supercell,
+                   const std::vector<vec3_t> &positions,
                    const std::vector<std::string> &species);
 
 } // namespace RMC::atat

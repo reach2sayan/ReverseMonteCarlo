@@ -1,44 +1,54 @@
 #include "AtatFormats.hpp"
 
 #include <algorithm>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/parser/parser.hpp>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
+#include <optional>
+#include <ranges>
 #include <set>
-#include <sstream>
 #include <stdexcept>
+#include <string>
 
 namespace RMC::atat {
 namespace {
 
-// Split a string on whitespace.
-std::vector<std::string> split_ws(const std::string &s) {
-  std::vector<std::string> out;
-  std::istringstream ss(s);
-  std::string tok;
-  while (ss >> tok) {
-    out.push_back(tok);
-  }
-  return out;
-}
+namespace bp = boost::parser;
+
+// Parses three space-separated reals into the components of a 3-vector.
+constexpr auto vec3_p = bp::double_ >> bp::double_ >> bp::double_;
 
 // Read the next line that contains non-whitespace; false at EOF.
 bool next_nonempty_line(std::istream &in, std::string &line) {
   while (std::getline(in, line)) {
-    if (line.find_first_not_of(" \t\r\n") != std::string::npos) {
+    if (!boost::algorithm::all(line, boost::is_space())) {
       return true;
     }
   }
   return false;
 }
 
-vec3_t parse_vec3(const std::vector<std::string> &toks, std::size_t off = 0) {
-  if (toks.size() < off + 3) {
-    throw std::runtime_error("ATAT parse: expected 3 numbers");
+// Slurp an entire stream into a string (the sym.out / clusters.out token
+// streams are small and parse most cleanly as one whitespace-skipped range).
+std::string slurp(std::istream &in) {
+  return std::string((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+}
+
+// Parse exactly three reals from one line into an Eigen column.
+vec3_t parse_vec3_line(const std::string &line) {
+  const auto v = bp::parse(line, vec3_p, bp::ws);
+  if (!v) {
+    throw std::runtime_error("ATAT parse: expected 3 numbers: " + line);
   }
-  return vec3_t(std::stod(toks[off]), std::stod(toks[off + 1]),
-                std::stod(toks[off + 2]));
+  const auto &[x, y, z] = *v;
+  return vec3_t(x, y, z);
 }
 
 // Build lattice vectors (columns) from a,b,c,alpha,beta,gamma (degrees).
@@ -78,18 +88,18 @@ AtatLattice parse_lattice(std::istream &in) {
   if (!next_nonempty_line(in, line)) {
     throw std::runtime_error("rndstr: empty file");
   }
-  auto toks = split_ws(line);
-  if (toks.size() == 6) {
-    lat.axes = lattice_vectors(std::stod(toks[0]), std::stod(toks[1]),
-                               std::stod(toks[2]), std::stod(toks[3]),
-                               std::stod(toks[4]), std::stod(toks[5]));
-  } else if (toks.size() == 3) {
-    lat.axes.col(0) = parse_vec3(toks);
+  // First line is either 'a b c al be ga' (6 numbers) or the first of three
+  // axis rows (3 numbers each).
+  if (const auto six = bp::parse(line, bp::repeat(6)[bp::double_], bp::ws)) {
+    const auto &p = *six;
+    lat.axes = lattice_vectors(p[0], p[1], p[2], p[3], p[4], p[5]);
+  } else if (bp::parse(line, vec3_p, bp::ws)) {
+    lat.axes.col(0) = parse_vec3_line(line);
     for (int i = 1; i < 3; ++i) {
       if (!next_nonempty_line(in, line)) {
         throw std::runtime_error("rndstr: truncated axes");
       }
-      lat.axes.col(i) = parse_vec3(split_ws(line));
+      lat.axes.col(i) = parse_vec3_line(line);
     }
   } else {
     throw std::runtime_error("rndstr: first line must be 'a b c al be ga' or a "
@@ -101,52 +111,39 @@ AtatLattice parse_lattice(std::istream &in) {
     if (!next_nonempty_line(in, line)) {
       throw std::runtime_error("rndstr: truncated cell");
     }
-    lat.cell.col(i) = parse_vec3(split_ws(line));
+    lat.cell.col(i) = parse_vec3_line(line);
   }
 
   // --- sites ---
+  // A site line is "fx fy fz" followed by a species list. Species are
+  // separated by any of " \t,;/" (the skipper below) and each token is either
+  // "Sp" or "Sp=occ"; lexeme[] keeps each token contiguous (no skipping
+  // inside).
+  const auto sep = bp::char_(" \t\r\n,;/");
+  const auto name = +(bp::char_ - bp::char_(" \t\r\n,;/="));
+  const auto species_p = bp::lexeme[name >> -('=' >> bp::double_)];
+  // Spell out the three coordinates (rather than reusing vec3_p) so the
+  // sequence attribute is a flat (x, y, z, species-list) tuple.
+  const auto site_p = bp::double_ >> bp::double_ >> bp::double_ >> +species_p;
+
   std::set<std::string> labelset;
   while (next_nonempty_line(in, line)) {
-    std::istringstream ss(line);
-    double x, y, z;
-    if (!(ss >> x >> y >> z)) {
+    const auto parsed = bp::parse(line, site_p, sep);
+    if (!parsed) {
       throw std::runtime_error("rndstr: malformed site line: " + line);
     }
+    const auto &[x, y, z, occ_list] = *parsed;
     LatticeSite site;
     site.frac = vec3_t(x, y, z);
-    std::string rest;
-    std::getline(ss, rest);
-    // Species are separated by any of " \t,;/"; each token is Sp or Sp=occ.
-    std::string tok;
-    auto flush_tok = [&] {
-      if (tok.empty()) {
-        return;
-      }
-      const auto eq = tok.find('=');
-      std::string sp =
-          (eq == std::string::npos) ? tok : tok.substr(0, eq);
-      double occ = (eq == std::string::npos)
-                       ? -1.0
-                       : std::stod(tok.substr(eq + 1));
-      site.occ.emplace_back(std::move(sp), occ);
-      tok.clear();
-    };
-    for (const char ch : rest) {
-      if (ch == ' ' || ch == '\t' || ch == ',' || ch == ';' || ch == '/' ||
-          ch == '\r') {
-        flush_tok();
-      } else {
-        tok.push_back(ch);
-      }
+    for (const auto &[sp, occ] : occ_list) {
+      site.occ.emplace_back(sp, occ ? *occ : -1.0);
     }
-    flush_tok();
     if (site.occ.empty()) {
       throw std::runtime_error("rndstr: site with no species: " + line);
     }
     // Default to equiatomic occupation when not specified.
-    const bool has_occ =
-        std::any_of(site.occ.begin(), site.occ.end(),
-                    [](const auto &p) { return p.second >= 0.0; });
+    const bool has_occ = std::ranges::any_of(
+        site.occ, [](const auto &p) { return p.second >= 0.0; });
     if (!has_occ) {
       const double u = 1.0 / static_cast<double>(site.occ.size());
       for (auto &p : site.occ) {
@@ -171,25 +168,38 @@ AtatLattice parse_lattice(const std::filesystem::path &path) {
 }
 
 std::vector<SymOp> parse_sym(std::istream &in) {
-  int n = 0;
-  if (!(in >> n) || n < 0) {
+  const std::string text = slurp(in);
+  auto it = text.begin();
+  const auto end = text.end();
+
+  const auto n_opt = bp::prefix_parse(it, end, bp::uint_, bp::ws);
+  if (!n_opt) {
     throw std::runtime_error("sym.out: missing operation count");
   }
+  const auto n = *n_opt;
+
   std::vector<SymOp> ops;
-  ops.reserve(static_cast<std::size_t>(n));
-  for (int k = 0; k < n; ++k) {
+  ops.reserve(n);
+  for (unsigned k = 0; k < n; ++k) {
     SymOp op;
-    for (int i = 0; i < 3; ++i) {
-      for (int j = 0; j < 3; ++j) {
-        if (!(in >> op.rot(i, j))) {
-          throw std::runtime_error("sym.out: truncated point operation");
-        }
-      }
+    // 3x3 rotation, stored row-major in sym.out.
+    const auto rot =
+        bp::prefix_parse(it, end, bp::repeat(9)[bp::double_], bp::ws);
+    if (!rot) {
+      throw std::runtime_error("sym.out: truncated point operation");
     }
     for (int i = 0; i < 3; ++i) {
-      if (!(in >> op.trans(i))) {
-        throw std::runtime_error("sym.out: truncated translation");
+      for (int j = 0; j < 3; ++j) {
+        op.rot(i, j) = (*rot)[static_cast<std::size_t>(i * 3 + j)];
       }
+    }
+    const auto tr =
+        bp::prefix_parse(it, end, bp::repeat(3)[bp::double_], bp::ws);
+    if (!tr) {
+      throw std::runtime_error("sym.out: truncated translation");
+    }
+    for (int i = 0; i < 3; ++i) {
+      op.trans(i) = (*tr)[static_cast<std::size_t>(i)];
     }
     ops.push_back(op);
   }
@@ -207,22 +217,42 @@ std::vector<SymOp> parse_sym(const std::filesystem::path &path) {
 std::vector<RawOrbit> parse_clusters(std::istream &in) {
   // Block layout (whitespace/newline separated; blank lines are incidental):
   //   multiplicity  length  n_points  then n_points × (x y z site_type func)
+  const std::string text = slurp(in);
+  auto it = text.begin();
+  const auto end = text.end();
+
+  // Advance past whitespace; report whether the stream is exhausted.
+  const auto at_end = [&] {
+    it = std::ranges::find_if(
+        it, end, [](unsigned char c) { return std::isspace(c) == 0; });
+    return it == end;
+  };
+
+  // header: multiplicity length n_points ; point: x y z site_type func
+  const auto header_p = bp::double_ >> bp::double_ >> bp::uint_;
+  const auto point_p =
+      bp::double_ >> bp::double_ >> bp::double_ >> bp::int_ >> bp::int_;
+
   std::vector<RawOrbit> orbits;
-  double mult = 0.0;
-  while (in >> mult) {
-    RawOrbit o;
-    o.multiplicity = mult;
-    int npts = 0;
-    if (!(in >> o.length) || !(in >> npts) || npts < 0) {
+  while (!at_end()) {
+    const auto hdr = bp::prefix_parse(it, end, header_p, bp::ws);
+    if (!hdr) {
       throw std::runtime_error("clusters.out: malformed orbit header");
     }
-    for (int p = 0; p < npts; ++p) {
+    const auto &[mult, length, npts] = *hdr;
+    RawOrbit o;
+    o.multiplicity = mult;
+    o.length = length;
+    const auto pts =
+        bp::prefix_parse(it, end, bp::repeat(npts)[point_p], bp::ws);
+    if (!pts) {
+      throw std::runtime_error("clusters.out: malformed point");
+    }
+    for (const auto &[x, y, z, site_type, func] : *pts) {
       ClusterPoint cp;
-      double x, y, z;
-      if (!(in >> x >> y >> z >> cp.site_type >> cp.func)) {
-        throw std::runtime_error("clusters.out: malformed point");
-      }
       cp.coord = vec3_t(x, y, z);
+      cp.site_type = site_type;
+      cp.func = func;
       o.points.push_back(cp);
     }
     orbits.push_back(std::move(o));
@@ -243,20 +273,16 @@ std::vector<double> parse_correlations(std::istream &in) {
   if (!next_nonempty_line(in, line)) {
     throw std::runtime_error("corrdump: empty correlation output");
   }
-  std::vector<double> out;
-  std::istringstream ss(line);
-  double v;
-  while (ss >> v) {
-    out.push_back(v);
-  }
-  if (out.empty()) {
+  const auto out = bp::parse(line, +bp::double_, bp::ws);
+  if (!out || out->empty()) {
     throw std::runtime_error("corrdump: no correlations parsed");
   }
-  return out;
+  return *out;
 }
 
 void write_str_out(const std::filesystem::path &path, const mat3_t &axes,
-                   const mat3_t &supercell, const std::vector<vec3_t> &positions,
+                   const mat3_t &supercell,
+                   const std::vector<vec3_t> &positions,
                    const std::vector<std::string> &species) {
   if (positions.size() != species.size()) {
     throw std::runtime_error("write_str_out: positions/species size mismatch");

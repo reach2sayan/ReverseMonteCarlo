@@ -1,6 +1,8 @@
 #pragma once
 #include <Eigen/Core>
 #include <RMC/core/Types.hpp>
+#include <cmath>
+#include <cstdint>
 #include <ranges>
 #include <span>
 #include <unordered_map>
@@ -88,11 +90,17 @@ struct PairCache {
   mutable std::vector<std::vector<FwdPair>> fwd;
   mutable std::vector<std::vector<BackRef>> bwd;
   mutable Eigen::VectorXd atom_contrib;
+  // Membership flags for the multi-atom backward pass (1 = atom is in `moved`).
+  // A member, not thread_local: avoids the __tls_get_addr cost of a hot-loop
+  // TLS access, and is no less safe than the other mutable members update()
+  // writes (one update() call per instance at a time).
+  mutable std::vector<std::uint8_t> in_moved;
 
   constexpr void invalidate() noexcept { ready = false; }
 
   // PairFn : (i, j) → std::optional<double>  (threshold; nullopt = skip pair)
-  // DistFn : (i, j) → double
+  // DistFn : (i, j) → double  (SQUARED distance — compared against threshold²;
+  //          sqrt is taken only for the few pairs in violation)
   template <typename PairFn, typename DistFn>
   double build(std::size_t N, PairFn pair_threshold, DistFn dist) const {
     fwd.assign(N, {});
@@ -112,8 +120,9 @@ struct PairCache {
                       return std::get<2>(t).has_value();
                     });
     for (auto [i, j, thresh] : pairwise) {
-      const double d = dist(i, j);
-      const double c = (d < *thresh) ? (*thresh - d) : 0.0;
+      const double d2 = dist(i, j);
+      const double c =
+          (d2 < *thresh * *thresh) ? (*thresh - std::sqrt(d2)) : 0.0;
       const std::size_t pos = fwd[i].size();
       fwd[i].push_back({j, *thresh, c});
       bwd[j].push_back({i, pos});
@@ -126,12 +135,30 @@ struct PairCache {
   template <typename DistFn>
   double update(std::span<const std::size_t> moved,
                 DistFn dist) const noexcept {
+    // For multi-atom moves the backward pass must skip back-refs whose i is
+    // also in `moved` (their forward pass already handles that pair). Membership
+    // is an O(1) indexed flag lookup: a thread_local byte array sized to N, with
+    // only the K moved slots set and cleared per call — replacing the flat_set
+    // binary search (lower_bound) that ran per back-ref.
+    const bool multi = moved.size() > 1;
+    if (multi) {
+      if (in_moved.size() < fwd.size()) {
+        in_moved.assign(fwd.size(), 0);
+      }
+      for (std::size_t m : moved) {
+        in_moved[m] = 1;
+      }
+    }
     for (std::size_t k : moved) {
-      // 1. Recompute all forward pairs (k, j) with j > k.
+      // 1. Recompute all forward pairs (k, j) with j > k. `dist` returns the
+      //    SQUARED distance; the sqrt is taken only when the pair is actually
+      //    below threshold (a violation), which is the minority case.
       double c_k = 0.0;
       for (auto &p : fwd[k]) {
-        const double d = dist(k, p.j);
-        const double nc = (d < p.threshold) ? (p.threshold - d) : 0.0;
+        const double d2 = dist(k, p.j);
+        const double nc =
+            (d2 < p.threshold * p.threshold) ? (p.threshold - std::sqrt(d2))
+                                             : 0.0;
         p.contrib = nc;
         c_k += nc;
       }
@@ -139,24 +166,30 @@ struct PairCache {
 
       // 2. Update backward pairs (i, k) with i < k.
       //    Skip i if it is also in moved — its forward pass handles pair (i,k).
-      //    For the common single-atom case all i < k, so the filter is a no-op;
-      //    skip std::ranges::find entirely to avoid per-pair overhead.
+      //    The common single-atom case has no such i, so it takes the fast
+      //    path; the multi-atom case tests the in_moved flag (set above).
       auto update_bwd = [&](const BackRef &br) {
         auto &p = fwd[br.i][br.pos];
-        const double d = dist(br.i, k);
-        const double nc = (d < p.threshold) ? (p.threshold - d) : 0.0;
+        const double d2 = dist(br.i, k);
+        const double nc =
+            (d2 < p.threshold * p.threshold) ? (p.threshold - std::sqrt(d2))
+                                             : 0.0;
         atom_contrib(static_cast<Eigen::Index>(br.i)) += nc - p.contrib;
         p.contrib = nc;
       };
-      if (moved.size() == 1) {
+      if (!multi) {
         std::ranges::for_each(bwd[k], [&](const auto &br) { update_bwd(br); });
       } else {
-        auto existing_backward_pairs =
-            bwd[k] | std::views::filter([&](const auto &br) {
-              return std::ranges::find(moved, br.i) == moved.end();
-            });
-        std::ranges::for_each(existing_backward_pairs,
-                              [&](const auto &br) { update_bwd(br); });
+        for (const auto &br : bwd[k]) {
+          if (!in_moved[br.i]) {
+            update_bwd(br);
+          }
+        }
+      }
+    }
+    if (multi) {
+      for (std::size_t m : moved) {
+        in_moved[m] = 0;
       }
     }
     return atom_contrib.sum();

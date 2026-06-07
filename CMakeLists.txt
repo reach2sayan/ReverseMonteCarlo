@@ -113,7 +113,6 @@ find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
         program_options
         serialization
         container
-        context
 )
 
 add_library(eigen_backend INTERFACE)
@@ -175,7 +174,6 @@ target_link_libraries(RMC PUBLIC
         Boost::log_setup
         Boost::serialization
         Boost::container
-        Boost::context
         Threads::Threads
 )
 
@@ -235,6 +233,7 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_species_swap.cpp
             tests/test_sampler.cpp
             tests/test_atat_pipeline.cpp
+            tests/test_io_readers.cpp
             tests/test_callbacks.cpp
             tests/bench_scaling.cpp
             tests/bench_thf.cpp

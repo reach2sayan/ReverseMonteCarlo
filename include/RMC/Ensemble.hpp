@@ -63,8 +63,6 @@ inline std::size_t tbb_budget(std::size_t n_replicas,
 // (e.g. SQS), because Engine keeps its structure on the heap at a stable address
 // (see Engine), so the move does not relocate it.
 //
-// All engines are constructed in the calling thread so that
-// boost::context coroutine lifetimes stay on one thread.
 // tbb_threads_per_replica: TBB workers per replica engine (RMC_USE_TBB only).
 //   0 = auto (uses SLURM_CPUS_PER_TASK / PBS_NUM_PPN / hardware_concurrency,
 //             divided by n_replicas).  Set explicitly when running inside a
@@ -153,7 +151,9 @@ Engine run_ensemble_cooperative(
             }
           }
           best_i_atomic.store(best_i, std::memory_order_relaxed);
-          shared_best_structure = engines[best_i].structure();
+          // Only the mutable fields differ between replicas; the label vectors
+          // are identical, so skip deep-copying them every sync.
+          shared_best_structure.assign_mutable_state(engines[best_i].structure());
         } catch (...) {
           std::terminate();
         }
@@ -171,7 +171,7 @@ Engine run_ensemble_cooperative(
         return;
       }
       if (i != best_i_atomic.load(std::memory_order_relaxed)) {
-        engines[i].structure() = shared_best_structure;
+        engines[i].structure().assign_mutable_state(shared_best_structure);
       }
     }
   };

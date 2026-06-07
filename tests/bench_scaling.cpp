@@ -480,7 +480,7 @@ TEST_CASE("bench: accumulate_pair_histogram kernel scaling", "[!benchmark][tbb]"
   auto run = [&](int N) {
     const coords_t     coords = make_lattice(N);
     const std::vector<uint8_t> elem_id(static_cast<std::size_t>(N), 0);
-    const PairWeightTable      weights{};  // no per-pair weights
+    const PairWeightMatrix     weights{};  // no per-pair weights
     vec_t hist(N_BINS);
 
     return [=]() mutable {
@@ -527,7 +527,7 @@ TEST_CASE("bench: incremental vs full histogram (K=1)", "[!benchmark][tbb]") {
   auto setup = [&](int N) {
     coords_t coords = make_lattice(N);
     std::vector<uint8_t> elem_id(static_cast<std::size_t>(N), 0);
-    PairWeightTable weights{};
+    PairWeightMatrix weights{};
     return std::make_tuple(coords, elem_id, weights);
   };
 

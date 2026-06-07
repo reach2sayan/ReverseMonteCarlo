@@ -96,7 +96,7 @@ static std::vector<RMC::ClusterOrbit> load_clusters(const std::string &path) {
   std::optional<RMC::ClusterOrbit> cur;
 
   auto flush = [&] {
-    if (cur && !cur->instances.empty())
+    if (cur && cur->instance_count() != 0)
       orbits.push_back(std::move(*cur));
     cur.reset();
   };
@@ -119,14 +119,14 @@ static std::vector<RMC::ClusterOrbit> load_clusters(const std::string &path) {
     // Otherwise it's a cluster instance: space-separated site indices.
     if (!cur)
       continue;
-    RMC::ClusterInstance inst;
     ls.clear();
     ls.str(line);
+    std::vector<std::size_t> sites;
     std::size_t idx;
     while (ls >> idx)
-      inst.sites.push_back(idx);
-    if (!inst.sites.empty())
-      cur->instances.push_back(std::move(inst));
+      sites.push_back(idx);
+    if (!sites.empty())
+      cur->add_instance(sites);
   }
   flush();
   return orbits;

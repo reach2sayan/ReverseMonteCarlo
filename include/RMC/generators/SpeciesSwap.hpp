@@ -62,7 +62,12 @@ public:
     candidates.reserve(sl_sites.size());
     std::ranges::copy_if(
         sl_sites, std::back_inserter(candidates), [&, i](std::size_t j) {
-          return j != i && structure->elements[j] != structure->elements[i];
+          // Compare occupation via atomic_numbers (ints, mirrors elements and
+          // swapped together below) instead of the std::string element symbols
+          // — avoids a per-candidate per-step string memcmp in the hot loop.
+          return j != i &&
+                 structure->atomic_numbers[static_cast<Eigen::Index>(j)] !=
+                     structure->atomic_numbers[static_cast<Eigen::Index>(i)];
         });
     if (candidates.empty()) {
       return;

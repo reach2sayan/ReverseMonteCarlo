@@ -1,11 +1,13 @@
 #include <RMC/io/PdbReader.hpp>
-#include <algorithm>
+#include <cctype>
 #include <boost/leaf/result.hpp>
 #include <charconv>
 #include <format>
 #include <fstream>
-#include <sstream>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <unordered_map>
 
 namespace RMC::io {
@@ -45,9 +47,32 @@ std::string trim(std::string_view sv) {
   return std::string(sv.substr(b, e - b + 1));
 }
 
+// PDB numeric fields are blank-padded and right-justified; std::from_chars
+// won't skip leading whitespace, so advance past it first. Throws on a missing
+// or malformed number, which read_pdb maps to a leaf error.
+std::string_view lstrip(std::string_view sv) {
+  const auto b = sv.find_first_not_of(' ');
+  return (b == std::string_view::npos) ? std::string_view{} : sv.substr(b);
+}
+
 double parse_real(std::string_view sv) {
-  std::string s(trim(sv));
-  return std::stod(s);
+  const auto s = lstrip(sv);
+  double v = 0.0;
+  const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+  if (ec != std::errc{} || ptr == s.data()) {
+    throw std::runtime_error("invalid real in PDB numeric field");
+  }
+  return v;
+}
+
+int parse_int(std::string_view sv) {
+  const auto s = lstrip(sv);
+  int v = 0;
+  const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+  if (ec != std::errc{} || ptr == s.data()) {
+    throw std::runtime_error("invalid integer in PDB numeric field");
+  }
+  return v;
 }
 
 } // namespace
@@ -60,6 +85,7 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
   }
   AtomicStructure s;
   std::vector<std::array<double, 3>> xyz;
+  std::vector<int> atom_numbers; // accumulated, assigned to s.atomic_numbers once
 
   std::string line;
   std::size_t mol_id = 0;
@@ -76,19 +102,20 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
       continue;
     }
 
+    const std::string_view sv(line);
     try {
-      double x = parse_real(line.substr(X_START, COORD_LEN));
-      double y = parse_real(line.substr(Y_START, COORD_LEN));
-      double z = parse_real(line.substr(Z_START, COORD_LEN));
+      double x = parse_real(sv.substr(X_START, COORD_LEN));
+      double y = parse_real(sv.substr(Y_START, COORD_LEN));
+      double z = parse_real(sv.substr(Z_START, COORD_LEN));
       xyz.push_back({x, y, z});
 
-      std::string atom_name = trim(line.substr(NAME_START, NAME_LEN));
-      std::string resname = trim(line.substr(RESNAME_START, RESNAME_LEN));
+      std::string atom_name = trim(sv.substr(NAME_START, NAME_LEN));
+      std::string resname = trim(sv.substr(RESNAME_START, RESNAME_LEN));
 
       // Derive element: prefer column 77-78, fall back to first char of name.
       std::string element;
       if (line.size() >= static_cast<std::size_t>(ELEMENT_START + ELEMENT_LEN))
-        element = trim(line.substr(ELEMENT_START, ELEMENT_LEN));
+        element = trim(sv.substr(ELEMENT_START, ELEMENT_LEN));
       if (element.empty() && !atom_name.empty()) {
         // Strip leading digits (e.g. "1HB" → "H").
         for (char c : atom_name)
@@ -108,7 +135,8 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
       std::string chain(1, line[CHAINID]);
       std::size_t resseq = 0;
       if (line.size() >= static_cast<std::size_t>(RESSEQ_START + RESSEQ_LEN))
-        resseq = std::stoi(line.substr(RESSEQ_START, RESSEQ_LEN));
+        resseq = static_cast<std::size_t>(
+            parse_int(sv.substr(RESSEQ_START, RESSEQ_LEN)));
 
       if (chain != prev_chain || resseq != prev_resseq) {
         ++mol_id;
@@ -122,9 +150,9 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
       s.molecule_ids.push_back(mol_id);
 
       auto it = ATOMIC_NUMBERS.find(element);
-      s.atomic_numbers.conservativeResize(s.atomic_numbers.size() + 1);
-      s.atomic_numbers(s.atomic_numbers.size() - 1) =
-          (it != ATOMIC_NUMBERS.end()) ? it->second : 0;
+      // Accumulate in a std::vector (amortised O(1) push_back); assign to the
+      // Eigen vector once below. conservativeResize per atom was O(N²).
+      atom_numbers.push_back((it != ATOMIC_NUMBERS.end()) ? it->second : 0);
 
     } catch (const std::exception &e) {
       return boost::leaf::new_error(std::string{"PDB parse error: "} +
@@ -139,6 +167,9 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
     s.coordinates(static_cast<Eigen::Index>(i), 1) = xyz[i][1];
     s.coordinates(static_cast<Eigen::Index>(i), 2) = xyz[i][2];
   }
+  s.atomic_numbers =
+      Eigen::Map<const ivec_t>(atom_numbers.data(),
+                               static_cast<Eigen::Index>(atom_numbers.size()));
 
   return s;
 }

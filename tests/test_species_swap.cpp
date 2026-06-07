@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace RMC;
@@ -41,17 +42,27 @@ TEST_CASE("AtomicStructure - species snapshot roundtrip", "[species_swap]") {
   auto s = make_4site_single_sublattice();
   std::vector<std::string> orig_elems = s.elements;
 
+  std::vector<int> orig_codes(
+      s.atomic_numbers.data(),
+      s.atomic_numbers.data() + s.atomic_numbers.size());
+
   s.save_species_snapshot();
 
-  // Mutate elements.
-  s.elements[0] = "Au";
-  s.elements[2] = "Cu";
+  // A species move swaps BOTH elements and atomic_numbers together (see
+  // SpeciesSwapGenerator). atomic_numbers is the authoritative occupation field
+  // that the snapshot keys off, so mutate them in lock-step.
+  using std::swap;
+  swap(s.elements[0], s.elements[2]);
+  swap(s.atomic_numbers[0], s.atomic_numbers[2]);
   REQUIRE(s.elements[0] == "Au");
   REQUIRE(s.elements[2] == "Cu");
 
   s.restore_species_snapshot();
 
   REQUIRE(s.elements == orig_elems);
+  REQUIRE(std::vector<int>(s.atomic_numbers.data(),
+                           s.atomic_numbers.data() + s.atomic_numbers.size()) ==
+          orig_codes);
 }
 
 TEST_CASE("AtomicStructure - restore_species_snapshot is no-op without save",
@@ -189,11 +200,11 @@ static std::vector<ClusterOrbit> two_pair_orbits() {
   ClusterOrbit nn, nnn;
   nn.target = 0.0;
   nn.weight = 1.0;
-  nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
+  nn.set_instances({{0, 1}, {1, 2}, {2, 3}, {3, 0}});
 
   nnn.target = 0.0;
   nnn.weight = 1.0;
-  nnn.instances = {{{0, 2}}, {{1, 3}}};
+  nnn.set_instances({{0, 2}, {1, 3}});
 
   return {nn, nnn};
 }
@@ -305,7 +316,7 @@ TEST_CASE("ClusterCorrelationConstraint - should_reject worsening move",
   ClusterOrbit nn;
   nn.target = 0.0;
   nn.weight = 1.0;
-  nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
+  nn.set_instances({{0, 1}, {1, 2}, {2, 3}, {3, 0}});
 
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
   Constraint cc{ClusterCorrelationConstraint{s, sm, {nn}}};
@@ -343,7 +354,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator restores elements on rejection",
   ClusterOrbit perfect_nn;
   perfect_nn.target = -1.0;
   perfect_nn.weight = 1.0;
-  perfect_nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
+  perfect_nn.set_instances({{0, 1}, {1, 2}, {2, 3}, {3, 0}});
 
   s.elements = {"Cu", "Au", "Cu", "Au"};
   s.atomic_numbers[0] = s.atomic_numbers[2] = 29;
@@ -386,7 +397,7 @@ TEST_CASE("Engine - SpeciesSwapGenerator accepts improving moves",
   ClusterOrbit nn;
   nn.target = -1.0;
   nn.weight = 1.0;
-  nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
+  nn.set_instances({{0, 1}, {1, 2}, {2, 3}, {3, 0}});
 
   Engine eng{s, InfiniteBC{}};
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};

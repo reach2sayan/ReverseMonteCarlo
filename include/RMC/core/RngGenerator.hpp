@@ -1,86 +1,46 @@
 #pragma once
 #include <array>
-// Wrap the include
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#include <boost/coroutine2/all.hpp>
-#pragma GCC diagnostic pop
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 #include <cstddef>
 #include <cstdint>
-#include <span>
 
 namespace RMC {
 
 template <typename Dist, std::size_t N = 1024> class RngBatchBuffer {
   using T = typename Dist::result_type;
-  using coro_t = boost::coroutines2::coroutine<std::span<const T>>;
 
-  std::uint32_t seed_;
-  typename coro_t::pull_type gen_;
-  std::span<const T> batch_;
-  std::size_t pos_{0};
-
-  static auto make_gen(std::uint32_t s) {
-    return typename coro_t::pull_type{[s](typename coro_t::push_type &sink) {
-      boost::random::mt19937 eng{s};
-      Dist dist{};
-      std::array<T, N> buf;
-      while (true) {
-        for (auto &v : buf) {
-          v = dist(eng);
-        }
-        sink(std::span<const T>{buf});
-      }
-    }};
-  }
+  boost::random::mt19937 eng_;
+  Dist dist_{};
+  std::array<T, N> buf_;
+  std::size_t pos_{N}; // start "empty" -> refill on first next()
 
 public:
-  explicit RngBatchBuffer(std::uint32_t seed)
-      : seed_(seed), gen_(make_gen(seed)), batch_(gen_.get()) {}
-
-  RngBatchBuffer(const RngBatchBuffer &o) : RngBatchBuffer(o.seed_) {}
-  RngBatchBuffer &operator=(const RngBatchBuffer &o) {
-    return *this = RngBatchBuffer(o.seed_);
-  }
-  RngBatchBuffer(RngBatchBuffer &&) = default;
-  RngBatchBuffer &operator=(RngBatchBuffer &&) = default;
-
+  explicit RngBatchBuffer(std::uint32_t seed) : eng_(seed) {}
   T next() {
     if (pos_ == N) {
-      gen_();
-      batch_ = gen_.get();
+      for (auto &v : buf_) {
+        v = dist_(eng_);
+      }
       pos_ = 0;
     }
-    return batch_[pos_++];
+    return buf_[pos_++];
   }
 };
 
 template <std::size_t N = 1024> class RngBuffer {
 public:
   explicit RngBuffer(std::uint32_t seed = 42)
-      : seed_(seed), uniform_buf_(seed), normal_buf_(seed + 1),
-        engine_(seed + 2) {}
-
-  RngBuffer(const RngBuffer &o) : RngBuffer(o.seed_) {}
-  RngBuffer &operator=(const RngBuffer &o) {
-    return *this = RngBuffer(o.seed_);
-  }
-  RngBuffer(RngBuffer &&) = default;
-  RngBuffer &operator=(RngBuffer &&) = default;
-
+      : uniform_buf_(seed), normal_buf_(seed + 1), engine_(seed + 2) {}
   double uniform() { return uniform_buf_.next(); }
   double uniform(double lo, double hi) {
     return lo + (hi - lo) * uniform_buf_.next();
   }
   double normal() { return normal_buf_.next(); }
-
   boost::random::mt19937 &engine() noexcept { return engine_; }
 
 private:
-  std::uint32_t seed_;
   RngBatchBuffer<boost::random::uniform_real_distribution<double>, N>
       uniform_buf_;
   RngBatchBuffer<boost::random::normal_distribution<double>, N> normal_buf_;

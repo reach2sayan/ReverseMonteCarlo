@@ -3,7 +3,9 @@
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/IncrementalCache.hpp>
 #include <boost/container/flat_map.hpp>
+#include <optional>
 #include <string>
+#include <variant>
 
 namespace RMC {
 
@@ -55,25 +57,46 @@ public:
     }
   }
 
-  [[nodiscard]] constexpr double compute_error(const coords_t &coords,
+  [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
     const std::size_t N = static_cast<std::size_t>(coords.rows());
-    return cache_.compute(
-        N,
-        [&](std::size_t i, std::size_t j) -> std::optional<double> {
-          if (!in_scope(i, j)) {
-            return std::nullopt;
-          }
-          auto it = d_min_.find(make_key(i, j));
-          if (it == d_min_.end()) {
-            return std::nullopt;
-          }
-          return it->second;
+    auto threshold = [&](std::size_t i, std::size_t j) -> std::optional<double> {
+      if (!in_scope(i, j)) {
+        return std::nullopt;
+      }
+      auto it = d_min_.find(make_key(i, j));
+      if (it == d_min_.end()) {
+        return std::nullopt;
+      }
+      return it->second;
+    };
+    // Resolve the boundary condition ONCE here instead of dispatching
+    // bc_min_image() through std::visit on every pair. Each branch builds a
+    // concrete squared-distance functor the compiler fully inlines — for
+    // InfiniteBC the identity min-image vanishes, leaving a bare squaredNorm.
+    // (Squared distance: PairCache compares against threshold² and only takes
+    // the sqrt for the few pairs actually in violation.)
+    if (this->bc_ == nullptr) {
+      return cache_.compute(
+          N, threshold,
+          [&](std::size_t i, std::size_t j) {
+            const vec3_t d =
+                coords.row(j).transpose() - coords.row(i).transpose();
+            return d.squaredNorm();
+          },
+          moved);
+    }
+    return std::visit(
+        [&](const auto &b) {
+          return cache_.compute(
+              N, threshold,
+              [&](std::size_t i, std::size_t j) {
+                vec3_t d = coords.row(j).transpose() - coords.row(i).transpose();
+                return b.min_image(d).squaredNorm();
+              },
+              moved);
         },
-        [&](std::size_t i, std::size_t j) {
-          return this->distance(coords, i, j);
-        },
-        moved);
+        *this->bc_);
   }
 
 private:

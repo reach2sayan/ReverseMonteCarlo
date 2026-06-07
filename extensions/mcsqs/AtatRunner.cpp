@@ -66,11 +66,9 @@ void run_corrdump(const fs::path &exe, const std::vector<std::string> &args,
 
 } // namespace
 
-CorrdumpClusters
-corrdump_generate_clusters(const fs::path &corrdump_exe,
-                           const fs::path &rndstr_in,
-                           const std::map<int, double> &diameters,
-                           const fs::path &workdir) {
+CorrdumpClusters corrdump_generate_clusters(
+    const fs::path &corrdump_exe, const fs::path &rndstr_in,
+    const std::map<int, double> &diameters, const fs::path &workdir) {
   fs::create_directories(workdir);
   fs::copy_file(rndstr_in, workdir / "rndstr.in",
                 fs::copy_options::overwrite_existing);

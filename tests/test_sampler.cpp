@@ -128,7 +128,7 @@ static void setup_uphill_engine(Engine &eng) {
   ClusterOrbit perfect_nn;
   perfect_nn.target = -1.0; // start already perfect (NN correlation = -1)
   perfect_nn.weight = 1.0;
-  perfect_nn.instances = {{{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}}};
+  perfect_nn.set_instances({{0, 1}, {1, 2}, {2, 3}, {3, 0}});
 
   ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
   eng.add_constraint(Constraint{

@@ -17,7 +17,9 @@ namespace {
 constexpr double kTol = 1e-3; // ATAT zero_tolerance for site/symmetry matching
 
 // Distance of x to the nearest integer (ATAT cylinder_norm, xtalutil.h:41).
-double cyl(double x) { return std::fabs(std::fmod(std::fabs(x) + 0.5, 1.0) - 0.5); }
+double cyl(double x) {
+  return std::fabs(std::fmod(std::fabs(x) + 0.5, 1.0) - 0.5);
+}
 
 bool in01(const vec3_t &v) {
   for (int i = 0; i < 3; ++i) {
@@ -205,7 +207,8 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
                         const std::vector<RawOrbit> &raw,
                         const Eigen::Matrix3i &sc_matrix, std::uint32_t seed) {
   // Single-sublattice guard: every active (multi-species) site must share one
-  // species set, so the global alphabetical occupation index == within-site one.
+  // species set, so the global alphabetical occupation index == within-site
+  // one.
   std::optional<std::vector<std::string>> active_set;
   for (const auto &s : lat.sites) {
     if (s.occ.size() <= 1) {
@@ -241,9 +244,11 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
   CorrFuncTable table = CorrFuncTable::trigonometric(maxc);
 
   const std::vector<vec3_t> pts = enumerate_lattice_points(cell, supercell);
-  const long det = std::lround(std::abs(sc_matrix.cast<double>().determinant()));
+  const long det =
+      std::lround(std::abs(sc_matrix.cast<double>().determinant()));
   if (static_cast<long>(pts.size()) != det) {
-    throw std::runtime_error("enumerate: lattice-point count != det(supercell)");
+    throw std::runtime_error(
+        "enumerate: lattice-point count != det(supercell)");
   }
 
   // Supercell sites: (for each lattice point) × (each primitive site).
@@ -254,7 +259,8 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
   super_prim.reserve(pts.size() * n_prim);
   for (const auto &t : pts) {
     for (std::size_t s = 0; s < n_prim; ++s) {
-      super_pos.push_back(wrap_inside(t + lat.sites[s].frac, supercell, inv_super));
+      super_pos.push_back(
+          wrap_inside(t + lat.sites[s].frac, supercell, inv_super));
       super_prim.push_back(static_cast<int>(s));
     }
   }
@@ -266,11 +272,11 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
   std::mt19937 rng(seed);
   for (std::size_t s = 0; s < n_prim; ++s) {
     std::vector<std::size_t> idx;
-    for (std::size_t a = 0; a < n_atoms; ++a) {
-      if (super_prim[a] == static_cast<int>(s)) {
-        idx.push_back(a);
-      }
-    }
+    idx.reserve(n_atoms);
+    std::ranges::copy_if(
+        std::views::iota(std::size_t{0}, n_atoms), std::back_inserter(idx),
+        [&](std::size_t a) { return super_prim[a] == static_cast<int>(s); });
+
     const auto &occ = lat.sites[s].occ;
     const std::size_t n = idx.size();
     std::vector<std::size_t> counts(occ.size(), 0);
@@ -303,7 +309,8 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
   }
 
   // Assemble the AtomicStructure (coords are cosmetic — the constraint ignores
-  // them; residue = sublattice id so SpeciesSwap respects sublattice boundaries).
+  // them; residue = sublattice id so SpeciesSwap respects sublattice
+  // boundaries).
   EnumeratedSqs out;
   out.occ_index = occ_index;
   out.table = table;
@@ -345,11 +352,12 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
     orbit.weight = 1.0;
     orbit.funcs = rep.func;
     orbit.site_types = rep.site_type;
+    orbit.body = rep.clus.size();
     orbit.target = compute_target(rep, lat, table, occ_index, inv_cell);
+    orbit.flat_sites.reserve(images.size() * pts.size() * orbit.body);
     for (const auto &img : images) {
       for (const auto &t : pts) {
-        ClusterInstance inst;
-        inst.sites.reserve(img.clus.size());
+        const std::size_t mark = orbit.flat_sites.size();
         bool ok = true;
         for (const auto &cp : img.clus) {
           const int site = which_atom(t + cp, super_pos, inv_super);
@@ -357,10 +365,10 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
             ok = false;
             break;
           }
-          inst.sites.push_back(static_cast<std::size_t>(site));
+          orbit.flat_sites.push_back(static_cast<std::size_t>(site));
         }
-        if (ok) {
-          orbit.instances.push_back(std::move(inst));
+        if (!ok) {
+          orbit.flat_sites.resize(mark); // discard the partial instance
         }
       }
     }
