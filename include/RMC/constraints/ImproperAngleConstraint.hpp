@@ -60,4 +60,7 @@ private:
   mutable ItemCache<Quad> cache_;
 };
 
+static_assert(CConstraint<ImproperAngleConstraint>,
+              "ImproperAngleConstraint must satisfy the CConstraint concept");
+
 } // namespace RMC

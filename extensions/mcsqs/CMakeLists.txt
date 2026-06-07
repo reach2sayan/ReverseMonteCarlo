@@ -41,7 +41,8 @@ if (NOT TARGET RMC)
 
     find_package(Eigen3 3.4 REQUIRED NO_MODULE)
     find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
-            log log_setup serialization container context program_options)
+            log log_setup serialization container context program_options
+            process filesystem)
     find_package(Threads REQUIRED)
 
     add_library(_rmc_imported SHARED IMPORTED)
@@ -58,12 +59,27 @@ Threads::Threads")
 else ()
     # In-tree: use the already-defined RMC target directly.
     set(_rmc_target RMC)
-    find_package(Boost REQUIRED CONFIG COMPONENTS program_options)
+    find_package(Boost REQUIRED CONFIG COMPONENTS
+            program_options process filesystem)
 endif ()
 
-add_executable(mcsqs_rmc mcsqs_rmc.cpp)
-target_link_libraries(mcsqs_rmc PRIVATE ${_rmc_target} Boost::program_options)
+add_executable(mcsqs_rmc
+        mcsqs_rmc.cpp
+        AtatFormats.cpp
+        ClusterEnumerator.cpp
+        AtatRunner.cpp)
+target_link_libraries(mcsqs_rmc PRIVATE ${_rmc_target}
+        Boost::program_options Boost::process Boost::filesystem)
 target_compile_features(mcsqs_rmc PRIVATE cxx_std_23)
+
+# Wire in the vendored corrdump built by cmake/Atat.cmake (ExternalProject).
+if (TARGET atat_ext)
+    add_dependencies(mcsqs_rmc atat_ext)
+endif ()
+if (ATAT_CORRDUMP_PATH)
+    target_compile_definitions(mcsqs_rmc PRIVATE
+            RMC_CORRDUMP_PATH="${ATAT_CORRDUMP_PATH}")
+endif ()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(mcsqs_rmc PRIVATE

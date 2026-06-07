@@ -1,6 +1,10 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
+#include <RMC/core/Parallel.hpp>
+#include <algorithm>
 #include <cmath>
+#include <numeric>
+#include <ranges>
 #include <unordered_map>
 #include <vector>
 
@@ -108,16 +112,16 @@ private:
     std::unordered_map<std::string, uint8_t> name_to_id;
     uint8_t next_id = 0;
     elem_id_.resize(elements_.size());
-    for (std::size_t i = 0; i < elements_.size(); ++i) {
-      auto [it, ins] = name_to_id.try_emplace(elements_[i], next_id);
+    for (const auto [i, elem] : std::views::enumerate(elements_)) {
+      auto [it, ins] = name_to_id.try_emplace(elem, next_id);
       if (ins) {
         ++next_id;
       }
       elem_id_[i] = it->second;
     }
     shell_nb_id_.resize(shells_.size());
-    for (std::size_t si = 0; si < shells_.size(); ++si) {
-      auto it = name_to_id.find(shells_[si].neighbour_elem);
+    for (const auto [si, sh] : std::views::enumerate(shells_)) {
+      auto it = name_to_id.find(sh.neighbour_elem);
       shell_nb_id_[si] = (it != name_to_id.end())
                              ? it->second
                              : std::numeric_limits<uint8_t>::max();
@@ -132,12 +136,13 @@ private:
     const std::size_t N = static_cast<std::size_t>(coords.rows());
     cn_.resize(shells_.size());
     const auto ns = static_cast<std::ptrdiff_t>(shells_.size());
-#ifdef _OPENMP
-#pragma omp parallel for schedule(static)
-#endif
-    for (std::ptrdiff_t si = 0; si < ns; ++si)
-      cn_[static_cast<std::size_t>(si)] =
-          count_shell(coords, static_cast<std::size_t>(si), N);
+    std::vector<std::ptrdiff_t> shell_idx(static_cast<std::size_t>(ns));
+    std::iota(shell_idx.begin(), shell_idx.end(), std::ptrdiff_t{0});
+    parallel::for_each(shell_idx.begin(), shell_idx.end(),
+                       [&](std::ptrdiff_t si) {
+                         cn_[static_cast<std::size_t>(si)] =
+                             count_shell(coords, static_cast<std::size_t>(si), N);
+                       });
     cn_ready_ = true;
   }
 
@@ -178,19 +183,14 @@ private:
   void incremental_update(const coords_t &coords,
                           std::span<const std::size_t> moved) const noexcept {
     const std::size_t N = static_cast<std::size_t>(coords.rows());
-    const std::size_t ns = shells_.size();
 
-    for (std::size_t ki = 0; ki < moved.size(); ++ki) {
-      const std::size_t k = moved[ki];
-      const vec3_t &old_k = saved_positions_[ki];
+    for (const auto [k, old_k] : std::views::zip(moved, saved_positions_)) {
       const vec3_t new_k = coords.row(static_cast<Eigen::Index>(k)).transpose();
       const uint8_t k_id = elem_id_.empty() ? 0 : elem_id_[k];
 
-      for (std::size_t si = 0; si < ns; ++si) {
-        const auto &sh = shells_[si];
-
+      for (const auto [si, sh] : std::views::enumerate(shells_)) {
         if (sh.centre_idx == k) {
-          cn_[si] = count_shell(coords, si, N);
+          cn_[si] = count_shell(coords, static_cast<std::size_t>(si), N);
           continue;
         }
 
@@ -222,17 +222,21 @@ private:
   }
 
   double error_from_cn() const noexcept {
-    double err = 0.0;
-    for (std::size_t si = 0; si < shells_.size(); ++si) {
-      const auto &sh = shells_[si];
-      if (cn_[si] < sh.min_cn) {
-        err += static_cast<double>(sh.min_cn - cn_[si]);
-      } else if (cn_[si] > sh.max_cn) {
-        err += static_cast<double>(cn_[si] - sh.max_cn);
-      }
-    }
-    return err;
+    return std::ranges::fold_left(
+        std::views::zip(cn_, shells_), 0.0, [](double err, const auto &t) {
+          const auto &[cn, sh] = t;
+          if (cn < sh.min_cn) {
+            return err + static_cast<double>(sh.min_cn - cn);
+          }
+          if (cn > sh.max_cn) {
+            return err + static_cast<double>(cn - sh.max_cn);
+          }
+          return err;
+        });
   }
 };
+
+static_assert(CConstraint<CoordinationConstraint>,
+              "CoordinationConstraint must satisfy the CConstraint concept");
 
 } // namespace RMC

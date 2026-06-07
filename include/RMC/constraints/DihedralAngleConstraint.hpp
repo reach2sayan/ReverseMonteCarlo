@@ -59,4 +59,7 @@ private:
   mutable ItemCache<Quad> cache_;
 };
 
+static_assert(CConstraint<DihedralAngleConstraint>,
+              "DihedralAngleConstraint must satisfy the CConstraint concept");
+
 } // namespace RMC

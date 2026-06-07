@@ -2,11 +2,18 @@
 
 C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(r), S(Q)), the engine iteratively perturbs atomic positions via Metropolis acceptance until computed data matches experiment.
 
-**Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 13, Clang ≥ 17) · Eigen ≥ 3.4 · Boost ≥ 1.83 · Catch2 ≥ 3 (tests only)
+**Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 13, Clang ≥ 17) · Eigen ≥ 3.4 · Boost ≥ 1.83 · Intel oneAPI TBB ≥ 2021 (on by default) · Catch2 ≥ 3 (tests only)
 
-**Optional:** Intel oneAPI TBB ≥ 2021 (`RMC_USE_TBB=ON`) · Intel MKL (`ENABLE_MKL=ON`) · OpenMP (`RMC_USE_OPENMP=ON`, mutually exclusive with TBB)
+**Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · vendored ATAT `corrdump` for the SQS extension (`RMC_BUILD_ATAT=ON`, default; pulled in as a git submodule)
 
 ## Build
+
+The ATAT submodule backs the SQS extension — clone recursively (or fetch it after the fact):
+
+```bash
+git clone --recursive <repo-url>
+# already cloned? →  git submodule update --init --recursive
+```
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -17,21 +24,33 @@ ctest --test-dir build --output-on-failure
 If Boost is not on the default path: `-DBOOST_ROOT=/opt/boost`  
 To enable AddressSanitizer + UBSan: `-DENABLE_SANITIZERS=ON`
 
+A minimal build (library + CLI only, no extension, examples or ATAT):
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+    -DRMC_BUILD_MCSQS=OFF -DRMC_BUILD_EXAMPLES=OFF
+```
+
 ### CMake options
 
 | Option | Default | Description |
 |---|---|---|
-| `RMC_USE_TBB` | `OFF` | Parallelise the O(N²) pair-histogram build with Intel TBB (`std::execution::par_unseq`). Requires oneAPI TBB ≥ 2021. **Mutually exclusive with `RMC_USE_OPENMP`.** |
-| `RMC_USE_OPENMP` | `OFF` | Parallelise the pair-histogram build with OpenMP. **Mutually exclusive with `RMC_USE_TBB`.** |
+| `RMC_USE_TBB` | `ON` | Parallelise the O(N²) pair-histogram build with Intel TBB (`std::execution::par_unseq`) inside a shared task arena. Requires oneAPI TBB ≥ 2021. Set `OFF` to run the kernels serially. |
 | `ENABLE_MKL` | `ON` | Use Intel MKL as the Eigen BLAS/LAPACK backend. Falls back silently if MKL is not found. |
-| `ENABLE_NATIVE_ARCH` | `ON` | Compile with `-march=native` (AVX2 etc.). Set `OFF` for portable binaries. |
+| `ENABLE_NATIVE_ARCH` | `ON` | Compile with `-march=native` (AVX2 etc.). Set `OFF` for a portable `-march=x86-64-v3` build. |
+| `ENABLE_LTO` | `ON` | Link-time optimisation (IPO), when the toolchain supports it. |
+| `ENABLE_CCACHE` | `ON` | Use `ccache` as the compiler launcher when available. |
+| `ENABLE_PGO_GENERATE` / `ENABLE_PGO_USE` | `OFF` | Profile-guided optimisation generate/use passes (mutually exclusive). |
 | `RMC_BUILD_TESTS` | `ON` | Build the Catch2 test suite (`RMC_tests`). |
+| `RMC_BUILD_EXAMPLES` | `ON` | Build the fullrmc-equivalent C++ examples under `examples/`. |
+| `RMC_BUILD_MCSQS` | `ON` | Build the `mcsqs_rmc` SQS-search extension. |
+| `RMC_BUILD_ATAT` | `ON` | Vendor and build ATAT's `corrdump` (driven at runtime via `boost::process`, never linked). Requires the `extern/atat` submodule. |
 | `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer + UBSan on all targets. |
 
-Example — TBB-enabled release build:
+Example — release build with the kernels run serially:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DRMC_USE_TBB=ON
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DRMC_USE_TBB=OFF
 cmake --build build -j$(nproc)
 ```
 
@@ -147,6 +166,7 @@ engine.build_atomic_groups(/*min*/ 0.0, /*max*/ 0.2, /*seed*/ 42);
 | `LangevinRotationGenerator` | `generators/LangevinRotationGenerator.hpp` |
 | `CombinedGenerator` | `generators/Combined.hpp` |
 | `RemoveGenerator` | `generators/Removes.hpp` |
+| `SpeciesSwapGenerator` | `generators/SpeciesSwap.hpp` |
 
 ### Constraints
 
@@ -197,6 +217,7 @@ engine.add_constraint(std::move(pdf));
 | `PairCorrelationConstraint` | `constraints/PairCorrelationConstraint.hpp` |
 | `StructureFactorConstraint` | `constraints/StructureFactorConstraint.hpp` |
 | `ReducedStructureFactorConstraint` | `constraints/ReducedStructureFactorConstraint.hpp` |
+| `ClusterCorrelationConstraint` | `constraints/ClusterCorrelationConstraint.hpp` |
 
 `PairDistributionConstraint` and `PairCorrelationConstraint` accept an optional shape function for nanoparticle PDF corrections:
 
@@ -222,7 +243,7 @@ engine.set_selector(RMC::SmartRandomSelector(/*bias_factor*/ 1.1, /*seed*/ 42));
 engine.set_selector(RMC::WeightedRandomSelector(weights, /*seed*/ 42));
 ```
 
-Available: `RandomSelector` · `OrderedSelector` · `WeightedRandomSelector` · `SmartRandomSelector` · `RecursiveGroupSelector`
+Available: `RandomSelector` · `OrderedSelector` · `WeightedRandomSelector` · `SmartRandomSelector` · `RecursiveGroupSelector` · `DirectionalOrderSelector`
 
 ### Running
 
@@ -233,14 +254,59 @@ engine.run(100'000);
 // Stop when total error drops below a threshold
 engine.run_until(/*target_chi2*/ 0.01, /*max_steps*/ 1'000'000);
 
-// Progress callback (fires every log_every steps)
+// Progress callback (fires every log_every steps). The final argument is the
+// current (live) structure.
 engine.set_step_callback(
-    [](uint64_t total, uint64_t accepted, uint64_t tried, double err) {
+    [](uint64_t total, uint64_t accepted, uint64_t tried, double err,
+       const RMC::AtomicStructure &cur) {
         std::cout << total << " steps  accepted=" << accepted << "  err=" << err << "\n";
     }, /*log_every*/ 1000);
 
 // Periodic checkpointing
 engine.set_checkpoint("run.ckpt", /*every_n_accepted*/ 5000);
+```
+
+### Acceptance policy (samplers)
+
+Each trial move is accepted in three tiers: gradient-based generators (HMC /
+leapfrog) own their own accept/reject; otherwise any worsened *rigid* constraint
+is a hard rejection; otherwise a pluggable **sampler** decides from the change in
+the soft total error. The default is `GreedySampler` — strict downhill, RMC's
+historical behaviour.
+
+```cpp
+#include <RMC/sampling/MetropolisSampler.hpp>
+#include <RMC/sampling/AnnealingSampler.hpp>
+
+// Fixed-temperature Metropolis: accept ΔE ≤ 0, else with prob exp(-ΔE/T).
+engine.set_sampler(RMC::MetropolisSampler{/*T*/ 2.0}, /*seed*/ 42);
+
+// Simulated annealing: geometric cooling T(step) = max(t_min, t0·cooling^(step/interval)).
+engine.set_sampler(
+    RMC::AnnealingSampler{{.t0 = 1.0, .cooling = 0.9, .interval = 10'000}},
+    /*seed*/ 42);
+
+// Greedy quench with a tolerance (accept if it doesn't raise total error by > tol).
+engine.set_sampler(RMC::GreedySampler{/*tolerance*/ 0.0});
+```
+
+`seed` seeds the engine's dedicated acceptance RNG; give each ensemble replica a
+distinct seed for independent stochastic streams.
+
+| Sampler | Header |
+|---|---|
+| `GreedySampler` | `sampling/GreedySampler.hpp` |
+| `MetropolisSampler` | `sampling/MetropolisSampler.hpp` |
+| `AnnealingSampler` | `sampling/AnnealingSampler.hpp` |
+
+With annealing the *final* MC state is deliberately not the minimum, so track the
+best-ever configuration:
+
+```cpp
+engine.set_track_best(true);          // off by default (costs an O(N) copy per improvement)
+engine.run(500'000);
+double best = engine.best_error();
+const RMC::AtomicStructure &s = engine.best_structure();
 ```
 
 Stats at any point:
@@ -348,3 +414,58 @@ The TBB backend is most beneficial for single-engine use with large N (≥ 512).
 For ensemble runs the replica-level parallelism is the primary speedup source;
 TBB provides a secondary boost within each replica subject to the thread budget
 described above.
+
+## SQS search (`mcsqs_rmc`)
+
+`mcsqs_rmc` is a separate executable (built when `RMC_BUILD_MCSQS=ON`) that
+generates Special Quasirandom Structures by driving the RMC engine instead of
+ATAT's `mcsqs` MC loop. It keeps the lattice sites fixed and only swaps site
+occupancies (`SpeciesSwapGenerator`), scoring each configuration's cluster
+correlations against their disordered targets (`ClusterCorrelationConstraint`).
+Over ATAT's `mcsqs` it adds a pluggable acceptance policy (the default
+`AnnealingSampler` mirrors `mcsqs`'s simulated annealing), adaptive site
+selection (`SmartRandomSelector`), and optional island-model ensemble
+parallelism.
+
+**ATAT pipeline** — start from an ATAT `rndstr.in` primitive lattice. `corrdump`
+(the vendored ATAT binary, driven via `boost::process`) enumerates the cluster
+orbits, which are then expanded over the requested supercell:
+
+```bash
+mcsqs_rmc --lattice rndstr.in --supercell "2 2 2" \
+          --d2 4.0 --d3 3.0 \
+          --replicas 8 --steps 500000 --out bestsqs.pdb
+```
+
+This writes `bestsqs.pdb` plus an ATAT `bestsqs.out` (`str.out`) and prints the
+result's correlations recomputed by `corrdump` as an independent cross-check.
+
+**Legacy pipeline** — supply a fixed-site PDB, a cluster-orbit file, and a
+species map directly (no ATAT/`corrdump` needed):
+
+```bash
+mcsqs_rmc --structure rndstr.pdb --clusters clusters.out \
+          --species Cu:+1,Au:-1 --replicas 8
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--lattice` / `-L` | — | ATAT `rndstr.in` primitive lattice — enables the `corrdump` pipeline |
+| `--supercell` | `2 2 2` | Supercell for `--lattice`: `n` (cubic), `nx ny nz`, or nine ints |
+| `--d2` / `--d3` / `--d4` | `0` | Max pair / triplet / quadruplet cluster diameter (`--d2` required with `--lattice`) |
+| `--corrdump` | vendored | Path to a `corrdump` binary (overrides the vendored build) |
+| `--structure` / `-s` | — | [legacy] Fixed-site input PDB |
+| `--clusters` / `-c` | — | [legacy] Cluster-orbit file |
+| `--species` / `-S` | — | [legacy] Species occupation map, e.g. `Cu:+1,Au:-1` |
+| `--steps` / `-n` | `500000` | MC steps per replica |
+| `--replicas` / `-r` | `1` | Island-model replicas (> 1 enables the ensemble) |
+| `--sampler` | `anneal` | Acceptance policy: `greedy` \| `metropolis` \| `anneal` |
+| `--T0` | `1.0` | Temperature (metropolis: fixed T; anneal: initial T) |
+| `--cooling` | `0.9` | Annealing geometric cooling factor in (0,1) |
+| `--cool-interval` | `0` | Steps between cooling updates (0 → `steps/20`) |
+| `--seed` | `42` | RNG seed |
+| `--out` / `-o` | `bestsqs.pdb` | Output SQS PDB |
+| `--log-every` / `-l` | `10000` | Print progress every N steps |
+
+Sublattices are inferred from PDB residue names (one sublattice per distinct
+residue); swaps only ever exchange occupancy within a sublattice.

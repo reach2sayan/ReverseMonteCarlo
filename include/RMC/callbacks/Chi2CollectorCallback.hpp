@@ -23,19 +23,17 @@ namespace RMC::callbacks {
 //   engine.run(N);
 //   collector.finalize();   // explicit call, or let the destructor handle it
 //
-// finalize() is idempotent — safe to call multiple times.
 class Chi2CollectorCallback {
 public:
   explicit Chi2CollectorCallback(std::filesystem::path csv_path = "chi2.csv")
       : csv_path_(std::move(csv_path)) {}
 
   constexpr void operator()(std::uint64_t step, std::uint64_t /*acc*/,
-                  std::uint64_t /*tried*/, double chi2,
-                  const AtomicStructure & /*s*/) {
+                            std::uint64_t /*tried*/, double chi2,
+                            const AtomicStructure & /*s*/) {
     history_.emplace_back(step, chi2);
   }
 
-  // Write CSV + print ASCII chart. Safe to call more than once.
   void finalize() {
     if (finalized_ || history_.empty()) {
       finalized_ = true;
@@ -47,7 +45,6 @@ public:
   }
 
   ~Chi2CollectorCallback() { finalize(); }
-
   [[nodiscard]] const std::vector<std::pair<std::uint64_t, double>> &
   history() const noexcept {
     return history_;

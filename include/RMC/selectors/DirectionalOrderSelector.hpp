@@ -46,8 +46,7 @@ struct DirectionalOrderSelector : SelectorBase<DirectionalOrderSelector> {
     return idx;
   }
 
-  constexpr void feedback(GroupSelector::Token, std::size_t,
-                          bool) noexcept {}
+  constexpr void feedback(GroupSelector::Token, std::size_t, bool) noexcept {}
 
 private:
   std::vector<std::size_t> order_;

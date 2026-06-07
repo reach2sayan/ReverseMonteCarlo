@@ -28,6 +28,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(ENABLE_CCACHE "Use ccache to speed up rebuilds when available" ON)
+if (ENABLE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(CCACHE_PROGRAM ccache)
+    if (CCACHE_PROGRAM)
+        message(STATUS "ccache: enabled (${CCACHE_PROGRAM})")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    else ()
+        message(STATUS "ccache: not found")
+    endif ()
+endif ()
+
 option(RMC_BUILD_TESTS "Build Catch2 test suite" ON)
 option(ENABLE_NATIVE_ARCH "Optimise for the current machine" ON)
 option(ENABLE_MKL "Use Intel MKL backend for Eigen" ON)
@@ -85,6 +97,15 @@ if (RMC_COMPILER_CLANG)
     endif ()
 endif ()
 
+# Boost.Log pulls in libboost_filesystem (and others) as a *transitive* .so
+# dependency we never link directly. The linker default DT_RUNPATH is not
+# searched when the loader resolves a dependency's own indirect deps, so emit
+# the older DT_RPATH instead — it is inherited transitively and lets the loader
+# find Boost's private .so deps in ${BOOST_ROOT}/lib at runtime.
+if (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
+    add_link_options(-Wl,--disable-new-dtags)
+endif ()
+
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
         log
@@ -97,6 +118,11 @@ find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
 
 add_library(eigen_backend INTERFACE)
 if (ENABLE_MKL)
+    # Eigen's LAPACKE backend supports ONLY the LP64 (32-bit int) MKL interface.
+    # oneAPI defaults MKL::MKL to ILP64, which makes lapack_int 64-bit and breaks
+    # Eigen's QR/permutation bindings (lapack_int* = int* in
+    # ColPivHouseholderQR_LAPACKE.h). Force LP64 before find_package.
+    set(MKL_INTERFACE lp64 CACHE STRING "MKL integer interface (Eigen needs lp64)")
     find_package(MKL CONFIG QUIET)
     if (MKL_FOUND)
         message(STATUS "MKL: found (oneAPI) — enabling Eigen MKL backend")
@@ -123,26 +149,6 @@ if (ENABLE_MKL)
 else ()
     message(STATUS "MKL: disabled by user")
     target_compile_definitions(eigen_backend INTERFACE EIGEN_NO_MKL)
-endif ()
-
-option(RMC_USE_OPENMP "Enable OpenMP parallelism in pair-histogram kernel" OFF)
-
-if (RMC_USE_OPENMP)
-    if (RMC_COMPILER_CLANG)
-        foreach (_root /opt/rocm/lib/llvm /opt/rocm-7.0.2/lib/llvm /usr/lib/llvm-18 /usr/lib/llvm-17 /usr/local)
-            if (EXISTS "${_root}/lib/libomp.so")
-                set(OpenMP_CXX_FLAGS "-fopenmp" CACHE STRING "" FORCE)
-                set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "" FORCE)
-                set(OpenMP_omp_LIBRARY "${_root}/lib/libomp.so" CACHE FILEPATH "" FORCE)
-                set(_omp_include_dir "${_root}/include")
-                break()
-            endif ()
-        endforeach ()
-    endif ()
-    find_package(OpenMP REQUIRED)
-    message(STATUS "OpenMP: ${OpenMP_CXX_VERSION} — pair-histogram kernel will use ${OpenMP_CXX_VERSION} threads")
-else ()
-    message(STATUS "OpenMP: disabled (RMC_USE_OPENMP=OFF) — pair-histogram kernel runs single-threaded")
 endif ()
 
 find_package(Threads REQUIRED)
@@ -173,27 +179,14 @@ target_link_libraries(RMC PUBLIC
         Threads::Threads
 )
 
-if (RMC_USE_OPENMP AND OpenMP_CXX_FOUND)
-    target_link_libraries(RMC PUBLIC OpenMP::OpenMP_CXX)
-    if (DEFINED _omp_include_dir AND EXISTS "${_omp_include_dir}/omp.h")
-        target_include_directories(RMC PUBLIC "${_omp_include_dir}")
-    endif ()
-endif ()
-
-option(RMC_USE_TBB "Use Intel TBB for parallel full-histogram builds (off by default)" ON)
-if (RMC_USE_TBB AND RMC_USE_OPENMP)
-    message(FATAL_ERROR
-        "RMC_USE_TBB and RMC_USE_OPENMP are mutually exclusive — "
-        "both parallelize accumulate_pair_histogram and will oversubscribe the CPU. "
-        "Enable at most one.")
-endif ()
+option(RMC_USE_TBB "Use Intel TBB for parallel kernels (par_unseq) inside a shared task arena" ON)
 if (RMC_USE_TBB)
     find_package(TBB REQUIRED)
     target_link_libraries(RMC PUBLIC TBB::tbb)
     target_compile_definitions(RMC PUBLIC RMC_USE_TBB)
-    message(STATUS "TBB: enabled — full histogram builds will use par_unseq")
+    message(STATUS "TBB: enabled — parallel kernels run via par_unseq in a shared arena")
 else ()
-    message(STATUS "TBB: disabled (RMC_USE_TBB=OFF)")
+    message(STATUS "TBB: disabled (RMC_USE_TBB=OFF) — parallel kernels run serially")
 endif ()
 
 if (RMC_COMPILER_MSVC)
@@ -216,7 +209,11 @@ if (RMC_COMPILER_CLANG)
 endif ()
 
 option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
+option(RMC_BUILD_ATAT "Vendor & build ATAT's corrdump (run via boost::process, not linked)" ON)
 if (RMC_BUILD_MCSQS)
+    if (RMC_BUILD_ATAT)
+        include(${CMAKE_SOURCE_DIR}/cmake/Atat.cmake)
+    endif ()
     add_subdirectory(extensions/mcsqs)
 endif ()
 
@@ -236,10 +233,16 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_engine.cpp
             tests/test_examples.cpp
             tests/test_species_swap.cpp
+            tests/test_sampler.cpp
+            tests/test_atat_pipeline.cpp
             tests/test_callbacks.cpp
             tests/bench_scaling.cpp
             tests/bench_thf.cpp
+            # ATAT pipeline sources under test (corrdump-free: no boost::process).
+            extensions/mcsqs/AtatFormats.cpp
+            extensions/mcsqs/ClusterEnumerator.cpp
     )
+    target_include_directories(RMC_tests PRIVATE extensions/mcsqs)
     target_compile_definitions(RMC_tests PRIVATE
             THF_BENCHMARK_DATA_DIR="${CMAKE_SOURCE_DIR}/examples/benchmark/data")
     target_link_libraries(RMC_tests PRIVATE RMC Catch2::Catch2WithMain)

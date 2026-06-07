@@ -12,9 +12,6 @@
 #include <span>
 #include <string>
 #include <vector>
-#if defined(_OPENMP)
-#include <omp.h>
-#endif
 
 namespace RMC {
 
@@ -42,7 +39,7 @@ using PairWeightTable = boost::container::flat_map<PairIdKey, double>;
 
 // Spherical envelope for a particle of given diameter:
 //   f(r) = 1 - (3/2)(r/d) + (1/2)(r/d)³   for r < d, else 0
-inline auto spherical_shape_fn(double diameter) {
+FORCE_INLINE auto spherical_shape_fn(double diameter) {
   return [d = diameter](double r) -> double {
     if (r >= d) {
       return 0.0;
@@ -53,7 +50,7 @@ inline auto spherical_shape_fn(double diameter) {
 }
 
 // Gaussian damping envelope:  f(r) = exp(-r²/σ²)
-inline auto gaussian_shape_fn(double sigma) {
+FORCE_INLINE auto gaussian_shape_fn(double sigma) {
   return
       [s = sigma](double r) -> double { return std::exp(-(r * r) / (s * s)); };
 }
@@ -72,7 +69,7 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
 
 // Accumulate only the pairs that involve at least one atom from `moved`.
 // Used for O(K·N) incremental histogram updates in the multi-frame MC path.
-// Adds into `hist` (caller should zero-initialise before calling).
+// Adds into `hist` (caller should zero-initialize before calling).
 // Double-counting of moved-moved pairs is avoided: pair (k,j) with both in
 // moved is counted once, when k appears before j in the moved array.
 void accumulate_moved_pairs(
@@ -159,16 +156,16 @@ public:
     return exp_data_;
   }
 
-  // Call after set_experimental_data / set_elements / set_weight.
+  // Call after set_experimental_data / set_elements / set_weight. Idempotent:
+  // safe to call more than once (e.g. client call + engine safety-net sweep).
   void initialise();
 
 protected:
+  bool initialised_{false}; // guards initialise() against repeat work
   std::optional<std::function<double(double)>> shape_fn_;
 
-  // Single-frame incremental state
-  mutable vec_t single_hist_;
-  mutable bool single_hist_current_{
-      false}; // false → next call does full rebuild
+  mutable vec_t single_hist_;               // Single-frame incremental state
+  mutable bool single_hist_current_{false}; // false → next call rebuilds all
 
   // Multi-frame state (mutable: modified inside const compute_error())
   std::size_t n_frames_{1};
@@ -233,6 +230,10 @@ public:
   void set_active_frame(Constraint::Token, std::size_t k) noexcept {
     PairConstraintBase::set_active_frame_idx(k);
   }
+  // Token-gated initialise — routes the engine's safety-net sweep to the real
+  // (idempotent) per-constraint setup instead of ConstraintBase's no-op
+  // default.
+  void initialise(Constraint::Token) { PairConstraintBase::initialise(); }
 
   // Restore the active frame's histogram on rejection.
   void reject(Constraint::Token tok) noexcept {

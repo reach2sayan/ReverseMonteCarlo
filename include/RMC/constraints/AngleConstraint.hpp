@@ -57,4 +57,7 @@ private:
   mutable ItemCache<Triplet> cache_;
 };
 
+static_assert(CConstraint<AngleConstraint>,
+              "AngleConstraint must satisfy the CConstraint concept");
+
 } // namespace RMC

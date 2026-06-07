@@ -1,12 +1,13 @@
 #include <RMC/constraints/PairHistogram.hpp>
+#include <RMC/core/Parallel.hpp>
+#include <algorithm>
 #include <boost/histogram.hpp>
 #include <cmath>
 #include <numbers>
+#include <ranges>
 #include <unordered_map>
 
 #if defined(RMC_USE_TBB)
-#include <algorithm>
-#include <execution>
 #include <numeric>
 #include <vector>
 #endif
@@ -37,47 +38,13 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
   std::iota(rows.begin(), rows.end(), Eigen::Index{0});
   std::vector<decltype(make_histogram())> partial(
       static_cast<std::size_t>(N - 1), make_histogram());
-  std::for_each(
-      std::execution::par_unseq, rows.begin(), rows.end(), [&](Eigen::Index i) {
-        auto &local = partial[static_cast<std::size_t>(i)];
-        for (Eigen::Index j = i + 1; j < N; ++j) {
-          if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                                  molecule_ids[static_cast<std::size_t>(j)]) {
-            continue;
-          }
-          vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
-          if (bc) {
-            delta = bc_min_image(*bc, delta);
-          }
-          const double d = delta.norm();
-          double w = 1.0;
-          if (weighted) {
-            PairIdKey key{elem_id[static_cast<std::size_t>(i)],
-                          elem_id[static_cast<std::size_t>(j)]};
-            if (auto it = weight_table.find(key); it != weight_table.end()) {
-              w = it->second;
-            }
-          }
-          local(bh::weight(2.0 * w), d);
-        }
-      });
-  auto h = make_histogram();
-  for (auto &p : partial) {
-    h += p;
-  }
-
-#elif defined(_OPENMP)
-  const int nthreads = omp_get_max_threads();
-  std::vector<decltype(make_histogram())> partial(
-      static_cast<std::size_t>(nthreads), make_histogram());
-
-#pragma omp parallel for schedule(static)
-  for (Eigen::Index i = 0; i < N - 1; ++i) {
-    auto &local = partial[static_cast<std::size_t>(omp_get_thread_num())];
+  parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
+    auto &local = partial[static_cast<std::size_t>(i)];
     for (Eigen::Index j = i + 1; j < N; ++j) {
       if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                              molecule_ids[static_cast<std::size_t>(j)])
+                              molecule_ids[static_cast<std::size_t>(j)]) {
         continue;
+      }
       vec3_t delta = coords.row(j).transpose() - coords.row(i).transpose();
       if (bc) {
         delta = bc_min_image(*bc, delta);
@@ -93,11 +60,12 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
       }
       local(bh::weight(2.0 * w), d);
     }
-  }
+  });
   auto h = make_histogram();
   for (auto &p : partial) {
     h += p;
   }
+
 #else
   auto h = make_histogram();
   for (auto [i, j] : upper_triangle_pairs(N)) {
@@ -140,8 +108,7 @@ void accumulate_moved_pairs(
   const bool weighted = !weight_table.empty();
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
 
-  for (std::size_t mk = 0; mk < moved.size(); ++mk) {
-    const std::size_t k = moved[mk];
+  for (const auto [mk, k] : std::views::enumerate(moved)) {
     for (Eigen::Index jj = 0; jj < N; ++jj) {
       const std::size_t j = static_cast<std::size_t>(jj);
       if (j == k) {
@@ -149,13 +116,8 @@ void accumulate_moved_pairs(
       }
       // Avoid double-counting pairs where both atoms are in `moved`:
       // count (k,j) only when k appears before j in the moved array.
-      bool already_counted = false;
-      for (std::size_t prev = 0; prev < mk; ++prev) {
-        if (moved[prev] == j) {
-          already_counted = true;
-          break;
-        }
-      }
+      const bool already_counted =
+          std::ranges::contains(moved.first(static_cast<std::size_t>(mk)), j);
       if (already_counted ||
           (filter_intra && molecule_ids[k] == molecule_ids[j])) {
         continue;
@@ -196,6 +158,10 @@ void PairConstraintBase::set_experimental_data(const mat_t &data) {
 }
 
 void PairConstraintBase::initialise() {
+  if (initialised_) {
+    return;
+  }
+  initialised_ = true;
   const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
   const auto r_lo = r_min_ + idx * bin_width_;
   const auto r_hi = r_lo + bin_width_;
@@ -204,8 +170,8 @@ void PairConstraintBase::initialise() {
   std::unordered_map<std::string_view, uint8_t> name_to_id;
   uint8_t next_id = 0;
   elem_id_.resize(elements_.size());
-  for (std::size_t i = 0; i < elements_.size(); ++i) {
-    auto [it, ins] = name_to_id.try_emplace(elements_[i], next_id);
+  for (const auto [i, elem] : std::views::enumerate(elements_)) {
+    auto [it, ins] = name_to_id.try_emplace(elem, next_id);
     if (ins) {
       ++next_id;
     }

@@ -1,5 +1,6 @@
 #pragma once
 #include <RMC/core/BoundaryConditions.hpp>
+#include <RMC/core/TypeErasure.hpp>
 #include <RMC/core/Types.hpp>
 #include <cmath>
 #include <memory>
@@ -28,6 +29,7 @@ concept CConstraint =
       c.accept(tok);
       c.reject(tok);
       { c.standard_error(tok) } -> std::convertible_to<double>;
+      { c.standard_error_before(tok) } -> std::convertible_to<double>;
       { c.should_reject(tok) } -> std::convertible_to<bool>;
       { c.name() } -> std::convertible_to<std::string_view>;
       { c.computation_cost(tok) } -> std::convertible_to<double>;
@@ -36,135 +38,37 @@ concept CConstraint =
       { c.is_singular(tok) } -> std::convertible_to<bool>;
       c.set_n_frames(tok, k);
       c.set_active_frame(tok, k);
+      c.initialise(tok);
     };
 
-class Constraint {
-public:
-  using Token = detail::ConstraintToken;
-
-  template <CConstraint T>
-  constexpr Constraint(T x)
-      : self_(std::make_unique<ConstraintModel<T>>(std::move(x))) {}
-  constexpr Constraint(const Constraint &s) : self_{s.self_->clone()} {}
-  constexpr Constraint(Constraint &&s) noexcept : self_{std::move(s.self_)} {}
-  constexpr Constraint &operator=(const Constraint &s) {
-    self_ = s.self_->clone();
-    return *this;
-  }
-  constexpr Constraint &operator=(Constraint &&s) noexcept {
-    self_ = std::move(s.self_);
-    return *this;
-  }
-
-  constexpr void compute_before_move(const coords_t &coords,
-                                     std::span<const std::size_t> moved) {
-    self_->compute_before_move(coords, moved);
-  }
-  constexpr void compute_after_move(const coords_t &coords,
-                                    std::span<const std::size_t> moved) {
-    self_->compute_after_move(coords, moved);
-  }
-  constexpr void accept() noexcept { self_->accept(); }
-  constexpr void reject() noexcept { self_->reject(); }
-  [[nodiscard]] constexpr double standard_error() const noexcept {
-    return self_->standard_error();
-  }
-  [[nodiscard]] constexpr bool should_reject() const noexcept {
-    return self_->should_reject();
-  }
-  [[nodiscard]] constexpr std::string_view name() const noexcept {
-    return self_->name();
-  }
-  [[nodiscard]] constexpr double computation_cost() const noexcept {
-    return self_->computation_cost();
-  }
-  constexpr void set_boundary_conditions(const BoundaryConditions &bc) {
-    self_->set_boundary_conditions(bc);
-  }
-  [[nodiscard]] constexpr bool is_rigid() const noexcept {
-    return self_->is_rigid();
-  }
-  [[nodiscard]] constexpr bool is_singular() const noexcept {
-    return self_->is_singular();
-  }
-  constexpr void set_n_frames(std::size_t n) noexcept {
-    self_->set_n_frames(n);
-  }
-  constexpr void set_active_frame(std::size_t k) noexcept {
-    self_->set_active_frame(k);
-  }
-
-private:
-  static Token make_token() noexcept { return {}; }
-  struct ConstraintConcept {
-    virtual ~ConstraintConcept() = default;
-    virtual void compute_before_move(const coords_t &,
-                                     std::span<const std::size_t>) = 0;
-    virtual void compute_after_move(const coords_t &,
-                                    std::span<const std::size_t>) = 0;
-    virtual constexpr void accept() noexcept = 0;
-    virtual constexpr void reject() noexcept = 0;
-    [[nodiscard]] virtual double standard_error() const noexcept = 0;
-    [[nodiscard]] virtual bool should_reject() const noexcept = 0;
-    [[nodiscard]] virtual std::string_view name() const noexcept = 0;
-    [[nodiscard]] virtual double computation_cost() const noexcept = 0;
-    virtual void set_boundary_conditions(const BoundaryConditions &) = 0;
-    [[nodiscard]] virtual bool is_rigid() const noexcept = 0;
-    [[nodiscard]] virtual bool is_singular() const noexcept = 0;
-    virtual void set_n_frames(std::size_t) noexcept = 0;
-    virtual void set_active_frame(std::size_t) noexcept = 0;
-    virtual std::unique_ptr<ConstraintConcept> clone() const = 0;
-  };
-
-  template <CConstraint T> struct ConstraintModel final : ConstraintConcept {
-    constexpr explicit ConstraintModel(T x) : data_(std::move(x)) {}
-    constexpr void
-    compute_before_move(const coords_t &c,
-                        std::span<const std::size_t> m) override {
-      data_.compute_before_move(make_token(), c, m);
-    }
-    constexpr void compute_after_move(const coords_t &c,
-                                      std::span<const std::size_t> m) override {
-      data_.compute_after_move(make_token(), c, m);
-    }
-    constexpr void accept() noexcept override { data_.accept(make_token()); }
-    constexpr void reject() noexcept override { data_.reject(make_token()); }
-    constexpr double standard_error() const noexcept override {
-      return data_.standard_error(make_token());
-    }
-    constexpr bool should_reject() const noexcept override {
-      return data_.should_reject(make_token());
-    }
-    constexpr std::string_view name() const noexcept override {
-      return data_.name();
-    }
-    constexpr double computation_cost() const noexcept override {
-      return data_.computation_cost(make_token());
-    }
-    constexpr void
-    set_boundary_conditions(const BoundaryConditions &bc) override {
-      data_.set_boundary_conditions(make_token(), bc);
-    }
-    constexpr bool is_rigid() const noexcept override {
-      return data_.is_rigid(make_token());
-    }
-    constexpr bool is_singular() const noexcept override {
-      return data_.is_singular(make_token());
-    }
-    void set_n_frames(std::size_t n) noexcept override {
-      data_.set_n_frames(make_token(), n);
-    }
-    void set_active_frame(std::size_t k) noexcept override {
-      data_.set_active_frame(make_token(), k);
-    }
-    constexpr std::unique_ptr<ConstraintConcept> clone() const override {
-      return std::make_unique<ConstraintModel<T>>(data_);
-    }
-    T data_;
-  };
-
-  std::unique_ptr<ConstraintConcept> self_;
-};
+// standard_error_before() is the soft error BEFORE the proposed move (0 for
+// rigid constraints) — lets the engine form the total ΔE handed to the Sampler.
+// name() is the only method forwarded without the passkey token.
+#define RMC_CONSTRAINT_METHODS                                                 \
+  ((0, void, compute_before_move,                                              \
+    (const coords_t &coords, std::span<const std::size_t> moved), 2,           \
+    (coords, moved), , , WITH_TOKEN))(                                         \
+      (0, void, compute_after_move,                                            \
+       (const coords_t &coords, std::span<const std::size_t> moved), 2,        \
+       (coords, moved), , ,                                                    \
+       WITH_TOKEN))((0, void, accept, (), 0, (), , noexcept, WITH_TOKEN))(     \
+      (0, void, reject, (), 0, (), , noexcept, WITH_TOKEN))(                   \
+      (1, double, standard_error, (), 0, (), const, noexcept, WITH_TOKEN))(    \
+      (1, double, standard_error_before, (), 0, (), const, noexcept,           \
+       WITH_TOKEN))(                                                           \
+      (1, bool, should_reject, (), 0, (), const, noexcept, WITH_TOKEN))(       \
+      (1, std::string_view, name, (), 0, (), const, noexcept, NO_TOKEN))(      \
+      (1, double, computation_cost, (), 0, (), const, noexcept, WITH_TOKEN))(  \
+      (0, void, set_boundary_conditions, (const BoundaryConditions &bc), 1,    \
+       (bc), , , WITH_TOKEN))(                                                 \
+      (1, bool, is_rigid, (), 0, (), const, noexcept, WITH_TOKEN))(            \
+      (1, bool, is_singular, (), 0, (), const, noexcept, WITH_TOKEN))(         \
+      (0, void, set_n_frames, (std::size_t n), 1, (n), , noexcept,             \
+       WITH_TOKEN))((0, void, set_active_frame, (std::size_t k), 1, (k), ,     \
+                     noexcept, WITH_TOKEN))(                                    \
+      (0, void, initialise, (), 0, (), , , WITH_TOKEN))
+RMC_DEFINE_ERASED_TYPE(Constraint, RMC_CONSTRAINT_METHODS)
+#undef RMC_CONSTRAINT_METHODS
 
 // Penalty for a value outside [lo, hi]: distance to the nearest endpoint.
 [[nodiscard]] FORCE_INLINE constexpr double
@@ -185,9 +89,6 @@ protected:
   double err_after_{0.0};
 
 public:
-  bool flexible = false;
-  double tolerance = 0.0;
-
   constexpr void
   set_boundary_conditions(Constraint::Token,
                           const BoundaryConditions &bc) noexcept {
@@ -219,10 +120,15 @@ public:
   standard_error(Constraint::Token) const noexcept {
     return err_after_;
   }
-  [[nodiscard]] constexpr bool
-  should_reject(Constraint::Token) const noexcept {
-    return flexible ? (err_after_ > err_before_ + tolerance)
-                    : (err_after_ > err_before_);
+  [[nodiscard]] constexpr double
+  standard_error_before(Constraint::Token) const noexcept {
+    return err_before_;
+  }
+  // Per-constraint downhill test. Used directly only as the RIGID hard gate
+  // now; the soft accept/reject decision (incl. any uphill tolerance or
+  // annealing) is made by the engine's Sampler on the TOTAL soft error.
+  [[nodiscard]] constexpr bool should_reject(Constraint::Token) const noexcept {
+    return err_after_ > err_before_;
   }
   // Default cost: O(1) or O(bonds). Override in O(N) / O(N²) constraints.
   [[nodiscard]] constexpr double
@@ -238,6 +144,9 @@ public:
   // No-op defaults for multi-frame support; override in pair constraints.
   constexpr void set_n_frames(Constraint::Token, std::size_t) noexcept {}
   constexpr void set_active_frame(Constraint::Token, std::size_t) noexcept {}
+  // No-op default: most constraints need no one-time setup. Pair constraints
+  // override with the token-gated wrapper that fills their tables.
+  constexpr void initialise(Constraint::Token) noexcept {}
 
 protected:
   [[nodiscard]] constexpr FORCE_INLINE double
@@ -261,6 +170,12 @@ class RigidConstraintBase : public ConstraintBase<Derived> {
 public:
   [[nodiscard]] static constexpr double
   standard_error(Constraint::Token) noexcept {
+    return 0.0;
+  }
+  // Rigid constraints contribute 0 to the soft total both before and after, so
+  // they never enter the Sampler's ΔE — they act purely as a hard gate.
+  [[nodiscard]] static constexpr double
+  standard_error_before(Constraint::Token) noexcept {
     return 0.0;
   }
 

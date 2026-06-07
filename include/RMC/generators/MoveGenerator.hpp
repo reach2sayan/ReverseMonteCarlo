@@ -1,5 +1,6 @@
 #pragma once
 #include <RMC/core/BoundaryConditions.hpp>
+#include <RMC/core/TypeErasure.hpp>
 #include <RMC/core/Types.hpp>
 #include <memory>
 #include <optional>
@@ -9,16 +10,16 @@ namespace RMC {
 class MoveGenerator; // forward declaration for the friend declaration below
 
 namespace detail {
-struct GeneratorToken {
+struct MoveGeneratorToken {
 private:
-  constexpr GeneratorToken() = default;
+  constexpr MoveGeneratorToken() = default;
   friend class ::RMC::MoveGenerator;
 };
 } // namespace detail
 
 template <typename T>
 concept CMoveGenerator =
-    requires(T &gen, detail::GeneratorToken tok, coords_t &coords,
+    requires(T &gen, detail::MoveGeneratorToken tok, coords_t &coords,
              std::span<const std::size_t> indices) {
       gen.generate(tok, coords, indices);
     };
@@ -41,79 +42,23 @@ concept CMoveGeneratorWithSpeciesModification =
       { gen.modifies_species() } -> std::convertible_to<bool>;
     };
 
-class MoveGenerator {
-public:
-  using Token = detail::GeneratorToken;
-
-  template <CMoveGenerator T>
-  constexpr MoveGenerator(T x)
-      : self_(std::make_unique<MoveGeneratorModel<T>>(std::move(x))) {}
-  constexpr MoveGenerator(const MoveGenerator &s) : self_{s.self_->clone()} {}
-  constexpr MoveGenerator(MoveGenerator &&s) noexcept
-      : self_{std::move(s.self_)} {}
-  constexpr MoveGenerator &operator=(const MoveGenerator &s) {
-    self_ = s.self_->clone();
-    return *this;
-  }
-  constexpr MoveGenerator &operator=(MoveGenerator &&s) noexcept {
-    self_ = std::move(s.self_);
-    return *this;
-  }
-
-  constexpr void generate(coords_t &coords,
-                          std::span<const std::size_t> indices) {
-    self_->generate(coords, indices);
-  }
-
-  [[nodiscard]] constexpr std::optional<bool>
-  rejection_override() const noexcept {
-    return self_->rejection_override();
-  }
-
-  [[nodiscard]] constexpr bool modifies_species() const noexcept {
-    return self_->modifies_species();
-  }
-
-private:
-  static Token make_token() noexcept { return {}; }
-  struct MoveGeneratorConcept {
-    virtual ~MoveGeneratorConcept() = default;
-    virtual void generate(coords_t &, std::span<const std::size_t>) = 0;
-    virtual std::optional<bool> rejection_override() const noexcept {
-      return std::nullopt;
-    }
-    virtual bool modifies_species() const noexcept { return false; }
-    virtual std::unique_ptr<MoveGeneratorConcept> clone() const = 0;
-  };
-  template <CMoveGenerator T>
-  struct MoveGeneratorModel final : MoveGeneratorConcept {
-    constexpr explicit MoveGeneratorModel(T x) : data_(std::move(x)) {}
-    constexpr void generate(coords_t &coords,
-                            std::span<const std::size_t> indices) override {
-      data_.generate(make_token(), coords, indices);
-    }
-    constexpr std::optional<bool> rejection_override() const noexcept override {
-      if constexpr (CMoveGeneratorWithRejectionOverride<T>) {
-        return data_.rejection_override();
-      } else {
-        return std::nullopt;
-      }
-    }
-    constexpr bool modifies_species() const noexcept override {
-      if constexpr (CMoveGeneratorWithSpeciesModification<T>) {
-        return data_.modifies_species();
-      } else {
-        return false;
-      }
-    }
-    constexpr std::unique_ptr<MoveGeneratorConcept> clone() const override {
-      return std::make_unique<MoveGeneratorModel<T>>(data_);
-    }
-    T data_;
-  };
-
-  std::unique_ptr<MoveGeneratorConcept> self_;
-};
+// rejection_override() / modifies_species() are optional: a generator opts in
+// by satisfying the refining concept; otherwise the wrapper reports the default
+// (std::nullopt / false). Unlike generate(), the optionals forward without the
+// passkey token (the refining concepts require token-free calls).
+#define RMC_MOVEGENERATOR_METHODS                                             \
+  ((0, void, generate,                                                        \
+    (coords_t &coords, std::span<const std::size_t> indices), 2,             \
+    (coords, indices), , , WITH_TOKEN))
+#define RMC_MOVEGENERATOR_OPT_METHODS                                         \
+  ((1, std::optional<bool>, rejection_override, (), 0, (), const, noexcept,  \
+    CMoveGeneratorWithRejectionOverride, std::nullopt))                       \
+  ((1, bool, modifies_species, (), 0, (), const, noexcept,                   \
+    CMoveGeneratorWithSpeciesModification, false))
+RMC_DEFINE_ERASED_TYPE_EXT(MoveGenerator, RMC_MOVEGENERATOR_METHODS,
+                           RMC_MOVEGENERATOR_OPT_METHODS)
+#undef RMC_MOVEGENERATOR_METHODS
+#undef RMC_MOVEGENERATOR_OPT_METHODS
 
 enum class SymmetryAxis { X, Y, Z };
 

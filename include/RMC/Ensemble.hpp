@@ -58,6 +58,11 @@ inline std::size_t tbb_budget(std::size_t n_replicas,
 // for n_steps each, then returns the replica with the lowest total chi2 error.
 // make_engine(i) must return a fully configured Engine ready to run.
 //
+// The returned Engine is moved into an internal vector. This is safe even when
+// its constraints / move generators hold references into engine.structure()
+// (e.g. SQS), because Engine keeps its structure on the heap at a stable address
+// (see Engine), so the move does not relocate it.
+//
 // All engines are constructed in the calling thread so that
 // boost::context coroutine lifetimes stay on one thread.
 // tbb_threads_per_replica: TBB workers per replica engine (RMC_USE_TBB only).
@@ -97,9 +102,9 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
   std::ranges::for_each(futs.begin(), futs.end(), [](auto &f) { f.get(); });
 
   std::size_t best_i = 0;
-  double best_chi2 = engines[0].stats().last_total_err;
+  double best_chi2 = engines[0].best_error();
   for (std::size_t i = 1; i < n_replicas; ++i) {
-    double chi2 = engines[i].stats().last_total_err;
+    double chi2 = engines[i].best_error();
     if (chi2 < best_chi2) {
       best_chi2 = chi2;
       best_i = i;
@@ -109,9 +114,10 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
 }
 
 // Runs n_replicas engines in parallel. Every sync_every steps all workers
-// synchronise: the best (lowest chi2) engine is broadcast to all laggards,
-// then all continue from that state. Stops as soon as any replica reaches
-// target_chi2 (or max_steps is exhausted). Returns the best engine seen.
+// synchronise: the best (lowest chi2) replica's STRUCTURE is broadcast to all
+// laggards, who continue the search from it (each keeps its own selector/RNG, so
+// they re-diverge). Stops as soon as any replica reaches target_chi2 (or
+// max_steps is exhausted). Returns the best engine seen.
 template <std::invocable<std::size_t> F>
   requires std::same_as<std::invoke_result_t<F, std::size_t>, Engine>
 Engine run_ensemble_cooperative(
@@ -124,7 +130,10 @@ Engine run_ensemble_cooperative(
     engines.push_back(make_engine(i));
   }
 
-  Engine shared_best = engines[0];
+  // Broadcasting only the structure (not the whole Engine) keeps this move-only:
+  // each laggard copies the best structure into its OWN engine, whose structure
+  // lives at a stable address, so its constraints/generators stay bound.
+  AtomicStructure shared_best_structure = engines[0].structure();
   std::atomic<bool> any_done{false};
   std::atomic<std::size_t> best_i_atomic{0};
 
@@ -144,7 +153,7 @@ Engine run_ensemble_cooperative(
             }
           }
           best_i_atomic.store(best_i, std::memory_order_relaxed);
-          shared_best = engines[best_i];
+          shared_best_structure = engines[best_i].structure();
         } catch (...) {
           std::terminate();
         }
@@ -162,7 +171,7 @@ Engine run_ensemble_cooperative(
         return;
       }
       if (i != best_i_atomic.load(std::memory_order_relaxed)) {
-        engines[i] = shared_best;
+        engines[i].structure() = shared_best_structure;
       }
     }
   };
@@ -188,7 +197,17 @@ Engine run_ensemble_cooperative(
   }
   std::ranges::for_each(
       futs, [](auto &f) { f.get(); }); // re-throws any worker exception
-  return shared_best;
+
+  std::size_t best_i = 0;
+  double best_chi2 = engines[0].best_error();
+  for (std::size_t i = 1; i < n_replicas; ++i) {
+    const double chi2 = engines[i].stats().last_total_err;
+    if (chi2 < best_chi2) {
+      best_chi2 = chi2;
+      best_i = i;
+    }
+  }
+  return std::move(engines[best_i]);
 }
 
 } // namespace RMC

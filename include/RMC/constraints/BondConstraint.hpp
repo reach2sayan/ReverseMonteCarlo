@@ -45,4 +45,7 @@ private:
   mutable ItemCache<BondItem> cache_;
 };
 
+static_assert(CConstraint<BondConstraint>,
+              "BondConstraint must satisfy the CConstraint concept");
+
 } // namespace RMC

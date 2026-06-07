@@ -106,4 +106,11 @@ using InterMolecularDistanceConstraint =
 using IntraMolecularDistanceConstraint =
     DistanceConstraint<DistanceScope::Intra>;
 
+static_assert(CConstraint<InterMolecularDistanceConstraint>,
+              "InterMolecularDistanceConstraint must satisfy the CConstraint "
+              "concept");
+static_assert(CConstraint<IntraMolecularDistanceConstraint>,
+              "IntraMolecularDistanceConstraint must satisfy the CConstraint "
+              "concept");
+
 } // namespace RMC

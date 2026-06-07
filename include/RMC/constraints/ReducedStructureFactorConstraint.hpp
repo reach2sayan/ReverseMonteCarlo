@@ -48,6 +48,9 @@ public:
     pdf_.rollback_frame();
   }
   void initialise(); // builds Fr2FQ matrix
+  // Token-gated overload required by the CConstraint concept; forwards to the
+  // public initialise() above (which would otherwise hide the base version).
+  void initialise(Constraint::Token) { initialise(); }
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     return "ReducedStructureFactorConstraint";
@@ -80,5 +83,9 @@ private:
   boost::container::flat_map<PairElemKey, double> weights_;
   std::span<const std::string> elements_;
 };
+
+static_assert(CConstraint<ReducedStructureFactorConstraint>,
+              "ReducedStructureFactorConstraint must satisfy the CConstraint "
+              "concept");
 
 } // namespace RMC

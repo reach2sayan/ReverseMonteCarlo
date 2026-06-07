@@ -391,19 +391,20 @@ TEST_CASE("bench: generator cost (N=64, single group)", "[!benchmark]") {
   };
 }
 
-// 8. OpenMP thread scaling for accumulate_pair_histogram (N=512, PDF)
-// Measures wall-clock time of PDF constraint kernel at 1, 2, 4, and
-// max available threads. Each benchmark sets omp_set_num_threads before
-// running so the results are directly comparable.
+// 8. TBB arena thread scaling for accumulate_pair_histogram (N=512, PDF)
+// Measures wall-clock time of the PDF constraint kernel at 1, 2, 4, and
+// max available threads. Each benchmark caps the shared TBB arena via
+// RMC::parallel::set_max_concurrency before running so results are comparable.
 // Expected: near-linear speedup up to the number of physical cores.
-#ifdef _OPENMP
-#include <omp.h>
-TEST_CASE("bench: PDF kernel OpenMP thread scaling (N=512)", "[!benchmark]") {
-  constexpr int N     = 512;
-  constexpr int STEPS = 200;
+#ifdef RMC_USE_TBB
+#include <RMC/core/Parallel.hpp>
+TEST_CASE("bench: PDF kernel TBB thread scaling (N=512)", "[!benchmark]") {
+  constexpr int N       = 512;
+  constexpr int STEPS   = 200;
+  const int max_threads = RMC::parallel::default_concurrency();
 
   auto make = [&](int nthreads) {
-    omp_set_num_threads(nthreads);
+    RMC::parallel::set_max_concurrency(nthreads);
     Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
     engine.add_constraint(make_pdf(N));
     engine.build_atomic_groups(0.0, 0.2, 42);
@@ -413,23 +414,23 @@ TEST_CASE("bench: PDF kernel OpenMP thread scaling (N=512)", "[!benchmark]") {
   BENCHMARK_ADVANCED("1 thread")(Catch::Benchmark::Chronometer meter) {
     auto engine = make(1);
     meter.measure([&] { engine.run(STEPS); });
-    omp_set_num_threads(omp_get_max_threads());
+    RMC::parallel::set_max_concurrency(max_threads);
   };
 
   BENCHMARK_ADVANCED("2 threads")(Catch::Benchmark::Chronometer meter) {
     auto engine = make(2);
     meter.measure([&] { engine.run(STEPS); });
-    omp_set_num_threads(omp_get_max_threads());
+    RMC::parallel::set_max_concurrency(max_threads);
   };
 
   BENCHMARK_ADVANCED("4 threads")(Catch::Benchmark::Chronometer meter) {
     auto engine = make(4);
     meter.measure([&] { engine.run(STEPS); });
-    omp_set_num_threads(omp_get_max_threads());
+    RMC::parallel::set_max_concurrency(max_threads);
   };
 
   BENCHMARK_ADVANCED("max threads")(Catch::Benchmark::Chronometer meter) {
-    auto engine = make(omp_get_max_threads());
+    auto engine = make(max_threads);
     meter.measure([&] { engine.run(STEPS); });
   };
 }
@@ -442,8 +443,8 @@ TEST_CASE("bench: PDF kernel OpenMP thread scaling (N=512)", "[!benchmark]") {
 // is no engine or MC overhead — this isolates the histogram fill itself.
 //
 // Interpretation:
-//   Serial path  — the #else branch of the RMC_USE_TBB / _OPENMP dispatch.
-//   TBB path     — std::for_each(par_unseq) over row indices via TBB.
+//   Serial path  — the #else branch of the RMC_USE_TBB dispatch.
+//   TBB path     — std::for_each(par_unseq) over row indices via the arena.
 //
 // Run with:   ./RMC_tests "[!benchmark][tbb]" --benchmark-samples 30
 //
@@ -460,9 +461,10 @@ coords_t make_lattice(int N) {
   c.setZero();
   const int side = static_cast<int>(std::cbrt(static_cast<double>(N))) + 1;
   for (int i = 0; i < N; ++i) {
+    const int z = i / (side * side); // integer (floor) division by design
     c(i, 0) = static_cast<double>(i % side);
     c(i, 1) = static_cast<double>((i / side) % side);
-    c(i, 2) = static_cast<double>(i / (side * side));
+    c(i, 2) = static_cast<double>(z);
   }
   return c;
 }

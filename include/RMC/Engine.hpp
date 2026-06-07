@@ -1,10 +1,7 @@
 #pragma once
 #include <RMC/EngineBase.hpp>
-#include <RMC/core/AtomsCollector.hpp>
-#include <RMC/io/Checkpoint.hpp>
+#include <RMC/FrameStore.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
-
-#include <boost/log/trivial.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -12,9 +9,26 @@
 
 namespace RMC {
 
+// Single-frame RMC refinement: the N=1 specialisation of the shared engine
+// pipeline (EngineBase), with the species-snapshot, adaptive-feedback,
+// pending-removal, best-ever-tracking and checkpoint feature policies switched
+// ON. The pipeline itself lives in EngineBase; this class supplies only the
+// frame storage, selector, policy members and the per-engine customization
+// points the base reaches through CRTP.
 class Engine : public EngineBase<Engine> {
 public:
   explicit Engine(AtomicStructure structure, BoundaryConditions bc);
+
+  // Move-only. The structure lives on the heap at a STABLE address, so moving an
+  // Engine (e.g. into the ensemble's vector) leaves any references held by its
+  // constraints / move generators — e.g. SQS's ClusterCorrelationConstraint and
+  // SpeciesSwapGenerator — pointing at the same live structure. Copying would
+  // alias the source's structure, so it is deleted.
+  Engine(const Engine &) = delete;
+  Engine &operator=(const Engine &) = delete;
+  Engine(Engine &&) = default;
+  Engine &operator=(Engine &&) = default;
+
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
 
@@ -23,108 +37,68 @@ public:
   // Optional: save a checkpoint every `every` accepted steps.
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
 
-  [[nodiscard]] constexpr const AtomicStructure &structure() const noexcept {
-    return structure_;
+  [[nodiscard]] const AtomicStructure &structure() const noexcept {
+    return store_.primary();
   }
-  [[nodiscard]] constexpr AtomicStructure &structure() noexcept {
-    return structure_;
+  [[nodiscard]] AtomicStructure &structure() noexcept {
+    return store_.primary();
   }
+
+  // Track the lowest-error configuration seen during the run (see
+  // WithBestTracking). Off by default.
+  constexpr void set_track_best(bool on = true) noexcept { best_.set_track(on); }
+  [[nodiscard]] double best_error() const noexcept {
+    return best_.best_error(constraints_.total_error());
+  }
+  [[nodiscard]] const AtomicStructure &best_structure() const noexcept {
+    return best_.best_structure(store_.primary());
+  }
+
   [[nodiscard]] constexpr io::EngineStats stats() const noexcept {
-    return io::EngineStats{.steps_total = n_steps_total_,
-                           .steps_accepted = n_steps_accepted_,
-                           .steps_tried = n_steps_tried_,
-                           .last_total_err = constraints_.total_error()};
+    return make_stats();
   }
 
 private:
   friend class EngineBase<Engine>;
 
-  struct TrialCtx {
-    std::size_t gi;
-    Group *group;
-  };
-
-  // Pipeline stages — each takes/returns TrialCtx through and_then.
-  constexpr std::optional<TrialCtx> select_group() {
+  // CRTP customization points called by EngineBase.
+  constexpr std::optional<TrialCtx> select() {
     const std::size_t gi = selector_.select(groups_.size());
     Group &g = groups_[gi];
     if (!g.refine || g.empty() || !g.generator) {
       return std::nullopt;
     }
-    return TrialCtx{gi, &g};
+    return TrialCtx{0, gi, &store_.primary(), &g};
   }
-  constexpr void snapshot_and_score_before(TrialCtx &c) {
-    ++n_steps_tried_;
-    structure_.save_snapshot(c.group->span());
-    if (c.group->generator->modifies_species())
-      structure_.save_species_snapshot();
-    constraints_.compute_before_move(structure_.coordinates, c.group->span());
+  // Single-frame pair constraints self-prime their histogram on the first
+  // compute_before_move, so no per-frame priming is needed here.
+  constexpr void do_initialise() noexcept {}
+
+  [[nodiscard]] constexpr SingleFrameStore &store() noexcept { return store_; }
+  [[nodiscard]] constexpr WithSpecies &species_policy() noexcept { return sp_; }
+  [[nodiscard]] constexpr WithFeedback &feedback_policy() noexcept {
+    return fb_;
   }
-  constexpr void propose_move(TrialCtx &c) {
-    c.group->generator->generate(structure_.coordinates, c.group->span());
-    apply_pbc_to(structure_, c.group->span());
+  [[nodiscard]] constexpr WithCollector &collector_policy() noexcept {
+    return col_;
   }
-  constexpr void score_after(TrialCtx &c) {
-    constraints_.compute_after_move(structure_.coordinates, c.group->span());
+  [[nodiscard]] constexpr WithBestTracking &best_policy() noexcept {
+    return best_;
+  }
+  [[nodiscard]] constexpr WithCheckpoint &checkpoint_policy() noexcept {
+    return ckpt_;
+  }
+  [[nodiscard]] constexpr GroupSelector &group_sel_for_feedback() noexcept {
+    return selector_;
   }
 
-  constexpr void settle(TrialCtx &c);
-  constexpr void maybe_checkpoint() {
-    if (checkpoint_path_ && n_steps_accepted_ > 0 &&
-        n_steps_accepted_ % checkpoint_every_ == 0) {
-      if (auto r = io::save_checkpoint(structure_, stats(), *checkpoint_path_);
-          !r) {
-        BOOST_LOG_TRIVIAL(warning) << "Checkpoint save failed";
-      }
-    }
-  }
-
-  constexpr void step();
-
-  AtomicStructure structure_;
+  SingleFrameStore store_;
   GroupSelector selector_;
-  AtomsCollector collector_;
-
-  // Checkpoint state
-  std::optional<std::filesystem::path> checkpoint_path_;
-  std::uint64_t checkpoint_every_{5000};
+  [[no_unique_address]] WithSpecies sp_;
+  [[no_unique_address]] WithFeedback fb_;
+  [[no_unique_address]] WithCollector col_;
+  WithBestTracking best_;
+  WithCheckpoint ckpt_;
 };
-
-constexpr void Engine::settle(TrialCtx &c) {
-  // Let gradient-based generators (HMC/leapfrog) supply their own
-  // accept/reject; fall back to the standard Metropolis criterion from
-  // constraints otherwise.
-  bool rejected;
-  if (auto override_rej = c.group->generator->rejection_override()) {
-    rejected = *override_rej;
-  } else {
-    rejected = constraints_.should_reject();
-  }
-  if (!rejected && !collector_.pending().empty()) {
-    collector_.commit_removal();
-  } else {
-    collector_.rollback_removal();
-  }
-  if (rejected) {
-    structure_.restore_snapshot(c.group->span());
-    structure_.restore_species_snapshot();
-    constraints_.reject();
-  } else {
-    constraints_.accept();
-    ++n_steps_accepted_;
-  }
-  selector_.feedback(c.gi, !rejected);
-}
-
-constexpr void Engine::step() {
-  ++n_steps_total_;
-  select_group()
-      .and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
-      .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
-      .and_then(stage([&](TrialCtx &c) { score_after(c); }))
-      .and_then(stage([&](TrialCtx &c) { settle(c); }));
-  maybe_log(structure_);
-  maybe_checkpoint();
-}
 
 } // namespace RMC

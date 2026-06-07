@@ -1,10 +1,10 @@
 #pragma once
 #include <RMC/EngineBase.hpp>
+#include <RMC/FrameStore.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
 
 #include <boost/assert.hpp>
-#include <boost/log/trivial.hpp>
 
 #include <cstdint>
 #include <numeric>
@@ -26,9 +26,13 @@ namespace RMC {
 //   MultiFrameEngine eng(bc);
 //   eng.add_frame(frame0); eng.add_frame(frame1); ...
 //   eng.add_group(g);
-//   eng.add_constraint(pdf_constraint);  // must call set_n_frames after add
-//   eng.initialise();                    // pre-populates frame histograms
-//   eng.run(100'000);
+//   eng.add_constraint(pdf_constraint);
+//   eng.run(100'000);   // per-frame histograms are primed automatically
+//
+// This is the general (N-frame) form of the shared engine pipeline
+// (EngineBase). All feature policies (species/feedback/collector/best/
+// checkpoint) are switched OFF; the only per-engine specifics are the two
+// selectors and the frame-histogram priming in do_initialise().
 class MultiFrameEngine : public EngineBase<MultiFrameEngine> {
 public:
   explicit MultiFrameEngine(BoundaryConditions bc,
@@ -38,7 +42,7 @@ public:
         frame_selector_(RandomSelector{frame_rng_seed}),
         group_selector_(RandomSelector{group_rng_seed}) {}
 
-  void add_frame(AtomicStructure s) { frames_.push_back(std::move(s)); }
+  void add_frame(AtomicStructure s) { store_.add(std::move(s)); }
 
   constexpr void set_frame_selector(GroupSelector s) {
     frame_selector_ = std::move(s);
@@ -47,104 +51,76 @@ public:
     group_selector_ = std::move(s);
   }
 
-  // Call once after all frames/groups/constraints have been added.
-  // Informs pair constraints of the frame count and pre-populates their
-  // per-frame histograms by doing one compute_before_move pass per frame.
-  void initialise();
-
   [[nodiscard]] constexpr const std::vector<AtomicStructure> &
   frames() const noexcept {
-    return frames_;
+    return store_.v_;
   }
   [[nodiscard]] constexpr const AtomicStructure &best_frame() const {
     // Returns frame closest to lowest total error (all frames contribute
     // equally to the averaged constraint, so we just return frame 0; callers
     // who need the absolute best should compare external metrics).
-    return frames_[0];
+    return store_[0];
   }
 
 private:
   friend class EngineBase<MultiFrameEngine>;
 
-  struct TrialCtx {
-    std::size_t fi;
-    std::size_t gi;
-    AtomicStructure *frame;
-    Group *group;
-  };
-
-  std::optional<TrialCtx> select_frame_and_group() {
-    const std::size_t fi = frame_selector_.select(frames_.size());
+  // CRTP customization points called by EngineBase.
+  std::optional<TrialCtx> select() {
+    const std::size_t fi = frame_selector_.select(store_.size());
     const std::size_t gi = group_selector_.select(groups_.size());
     Group &g = groups_[gi];
     if (!g.refine || g.empty() || !g.generator) {
       return std::nullopt;
     }
-    return TrialCtx{fi, gi, &frames_[fi], &g};
+    return TrialCtx{fi, gi, &store_[fi], &g};
   }
 
-  constexpr void snapshot_and_score_before(TrialCtx &c) {
-    ++n_steps_tried_;
-    constraints_.set_active_frame(c.fi);
-    c.frame->save_snapshot(c.group->span());
-    constraints_.compute_before_move(c.frame->coordinates, c.group->span());
-  }
-  constexpr void propose_move(TrialCtx &c) {
-    c.group->generator->generate(c.frame->coordinates, c.group->span());
-    apply_pbc_to(*c.frame, c.group->span());
-  }
-  constexpr void score_after(TrialCtx &c) {
-    constraints_.compute_after_move(c.frame->coordinates, c.group->span());
+  // Inform pair constraints of the frame count and pre-populate their per-frame
+  // histograms (one compute_before_move pass per frame) so the averaged
+  // sum_hist_ is correct from the first step. Run automatically on the first
+  // run()/run_until() via EngineBase::ensure_initialised().
+  void do_initialise() {
+    BOOST_ASSERT_MSG(store_.size() > 0, "MultiFrameEngine: no frames added");
+    const std::size_t N = store_.size();
+    constraints_.set_n_frames(N);
+
+    const std::size_t n_atoms = store_[0].size();
+    std::vector<std::size_t> all_idx(n_atoms);
+    std::iota(all_idx.begin(), all_idx.end(), std::size_t{0});
+
+    for (std::size_t k = 0; k < N; ++k) {
+      constraints_.set_active_frame(k);
+      constraints_.compute_before_move(store_[k].coordinates, all_idx);
+    }
+    // Leave active_frame at 0 (arbitrary; reset per step).
+    constraints_.set_active_frame(0);
   }
 
-  constexpr void settle(TrialCtx &c);
-  constexpr void step();
+  [[nodiscard]] constexpr MultiFrameStore &store() noexcept { return store_; }
+  [[nodiscard]] constexpr NoSpecies &species_policy() noexcept { return sp_; }
+  [[nodiscard]] constexpr NoFeedback &feedback_policy() noexcept { return fb_; }
+  [[nodiscard]] constexpr NoCollector &collector_policy() noexcept {
+    return col_;
+  }
+  [[nodiscard]] constexpr NoBestTracking &best_policy() noexcept {
+    return best_;
+  }
+  [[nodiscard]] constexpr NoCheckpoint &checkpoint_policy() noexcept {
+    return ckpt_;
+  }
+  [[nodiscard]] constexpr GroupSelector &group_sel_for_feedback() noexcept {
+    return group_selector_;
+  }
 
-  std::vector<AtomicStructure> frames_;
+  MultiFrameStore store_;
   GroupSelector frame_selector_;
   GroupSelector group_selector_;
+  [[no_unique_address]] NoSpecies sp_;
+  [[no_unique_address]] NoFeedback fb_;
+  [[no_unique_address]] NoCollector col_;
+  [[no_unique_address]] NoBestTracking best_;
+  [[no_unique_address]] NoCheckpoint ckpt_;
 };
-
-constexpr void MultiFrameEngine::settle(TrialCtx &c) {
-  if (constraints_.should_reject()) {
-    c.frame->restore_snapshot(c.group->span());
-    constraints_.reject();
-  } else {
-    constraints_.accept();
-    ++n_steps_accepted_;
-  }
-}
-
-constexpr void MultiFrameEngine::step() {
-  ++n_steps_total_;
-  auto ctx_opt = select_frame_and_group();
-  ctx_opt
-      .and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
-      .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
-      .and_then(stage([&](TrialCtx &c) { score_after(c); }))
-      .and_then(stage([&](TrialCtx &c) { settle(c); }));
-  const AtomicStructure &cur = ctx_opt ? *ctx_opt->frame : frames_[0];
-  maybe_log(cur);
-}
-
-inline void MultiFrameEngine::initialise() {
-  BOOST_ASSERT_MSG(!frames_.empty(), "MultiFrameEngine: no frames added");
-  BOOST_ASSERT_MSG(!groups_.empty(), "MultiFrameEngine: no groups added");
-
-  const std::size_t N = frames_.size();
-  constraints_.set_n_frames(N);
-
-  // Build a full all-atoms index list used for initial histogram population.
-  const std::size_t n_atoms = frames_[0].size();
-  std::vector<std::size_t> all_idx(n_atoms);
-  std::iota(all_idx.begin(), all_idx.end(), std::size_t{0});
-
-  for (std::size_t k = 0; k < N; ++k) {
-    constraints_.set_active_frame(k);
-    constraints_.compute_before_move(frames_[k].coordinates, all_idx);
-  }
-  // Leave active_frame pointing at frame 0 (arbitrary; will be set per step).
-  constraints_.set_active_frame(0);
-}
 
 } // namespace RMC

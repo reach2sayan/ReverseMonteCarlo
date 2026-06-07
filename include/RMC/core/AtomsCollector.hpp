@@ -1,6 +1,7 @@
 #pragma once
 #include <RMC/core/Types.hpp>
 #include <algorithm>
+#include <iterator>
 #include <vector>
 
 namespace RMC {
@@ -13,7 +14,7 @@ public:
     pending_.assign(indices.begin(), indices.end());
   }
   constexpr void commit_removal() {
-    std::ranges::for_each(pending_, [&](index_t i) { removed_.push_back(i); });
+    std::ranges::copy(pending_, std::back_inserter(removed_));
     pending_.clear();
     std::ranges::sort(removed_);
   }

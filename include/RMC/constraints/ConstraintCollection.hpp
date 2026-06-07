@@ -23,10 +23,9 @@ public:
       c.set_boundary_conditions(bc_.value());
     }
     const double cost = c.computation_cost();
-    auto it = std::lower_bound(constraints_.begin(), constraints_.end(), cost,
-                               [](const Constraint &x, double v) {
-                                 return x.computation_cost() < v;
-                               });
+    auto it = std::lower_bound(
+        constraints_.begin(), constraints_.end(), cost,
+        [](const Constraint &x, double v) { return x.computation_cost() < v; });
     constraints_.insert(it, std::move(c));
   }
 
@@ -44,22 +43,35 @@ public:
     });
   }
 
-  // Run constraints cheapest-first. Stop as soon as one would reject — the
-  // rest are skipped (their reject() resets err_after_ to err_before_ so
-  // total_error() stays consistent).
+  // Run constraints cheapest-first. A RIGID constraint that worsens is a hard
+  // gate, so once one rejects the remaining (often expensive) constraints are
+  // skipped — their reject() resets err_after_ to err_before_ so total_error()
+  // stays consistent. SOFT constraints never short-circuit: they are always
+  // fully evaluated so the engine's Sampler sees the exact post-move total.
   constexpr void compute_after_move(const coords_t &coords,
                                     std::span<const std::size_t> moved) {
     for (auto &c : constraints_) {
       c.compute_after_move(coords, moved);
-      if (c.should_reject()) {
+      if (c.is_rigid() && c.should_reject()) {
         break;
       }
     }
   }
 
+  // Legacy per-constraint veto (any constraint worsened). Retained for tests
+  // and callers that want the strict gate; the engine now uses
+  // rigid_should_reject() plus the Sampler instead.
   [[nodiscard]] constexpr bool should_reject() const noexcept {
     return std::ranges::any_of(
         constraints_, [](const Constraint &c) { return c.should_reject(); });
+  }
+
+  // Hard gate for the engine: any RIGID constraint that worsened. Soft
+  // constraints are deferred to the Sampler via total_error[_before]().
+  [[nodiscard]] constexpr bool rigid_should_reject() const noexcept {
+    return std::ranges::any_of(constraints_, [](const Constraint &c) {
+      return c.is_rigid() && c.should_reject();
+    });
   }
 
   constexpr void accept() noexcept {
@@ -73,6 +85,23 @@ public:
     return std::ranges::fold_left(
         constraints_, 0.0,
         [](double acc, const auto &c) { return acc + c.standard_error(); });
+  }
+
+  // Soft total error BEFORE the proposed move (rigid constraints contribute 0).
+  // Paired with total_error() to form the ΔE handed to the Sampler.
+  [[nodiscard]] constexpr double total_error_before() const noexcept {
+    return std::ranges::fold_left(constraints_, 0.0,
+                                  [](double acc, const auto &c) {
+                                    return acc + c.standard_error_before();
+                                  });
+  }
+
+  // Safety net: run each constraint's one-time initialise() (no-op for those
+  // without one; idempotent for pair constraints). Lets the engine self-heal a
+  // forgotten client-side pdc.initialise().
+  constexpr void initialise_all() {
+    std::ranges::for_each(constraints_,
+                          [](Constraint &c) { c.initialise(); });
   }
 
   constexpr void set_n_frames(std::size_t n) noexcept {

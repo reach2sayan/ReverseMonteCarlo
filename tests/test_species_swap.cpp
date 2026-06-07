@@ -198,6 +198,40 @@ static std::vector<ClusterOrbit> two_pair_orbits() {
   return {nn, nnn};
 }
 
+TEST_CASE("ClusterCorrelationConstraint - exact analytic correlation values",
+          "[species_swap][constraint]") {
+  // Ground-truth check (closes a gap: prior tests only asserted finiteness).
+  // σ: Cu=+1, Au=-1. NN orbit {0-1,1-2,2-3,3-0}, NNN orbit {0-2,1-3}.
+  ClusterCorrelationConstraint::SpeciesMap sm{{"Cu", +1.0}, {"Au", -1.0}};
+  coords_t c(4, 3);
+  c.setZero();
+  std::vector<std::size_t> all = {0, 1, 2, 3};
+
+  SECTION("alternating Cu Au Cu Au") {
+    auto s = make_4site_single_sublattice();
+    s.elements = {"Cu", "Au", "Cu", "Au"};
+    ClusterCorrelationConstraint cc{s, sm, two_pair_orbits()};
+    // NN: each pair σᵢσⱼ = -1 → mean -1. NNN: each pair +1 → mean +1.
+    const auto corr = cc.current_correlations();
+    REQUIRE(corr.size() == 2);
+    REQUIRE_THAT(corr[0], WithinAbs(-1.0, 1e-12));
+    REQUIRE_THAT(corr[1], WithinAbs(+1.0, 1e-12));
+    // err = (−1−0)² + (+1−0)² = 2.
+    REQUIRE_THAT(cc.compute_error(c, all), WithinAbs(2.0, 1e-12));
+  }
+
+  SECTION("clustered Cu Cu Au Au") {
+    auto s = make_4site_single_sublattice(); // Cu Cu Au Au
+    ClusterCorrelationConstraint cc{s, sm, two_pair_orbits()};
+    // NN: (+1,-1,+1,-1) → mean 0. NNN: (-1,-1) → mean -1.
+    const auto corr = cc.current_correlations();
+    REQUIRE_THAT(corr[0], WithinAbs(0.0, 1e-12));
+    REQUIRE_THAT(corr[1], WithinAbs(-1.0, 1e-12));
+    // err = 0² + (−1)² = 1.
+    REQUIRE_THAT(cc.compute_error(c, all), WithinAbs(1.0, 1e-12));
+  }
+}
+
 TEST_CASE(
     "ClusterCorrelationConstraint - perfectly ordered state has nonzero error",
     "[species_swap][constraint]") {
