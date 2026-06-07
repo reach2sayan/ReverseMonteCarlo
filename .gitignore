@@ -30,3 +30,4 @@ Thumbs.db
 /*.out
 .clangd/
 .cache/
+!/extern/

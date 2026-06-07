@@ -38,27 +38,31 @@ struct SingleFrameStore {
   }
 };
 
-// Multi-frame storage. Frames are appended via add() during setup; per-frame
-// addresses are stable as long as no reallocation happens after references are
-// bound (all add_frame calls precede generator/constraint construction in the
-// documented usage order).
+// Multi-frame storage, built on SingleFrameStore so every frame inherits the
+// stable-heap-address guarantee: each frame's AtomicStructure lives behind a
+// unique_ptr, so a vector reallocation during add() merely moves the pointers
+// (cheap) while the structures stay put. References bound by constraints / move
+// generators therefore survive both engine moves AND add() growth, so frames
+// need NOT all be added before generator/constraint construction.
 struct MultiFrameStore {
-  std::vector<AtomicStructure> v_;
+  std::vector<SingleFrameStore> v_;
 
-  void add(AtomicStructure s) { v_.push_back(std::move(s)); }
+  void add(AtomicStructure s) { v_.emplace_back(std::move(s)); }
   [[nodiscard]] constexpr std::size_t size() const noexcept {
     return v_.size();
   }
   [[nodiscard]] constexpr AtomicStructure &operator[](std::size_t i) noexcept {
-    return v_[i];
+    return v_[i].primary();
   }
   [[nodiscard]] constexpr const AtomicStructure &
   operator[](std::size_t i) const noexcept {
-    return v_[i];
+    return v_[i].primary();
   }
-  [[nodiscard]] constexpr AtomicStructure &primary() noexcept { return v_[0]; }
+  [[nodiscard]] constexpr AtomicStructure &primary() noexcept {
+    return v_[0].primary();
+  }
   [[nodiscard]] constexpr const AtomicStructure &primary() const noexcept {
-    return v_[0];
+    return v_[0].primary();
   }
 };
 

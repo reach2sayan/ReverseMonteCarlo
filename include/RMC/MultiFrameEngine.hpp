@@ -51,10 +51,6 @@ public:
     group_selector_ = std::move(s);
   }
 
-  [[nodiscard]] constexpr const std::vector<AtomicStructure> &
-  frames() const noexcept {
-    return store_.v_;
-  }
   [[nodiscard]] constexpr const AtomicStructure &best_frame() const {
     // Returns frame closest to lowest total error (all frames contribute
     // equally to the averaged constraint, so we just return frame 0; callers
