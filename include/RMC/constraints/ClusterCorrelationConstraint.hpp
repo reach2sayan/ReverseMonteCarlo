@@ -36,12 +36,12 @@ struct ClusterOrbit {
   std::vector<int> funcs;
   std::vector<int> site_types;
 
-  [[nodiscard]] std::size_t instance_count() const noexcept {
+  [[nodiscard]] constexpr std::size_t instance_count() const noexcept {
     return body == 0 ? 0 : flat_sites.size() / body;
   }
 
   // Range-like access: a view of contiguous subranges, one per instance.
-  [[nodiscard]] auto instances() const {
+  [[nodiscard]] constexpr auto instances() const {
     return flat_sites | std::views::chunk(body);
   }
 

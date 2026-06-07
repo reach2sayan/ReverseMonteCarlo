@@ -188,11 +188,9 @@ std::vector<SymOp> parse_sym(std::istream &in) {
     if (!rot) {
       throw std::runtime_error("sym.out: truncated point operation");
     }
-    for (int i = 0; i < 3; ++i) {
-      for (int j = 0; j < 3; ++j) {
-        op.rot(i, j) = (*rot)[static_cast<std::size_t>(i * 3 + j)];
-      }
-    }
+    std::ranges::for_each(std::views::iota(0, 9), [&](int k) {
+      op.rot(k / 3, k % 3) = (*rot)[static_cast<std::size_t>(k)];
+    });
     const auto tr =
         bp::prefix_parse(it, end, bp::repeat(3)[bp::double_], bp::ws);
     if (!tr) {

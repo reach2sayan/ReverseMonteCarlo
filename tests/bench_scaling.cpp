@@ -14,6 +14,8 @@
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairCorrelationConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
+#include <RMC/constraints/ReducedStructureFactorConstraint.hpp>
+#include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <RMC/generators/Combined.hpp>
 #include <RMC/generators/Rotations.hpp>
 #include <RMC/generators/Translations.hpp>
@@ -75,6 +77,40 @@ PairCorrelationConstraint make_pcf(int N, double rho0 = 0.03) {
   return pcf;
 }
 
+// S(Q) constraint: O(N²) histogram + a dense (n_Q × n_r) matrix–vector
+// G(r)→S(Q) transform on top of the PDF cost.
+StructureFactorConstraint make_sf(int N, double rho0 = 0.03) {
+  StructureFactorConstraint sf;
+  const int n_Q = 100;
+  mat_t exp_data(n_Q, 2);
+  for (int i = 0; i < n_Q; ++i) {
+    exp_data(i, 0) = 0.5 * (i + 1); // Q
+    exp_data(i, 1) = 1.0;           // S(Q) target
+  }
+  sf.set_experimental_data(exp_data);
+  sf.set_number_density(rho0);
+  (void)N;
+  sf.initialise();
+  return sf;
+}
+
+// F(Q) reduced structure factor: same shape as S(Q) but targets the reduced
+// (Q·[S(Q)−1]-style) quantity via its own Fourier matrix.
+ReducedStructureFactorConstraint make_rsf(int N, double rho0 = 0.03) {
+  ReducedStructureFactorConstraint rsf;
+  const int n_Q = 100;
+  mat_t exp_data(n_Q, 2);
+  for (int i = 0; i < n_Q; ++i) {
+    exp_data(i, 0) = 0.5 * (i + 1); // Q
+    exp_data(i, 1) = 0.0;           // F(Q) target
+  }
+  rsf.set_experimental_data(exp_data);
+  rsf.set_number_density(rho0);
+  (void)N;
+  rsf.initialise();
+  return rsf;
+}
+
 } // namespace
 
 // 1. Step throughput vs system size
@@ -109,7 +145,9 @@ TEST_CASE("bench: step throughput vs system size", "[!benchmark]") {
 // 2. Constraint cost isolation (N=512)
 // Isolates marginal per-step cost of each
 // constraint type. PDF and PCF are O(N²); coordination is O(N) via incremental
-// update; bond/angle are O(bonds) via ItemCache.
+// update; bond/angle are O(bonds) via ItemCache. The structure-factor
+// constraints add a dense (n_Q × n_r) Fourier matrix–vector transform on top of
+// the O(N²) PDF histogram, so they cost strictly more than the bare PDF.
 TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
   constexpr int N = 512;
   constexpr int STEPS = 500;
@@ -168,6 +206,22 @@ TEST_CASE("bench: constraint cost isolation (N=512)", "[!benchmark]") {
       Catch::Benchmark::Chronometer meter) {
     Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
     engine.add_constraint(make_pcf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    meter.measure([&] { engine.run(STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("+ StructureFactorConstraint O(N²) + Fourier matvec")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.add_constraint(make_sf(N));
+    engine.build_atomic_groups(0.0, 0.2, 42);
+    meter.measure([&] { engine.run(STEPS); });
+  };
+
+  BENCHMARK_ADVANCED("+ ReducedStructureFactorConstraint O(N²) + Fourier matvec")(
+      Catch::Benchmark::Chronometer meter) {
+    Engine engine(make_chain(N, 3.0), InfiniteBC(1e6));
+    engine.add_constraint(make_rsf(N));
     engine.build_atomic_groups(0.0, 0.2, 42);
     meter.measure([&] { engine.run(STEPS); });
   };

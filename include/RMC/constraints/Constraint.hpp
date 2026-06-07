@@ -65,7 +65,7 @@ concept CConstraint =
       (1, bool, is_singular, (), 0, (), const, noexcept, WITH_TOKEN))(         \
       (0, void, set_n_frames, (std::size_t n), 1, (n), , noexcept,             \
        WITH_TOKEN))((0, void, set_active_frame, (std::size_t k), 1, (k), ,     \
-                     noexcept, WITH_TOKEN))(                                    \
+                     noexcept, WITH_TOKEN))(                                   \
       (0, void, initialise, (), 0, (), , , WITH_TOKEN))
 RMC_DEFINE_ERASED_TYPE(Constraint, RMC_CONSTRAINT_METHODS)
 #undef RMC_CONSTRAINT_METHODS

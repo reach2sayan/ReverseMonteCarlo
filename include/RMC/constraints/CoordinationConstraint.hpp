@@ -62,11 +62,11 @@ public:
     }
     old_cn_ = cn_;
     last_moved_.assign(moved.begin(), moved.end());
-    saved_positions_.clear();
-    for (auto k : last_moved_) {
-      saved_positions_.push_back(
-          coords.row(static_cast<Eigen::Index>(k)).transpose());
-    }
+    saved_positions_.resize(last_moved_.size());
+    std::ranges::transform(
+        last_moved_, saved_positions_.begin(), [&](std::size_t k) {
+          return coords.row(static_cast<Eigen::Index>(k)).transpose();
+        });
     err_before_ = error_from_cn();
   }
 
@@ -77,7 +77,9 @@ public:
     err_after_ = error_from_cn();
   }
 
-  void accept(Constraint::Token tok) noexcept { ConstraintBase::accept(tok); }
+  constexpr void accept(Constraint::Token tok) noexcept {
+    ConstraintBase::accept(tok);
+  }
 
   void reject(Constraint::Token tok) noexcept {
     ConstraintBase::reject(tok);
@@ -111,16 +113,18 @@ private:
   void build_ids() const {
     std::unordered_map<std::string, uint8_t> name_to_id;
     uint8_t next_id = 0;
+
     elem_id_.resize(elements_.size());
-    for (const auto [i, elem] : std::views::enumerate(elements_)) {
+    for (const auto [i, elem] : elements_ | std::views::enumerate) {
       auto [it, ins] = name_to_id.try_emplace(elem, next_id);
       if (ins) {
         ++next_id;
       }
       elem_id_[i] = it->second;
     }
+
     shell_nb_id_.resize(shells_.size());
-    for (const auto [si, sh] : std::views::enumerate(shells_)) {
+    for (const auto [si, sh] : shells_ | std::views::enumerate) {
       auto it = name_to_id.find(sh.neighbour_elem);
       shell_nb_id_[si] = (it != name_to_id.end())
                              ? it->second
@@ -138,11 +142,11 @@ private:
     const auto ns = static_cast<std::ptrdiff_t>(shells_.size());
     std::vector<std::ptrdiff_t> shell_idx(static_cast<std::size_t>(ns));
     std::iota(shell_idx.begin(), shell_idx.end(), std::ptrdiff_t{0});
-    parallel::for_each(shell_idx.begin(), shell_idx.end(),
-                       [&](std::ptrdiff_t si) {
-                         cn_[static_cast<std::size_t>(si)] =
-                             count_shell(coords, static_cast<std::size_t>(si), N);
-                       });
+    parallel::for_each(
+        shell_idx.begin(), shell_idx.end(), [&](std::ptrdiff_t si) {
+          cn_[static_cast<std::size_t>(si)] =
+              count_shell(coords, static_cast<std::size_t>(si), N);
+        });
     cn_ready_ = true;
   }
 
@@ -188,14 +192,15 @@ private:
       const vec3_t new_k = coords.row(static_cast<Eigen::Index>(k)).transpose();
       const uint8_t k_id = elem_id_.empty() ? 0 : elem_id_[k];
 
-      for (const auto [si, sh] : std::views::enumerate(shells_)) {
+      for (const auto [si, sh] : shells_ | std::views::enumerate) {
         if (sh.centre_idx == k) {
           cn_[si] = count_shell(coords, static_cast<std::size_t>(si), N);
           continue;
         }
 
-        if (!elem_id_.empty() && k_id != shell_nb_id_[si])
+        if (!elem_id_.empty() && k_id != shell_nb_id_[si]) {
           continue;
+        }
 
         const vec3_t j_pos =
             coords.row(static_cast<Eigen::Index>(sh.centre_idx)).transpose();
@@ -204,8 +209,9 @@ private:
 
         auto in_shell = [&](const vec3_t &pk) {
           vec3_t d = pk - j_pos;
-          if (bc_)
+          if (bc_) {
             d = bc_min_image(*bc_, d);
+          }
           const double d2 = d.squaredNorm();
           return d2 >= r2_min && d2 <= r2_max;
         };

@@ -43,7 +43,6 @@ public:
         group_selector_(RandomSelector{group_rng_seed}) {}
 
   void add_frame(AtomicStructure s) { store_.add(std::move(s)); }
-
   constexpr void set_frame_selector(GroupSelector s) {
     frame_selector_ = std::move(s);
   }

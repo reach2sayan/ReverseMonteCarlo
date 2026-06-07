@@ -22,6 +22,7 @@ enum class DistanceScope : std::uint8_t { Inter, Intra };
 // involving k, not O(N²) pairs total.
 template <DistanceScope S>
 class DistanceConstraint : public RigidConstraintBase<DistanceConstraint<S>> {
+  using RigidConstraintBase<DistanceConstraint<S>>::bc_;
   struct ElemPair {
     std::string key1;
     std::string key2;
@@ -51,8 +52,7 @@ public:
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     if constexpr (S == DistanceScope::Inter) {
       return "InterMolecularDistanceConstraint";
-    }
-    else {
+    } else {
       return "IntraMolecularDistanceConstraint";
     }
   }
@@ -60,7 +60,8 @@ public:
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
     const std::size_t N = static_cast<std::size_t>(coords.rows());
-    auto threshold = [&](std::size_t i, std::size_t j) -> std::optional<double> {
+    auto threshold = [&](std::size_t i,
+                         std::size_t j) -> std::optional<double> {
       if (!in_scope(i, j)) {
         return std::nullopt;
       }
@@ -76,7 +77,7 @@ public:
     // InfiniteBC the identity min-image vanishes, leaving a bare squaredNorm.
     // (Squared distance: PairCache compares against threshold² and only takes
     // the sqrt for the few pairs actually in violation.)
-    if (this->bc_ == nullptr) {
+    if (bc_ == nullptr) {
       return cache_.compute(
           N, threshold,
           [&](std::size_t i, std::size_t j) {
@@ -91,12 +92,13 @@ public:
           return cache_.compute(
               N, threshold,
               [&](std::size_t i, std::size_t j) {
-                vec3_t d = coords.row(j).transpose() - coords.row(i).transpose();
+                vec3_t d =
+                    coords.row(j).transpose() - coords.row(i).transpose();
                 return b.min_image(d).squaredNorm();
               },
               moved);
         },
-        *this->bc_);
+        *bc_);
   }
 
 private:

@@ -2,11 +2,15 @@
 #include <RMC/constraints/Constraint.hpp>
 #include <algorithm>
 #include <boost/assert.hpp>
+#include <boost/stl_interfaces/view_interface.hpp>
 #include <vector>
 
 namespace RMC {
 
-class ConstraintCollection {
+class ConstraintCollection
+    : public boost::stl_interfaces::view_interface<
+          ConstraintCollection,
+          boost::stl_interfaces::element_layout::contiguous> {
 public:
   // Insert in ascending computation_cost() order so cheap constraints
   // (bonds, angles) run before expensive O(N²) ones (PDF, S(Q)).
@@ -100,8 +104,7 @@ public:
   // without one; idempotent for pair constraints). Lets the engine self-heal a
   // forgotten client-side pdc.initialise().
   constexpr void initialise_all() {
-    std::ranges::for_each(constraints_,
-                          [](Constraint &c) { c.initialise(); });
+    std::ranges::for_each(constraints_, [](Constraint &c) { c.initialise(); });
   }
 
   constexpr void set_n_frames(std::size_t n) noexcept {
@@ -113,15 +116,16 @@ public:
                           [k](Constraint &c) { c.set_active_frame(k); });
   }
 
-  [[nodiscard]] constexpr std::size_t size() const noexcept {
-    return constraints_.size();
+  // Read-only range surface. boost::stl_interfaces::view_interface synthesizes
+  // size(), empty(), operator[], front(), back(), and data() from these. Only
+  // const iterators are exposed, so callers cannot reorder or mutate elements
+  // and thereby break the cost-ordering / BC-propagation invariants that add()
+  // maintains. Internal logic iterates the member vector directly instead.
+  [[nodiscard]] constexpr auto begin() const noexcept {
+    return constraints_.cbegin();
   }
-
-  [[nodiscard]] constexpr Constraint &operator[](std::size_t i) {
-    return constraints_[i];
-  }
-  [[nodiscard]] constexpr const Constraint &operator[](std::size_t i) const {
-    return constraints_[i];
+  [[nodiscard]] constexpr auto end() const noexcept {
+    return constraints_.cend();
   }
 
 private:
