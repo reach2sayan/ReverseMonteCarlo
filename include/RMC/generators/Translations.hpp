@@ -53,8 +53,9 @@ struct TranslationAlongAxisGenerator
                 std::span<const std::size_t> indices) {
     double magnitude =
         (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    if (rng.uniform() < 0.5)
+    if (rng.uniform() < 0.5) {
       magnitude = -magnitude;
+    }
     vec3_t delta = axis * magnitude;
     coords(indices, Eigen::all).rowwise() += delta.transpose();
   }
@@ -111,8 +112,9 @@ struct TranslationTowardsAxisGenerator
     vec3_t nearest = point + direction.dot(diff) * direction;
     vec3_t to_axis = nearest - gc;
     double dist = to_axis.norm();
-    if (dist < 1e-12)
+    if (dist < 1e-12) {
       return;
+    }
     vec3_t delta = (to_axis / dist) * amp;
     coords(indices, Eigen::all).rowwise() += delta.transpose();
   }
@@ -135,15 +137,21 @@ struct TranslationAlongSymmetryAxisGenerator
                 std::span<const std::size_t> indices) {
     double magnitude =
         (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    if (rng.uniform() < 0.5)
+    if (rng.uniform() < 0.5) {
       magnitude = -magnitude;
+    }
     vec3_t delta = vec3_t::Zero();
-    if (axis == SymmetryAxis::X)
-      delta.x() = magnitude;
-    else if (axis == SymmetryAxis::Y)
-      delta.y() = magnitude;
-    else
+    switch (axis) {
+    case SymmetryAxis::Z:
       delta.z() = magnitude;
+      break;
+    case SymmetryAxis::X:
+      delta.x() = magnitude;
+      break;
+    case SymmetryAxis::Y:
+      delta.y() = magnitude;
+      break;
+    }
     coords(indices, Eigen::all).rowwise() += delta.transpose();
   }
 };
@@ -169,20 +177,26 @@ struct TranslationTowardsSymmetryAxisGenerator
     // Nearest point on the symmetry axis: zero out the two perpendicular
     // components.
     vec3_t nearest = gc;
-    if (axis == SymmetryAxis::X) {
-      nearest.y() = 0.0;
-      nearest.z() = 0.0;
-    } else if (axis == SymmetryAxis::Y) {
-      nearest.x() = 0.0;
-      nearest.z() = 0.0;
-    } else {
+    switch (axis) {
+    case SymmetryAxis::Z:
       nearest.x() = 0.0;
       nearest.y() = 0.0;
+      break;
+    case SymmetryAxis::X:
+      nearest.y() = 0.0;
+      nearest.z() = 0.0;
+      break;
+    case SymmetryAxis::Y:
+      nearest.x() = 0.0;
+      nearest.z() = 0.0;
+      break;
     }
+
     vec3_t to_axis = nearest - gc;
     double dist = to_axis.norm();
-    if (dist < 1e-12)
+    if (dist < 1e-12) {
       return;
+    }
     vec3_t delta = (to_axis / dist) * amp;
     coords(indices, Eigen::all).rowwise() += delta.transpose();
   }

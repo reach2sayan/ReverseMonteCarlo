@@ -112,25 +112,28 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
         element = trim(sv.substr(ELEMENT_START, ELEMENT_LEN));
       if (element.empty() && !atom_name.empty()) {
         // Strip leading digits (e.g. "1HB" → "H").
-        for (char c : atom_name)
+        for (char c : atom_name) {
           if (std::isalpha(c)) {
             element = std::string(1, c);
             break;
           }
+        }
       }
       // Capitalize first letter, lowercase rest.
       if (!element.empty()) {
-        element[0] = static_cast<char>(std::toupper(element[0]));
-        for (std::size_t k = 1; k < element.size(); ++k) {
-          element[k] = static_cast<char>(std::tolower(element[k]));
+        boost::algorithm::to_lower(element);
+        if (!element.empty()) {
+          element[0] = static_cast<char>(
+              std::toupper(static_cast<unsigned char>(element[0])));
         }
       }
 
       std::string chain(1, line[CHAINID]);
       std::size_t resseq = 0;
-      if (line.size() >= static_cast<std::size_t>(RESSEQ_START + RESSEQ_LEN))
+      if (line.size() >= static_cast<std::size_t>(RESSEQ_START + RESSEQ_LEN)) {
         resseq = static_cast<std::size_t>(
             parse_int(sv.substr(RESSEQ_START, RESSEQ_LEN)));
+      }
 
       if (chain != prev_chain || resseq != prev_resseq) {
         ++mol_id;
@@ -154,12 +157,11 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
   }
 
   const std::size_t N = xyz.size();
-  s.coordinates.resize(static_cast<Eigen::Index>(N), 3);
-  for (std::size_t i = 0; i < N; ++i) {
-    s.coordinates(static_cast<Eigen::Index>(i), 0) = xyz[i][0];
-    s.coordinates(static_cast<Eigen::Index>(i), 1) = xyz[i][1];
-    s.coordinates(static_cast<Eigen::Index>(i), 2) = xyz[i][2];
-  }
+  // xyz is a contiguous std::vector<std::array<double,3>>; map it directly into
+  // the row-major coordinate matrix instead of copying component by component.
+  s.coordinates = Eigen::Map<const coords_t>(
+      reinterpret_cast<const double *>(xyz.data()),
+      static_cast<Eigen::Index>(N), 3);
   s.atomic_numbers = Eigen::Map<const ivec_t>(
       atom_numbers.data(), static_cast<Eigen::Index>(atom_numbers.size()));
 
@@ -169,10 +171,10 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
 Result<void> write_pdb(const AtomicStructure &s,
                        const std::filesystem::path &path) {
   std::ofstream f(path);
-  if (!f)
+  if (!f) {
     return boost::leaf::new_error(
         std::string{"Cannot write PDB: " + path.string()});
-
+  }
   for (Eigen::Index i = 0; i < s.coordinates.rows(); ++i) {
     const std::string &name = (i < static_cast<Eigen::Index>(s.names.size()))
                                   ? s.names[static_cast<std::size_t>(i)]

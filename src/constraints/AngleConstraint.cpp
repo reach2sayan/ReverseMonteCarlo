@@ -5,8 +5,9 @@
 
 namespace RMC {
 
-double AngleConstraint::compute_error(const coords_t &coords,
-                                      std::span<const std::size_t> moved) const {
+double
+AngleConstraint::compute_error(const coords_t &coords,
+                               std::span<const std::size_t> moved) const {
   return cache_.compute(
       triplets_, [](const Triplet &t) { return std::array{t.i, t.j, t.k}; },
       [this](const coords_t &c, const Triplet &t) {

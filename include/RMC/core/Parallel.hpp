@@ -30,6 +30,14 @@ template <class It, class F> void for_each(It first, It last, F &&f) {
   });
 }
 
+template <class F>
+void for_each(const std::ranges::input_range auto &&range, F &&f) {
+  arena().execute([&] {
+    std::for_each(std::execution::par_unseq, std::forward<F>(range).begin(),
+                  std::forward<F>(range).end(), std::forward<F>(f));
+  });
+}
+
 } // namespace RMC::parallel
 
 #else // !RMC_USE_TBB — serial fallbacks

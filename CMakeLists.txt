@@ -155,6 +155,7 @@ find_package(Threads REQUIRED)
 add_library(RMC SHARED
         src/core/Structure.cpp
         src/core/BoundaryConditions.cpp
+        src/core/NeighborGrid.cpp
         src/core/Parallel.cpp
         src/constraints/PairConstraintBase.cpp
         src/constraints/StructureFactorConstraint.cpp

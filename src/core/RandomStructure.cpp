@@ -85,9 +85,8 @@ make_random_amorphous(std::span<const std::string> elements,
   for (std::size_t a = 0; a < total; ++a) {
     const std::size_t e = species[a];
     const std::string &sym = elements[e];
-    s.coordinates(static_cast<Eigen::Index>(a), 0) = frac[a].x() * cell;
-    s.coordinates(static_cast<Eigen::Index>(a), 1) = frac[a].y() * cell;
-    s.coordinates(static_cast<Eigen::Index>(a), 2) = frac[a].z() * cell;
+    s.coordinates.row(static_cast<Eigen::Index>(a)) =
+        (frac[a] * cell).transpose();
     s.elements[a] = sym;
     s.names[a] = sym;
     s.residues[a] = sym;

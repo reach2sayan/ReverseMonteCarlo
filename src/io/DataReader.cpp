@@ -86,10 +86,8 @@ Result<mat_t> read_columns(const std::filesystem::path &path) {
   mat_t m(static_cast<Eigen::Index>(rows.size()),
           static_cast<Eigen::Index>(ncol));
   for (std::size_t i = 0; i < rows.size(); ++i) {
-    for (std::size_t j = 0; j < ncol; ++j) {
-      m(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(j)) =
-          rows[i][j];
-    }
+    m.row(static_cast<Eigen::Index>(i)) = Eigen::Map<const Eigen::RowVectorXd>(
+        rows[i].data(), static_cast<Eigen::Index>(ncol));
   }
   return m;
 }

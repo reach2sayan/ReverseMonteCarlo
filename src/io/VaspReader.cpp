@@ -1,7 +1,10 @@
 #include <RMC/io/AtomicNumbers.hpp>
 #include <RMC/io/VaspReader.hpp>
 
+#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
+#include <boost/leaf/error.hpp>                      // BOOST_LEAF_AUTO
 #include <boost/leaf/result.hpp>
+#include <boost/parser/parser.hpp>
 
 #include <algorithm>
 #include <array>
@@ -9,7 +12,7 @@
 #include <cmath>
 #include <format>
 #include <fstream>
-#include <sstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -19,27 +22,54 @@ namespace RMC::io {
 
 namespace {
 
-std::string_view trim(std::string_view sv) {
-  const auto b = sv.find_first_not_of(" \t\r\n");
-  if (b == std::string_view::npos)
-    return {};
-  const auto e = sv.find_last_not_of(" \t\r\n");
-  return sv.substr(b, e - b + 1);
+namespace bp = boost::parser;
+
+// Three space-separated reals (a lattice row or a fractional/Cartesian coord).
+constexpr auto vec3_p = bp::double_ >> bp::double_ >> bp::double_;
+
+// Shape a parsed (x, y, z) tuple into an Eigen column vector.
+const auto to_vec3 = [](const auto &t) {
+  const auto &[x, y, z] = t;
+  return vec3_t{x, y, z};
+};
+
+// Bridge an optional parse result into the leaf world: a value passes through,
+// an empty optional becomes a leaf error carrying msg. This lets each line read
+// as bp::parse(...).transform(...) bound with BOOST_LEAF_AUTO, instead of an
+// explicit `if (!opt) return new_error` at every step.
+template <class T>
+Result<T> or_error(std::optional<T> o, std::string_view msg) {
+  return o ? std::move(*o)
+           : Result<T>{boost::leaf::new_error(std::string{msg})};
 }
 
-bool is_integer_token(const std::string &t) {
+// Trim ASCII whitespace from both ends, returning a sub-view (no allocation).
+// Uses a boost classification predicate rather than two find_*_not_of scans.
+std::string_view trim(std::string_view sv) {
+  static const auto is_ws = boost::is_any_of(" \t\r\n");
+  while (!sv.empty() && is_ws(sv.front())) {
+    sv.remove_prefix(1);
+  }
+  while (!sv.empty() && is_ws(sv.back())) {
+    sv.remove_suffix(1);
+  }
+  return sv;
+}
+
+FORCE_INLINE bool is_integer_token(const std::string &t) {
   return !t.empty() && std::ranges::all_of(t, [](unsigned char ch) {
-           return std::isdigit(ch) != 0;
-         });
+    return std::isdigit(ch) != 0;
+  });
 }
 
 } // namespace
 
 Result<VaspData> read_vasp(const std::filesystem::path &path) {
   std::ifstream file(path);
-  if (!file)
+  if (!file) {
     return boost::leaf::new_error(
         std::string{"Cannot open VASP POSCAR file: " + path.string()});
+  }
 
   VaspData out;
   std::string line;
@@ -48,83 +78,96 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
   };
 
   // Line 1: comment.
-  if (!next(line))
+  if (!next(line)) {
     return boost::leaf::new_error(
         std::string{"Empty POSCAR: " + path.string()});
+  }
 
   // Line 2: universal scaling factor.
-  if (!next(line))
+  if (!next(line)) {
     return boost::leaf::new_error(std::string{"POSCAR missing scaling factor"});
-  double scale = 0.0;
-  {
-    std::istringstream ss{line};
-    if (!(ss >> scale))
-      return boost::leaf::new_error(
-          std::string{"POSCAR scaling factor parse error"});
   }
+  auto scale_it = line.begin();
+  BOOST_LEAF_AUTO(scale, or_error(bp::prefix_parse(scale_it, line.end(),
+                                                   bp::double_, bp::ws),
+                                  "POSCAR scaling factor parse error"));
+
 
   // Lines 3-5: lattice vectors a1, a2, a3 — stored as box columns.
   mat3_t lat = mat3_t::Zero();
   for (int i = 0; i < 3; ++i) {
-    if (!next(line))
+    if (!next(line)) {
       return boost::leaf::new_error(std::string{"POSCAR missing lattice rows"});
-    std::istringstream ss{line};
-    double x = 0, y = 0, z = 0;
-    if (!(ss >> x >> y >> z))
-      return boost::leaf::new_error(std::string{"POSCAR lattice parse error"});
-    lat.col(i) = vec3_t{x, y, z};
+    }
+    auto it = line.begin();
+    BOOST_LEAF_AUTO(
+        row,
+        or_error(
+            bp::prefix_parse(it, line.end(), vec3_p, bp::ws).transform(to_vec3),
+            "POSCAR lattice parse error"));
+    lat.col(i) = row;
   }
 
   // Resolve the scaling factor: a negative value is a target cell volume.
   double s = scale;
   if (scale < 0.0) {
-    const double vol =
-        std::abs(lat.col(0).dot(lat.col(1).cross(lat.col(2))));
+    const double vol = std::abs(lat.col(0).dot(lat.col(1).cross(lat.col(2))));
     s = (vol > 0.0) ? std::cbrt(-scale / vol) : 1.0;
   }
   out.box = lat * s;
 
   // Line 6: element symbols (VASP5) or — for VASP4 — the per-element counts.
-  if (!next(line))
+  if (!next(line)) {
     return boost::leaf::new_error(std::string{"POSCAR missing element line"});
-  std::vector<std::string> tokens;
-  {
-    std::istringstream ss{line};
-    for (std::string w; ss >> w;)
-      tokens.push_back(std::move(w));
   }
-  if (tokens.empty())
-    return boost::leaf::new_error(std::string{"POSCAR empty element line"});
+  // Element symbols are whitespace-separated words; +word_p needs at least one,
+  // so a blank line fails the parse and or_error turns it into the empty-line
+  // error — no separate emptiness check, and no istringstream copy.
+  const auto word_p = bp::lexeme[+(bp::char_ - bp::char_(" \t\r\n"))];
+  BOOST_LEAF_AUTO(symbols, or_error(bp::parse(line, +word_p, bp::ws),
+                                    "POSCAR empty element line"));
 
-  const bool vasp5 = !std::ranges::all_of(tokens, is_integer_token);
-  if (!vasp5)
+  const bool vasp5 = !std::ranges::all_of(symbols, is_integer_token);
+  if (!vasp5) {
     return boost::leaf::new_error(std::string{
         "VASP4 POSCAR has no element symbols; add a VASP5 element line"});
-
-  const std::vector<std::string> symbols = tokens;
-  std::vector<int> counts;
-  if (!next(line))
-    return boost::leaf::new_error(std::string{"POSCAR missing counts line"});
-  {
-    std::istringstream ss{line};
-    for (int c = 0; ss >> c;)
-      counts.push_back(c);
   }
-  if (counts.size() != symbols.size() || symbols.empty())
-    return boost::leaf::new_error(
-        std::string{"POSCAR element/count line mismatch"});
+
+  if (!next(line)) {
+    return boost::leaf::new_error(std::string{"POSCAR missing counts line"});
+  }
+
+  // Parse the per-element counts, then require exactly one per symbol in the
+  // same chain: .and_then drops to nullopt (→ the mismatch error) if the
+  // lengths disagree or the line held no integers.
+  auto counts_it = line.begin();
+  BOOST_LEAF_AUTO(
+      counts,
+      or_error(bp::prefix_parse(counts_it, line.end(), +bp::int_, bp::ws)
+                   .and_then([&symbols](std::vector<int> c)
+                                 -> std::optional<std::vector<int>> {
+                     if (c.size() != symbols.size())
+                       return std::nullopt;
+                     return std::move(c);
+                   }),
+               "POSCAR element/count line mismatch"));
 
   // Optional "Selective dynamics", then the coordinate-mode line.
-  if (!next(line))
-    return boost::leaf::new_error(std::string{"POSCAR missing coordinate mode"});
+  if (!next(line)) {
+    return boost::leaf::new_error(
+        std::string{"POSCAR missing coordinate mode"});
+  }
+
   {
     const std::string_view t = trim(line);
     if (!t.empty() && (t.front() == 'S' || t.front() == 's')) {
-      if (!next(line))
+      if (!next(line)) {
         return boost::leaf::new_error(
             std::string{"POSCAR missing coordinate mode after Selective"});
+      }
     }
   }
+
   const std::string_view mode_sv = trim(line);
   const char mode = mode_sv.empty() ? 'D' : mode_sv.front();
   const bool cartesian =
@@ -138,16 +181,21 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
     const std::string &sym = symbols[e];
     const int z = atomic_number(sym);
     for (int n = 0; n < counts[e]; ++n) {
-      if (!next(line))
+      if (!next(line)) {
         return boost::leaf::new_error(
             std::string{"POSCAR has fewer coordinate lines than declared"});
-      std::istringstream ss{line};
-      double x = 0, y = 0, zc = 0;
-      if (!(ss >> x >> y >> zc))
+      }
+
+      auto it = line.begin();
+
+      const auto frac =
+          bp::prefix_parse(it, line.end(), vec3_p, bp::ws).transform(to_vec3);
+      if (!frac) {
         return boost::leaf::new_error(
             std::string{"POSCAR coordinate line parse error: "} + line);
-      const vec3_t c = cartesian ? vec3_t(s * vec3_t{x, y, zc})
-                                 : vec3_t(out.box * vec3_t{x, y, zc});
+      }
+
+      const vec3_t c = cartesian ? vec3_t(s * *frac) : vec3_t(out.box * *frac);
       cart.push_back({c.x(), c.y(), c.z()});
       st.names.push_back(sym);
       st.elements.push_back(sym);
@@ -158,12 +206,12 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
   }
 
   const std::size_t M = cart.size();
-  st.coordinates.resize(static_cast<Eigen::Index>(M), 3);
-  for (std::size_t i = 0; i < M; ++i) {
-    st.coordinates(static_cast<Eigen::Index>(i), 0) = cart[i][0];
-    st.coordinates(static_cast<Eigen::Index>(i), 1) = cart[i][1];
-    st.coordinates(static_cast<Eigen::Index>(i), 2) = cart[i][2];
-  }
+  // cart is a contiguous std::vector<std::array<double,3>>; map it directly
+  // into the row-major coordinate matrix instead of copying component by
+  // component.
+  st.coordinates =
+      Eigen::Map<const coords_t>(reinterpret_cast<const double *>(cart.data()),
+                                 static_cast<Eigen::Index>(M), 3);
   st.atomic_numbers = Eigen::Map<const ivec_t>(
       anum.data(), static_cast<Eigen::Index>(anum.size()));
 
@@ -177,7 +225,8 @@ Result<void> write_vasp(const AtomicStructure &s, const mat3_t &box,
     return boost::leaf::new_error(
         std::string{"Cannot write VASP POSCAR file: " + path.string()});
 
-  // Group atoms by element in first-appearance order (POSCAR requires grouping).
+  // Group atoms by element in first-appearance order (POSCAR requires
+  // grouping).
   std::vector<std::string> order;
   std::vector<std::vector<std::size_t>> groups;
   std::unordered_map<std::string, std::size_t> pos;
@@ -210,9 +259,8 @@ Result<void> write_vasp(const AtomicStructure &s, const mat3_t &box,
   const PeriodicBC pbc(box);
   for (std::size_t e = 0; e < order.size(); ++e)
     for (const std::size_t idx : groups[e]) {
-      const vec3_t cart{s.coordinates(static_cast<Eigen::Index>(idx), 0),
-                        s.coordinates(static_cast<Eigen::Index>(idx), 1),
-                        s.coordinates(static_cast<Eigen::Index>(idx), 2)};
+      const vec3_t cart =
+          s.coordinates.row(static_cast<Eigen::Index>(idx)).transpose();
       const vec3_t frac = pbc.inv_box() * cart;
       f << std::format("{:.10f} {:.10f} {:.10f}\n", frac.x(), frac.y(),
                        frac.z());

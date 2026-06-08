@@ -47,12 +47,14 @@ public:
   // and swaps their species labels.
   void generate(MoveGenerator::Token, coords_t & /*coords*/,
                 std::span<const std::size_t> indices) {
-    if (indices.empty() || !structure)
+    if (indices.empty() || !structure) {
       return;
+    }
     const std::size_t i = indices[0];
     const int sl = site_to_sublattice_[i];
-    if (sl < 0)
+    if (sl < 0) {
       return;
+    }
 
     const auto &sl_sites = sublattices[static_cast<std::size_t>(sl)];
 

@@ -155,7 +155,7 @@ private:
   void build_index();
   void resync_full();
   void ensure_built();
-  [[nodiscard]] bool occ_mismatch() const;
+  [[nodiscard]] constexpr bool occ_mismatch() const;
   void apply_move_update();
   void rollback_move() noexcept;
 

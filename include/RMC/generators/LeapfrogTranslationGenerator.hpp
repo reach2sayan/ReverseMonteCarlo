@@ -77,7 +77,7 @@ struct LeapfrogTranslationGenerator
       for (Eigen::Index ai = 0; ai < k; ++ai) {
         const auto atom =
             static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
-        coords.row(atom).transpose() += step_size * p.segment<3>(3 * ai);
+        coords.row(atom) += step_size * p.segment<3>(3 * ai).transpose();
       }
 
       g = GradientOracle::translation_gradient(coords, indices, *constraints);
@@ -95,9 +95,8 @@ struct LeapfrogTranslationGenerator
         for (Eigen::Index ai = 0; ai < k; ++ai) {
           const auto atom =
               static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
-          for (int d : {0, 1, 2}) {
-            r_diff_flat(3 * ai + d) = coords(atom, d) - saved(ai, d);
-          }
+          r_diff_flat.segment<3>(3 * ai) =
+              coords.row(atom).transpose() - saved.row(ai).transpose();
         }
         if (p.dot(r_diff_flat) < 0.0) {
           break;

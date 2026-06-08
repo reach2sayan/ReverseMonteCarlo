@@ -1,6 +1,7 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
+#include <RMC/core/NeighborGrid.hpp>
 #include <RMC/core/Types.hpp>
 #include <cstdint>
 #include <span>
@@ -46,6 +47,27 @@ void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
                                 int n_types, double max_dis, int n_bins,
                                 const AtomsCollector *collector = nullptr);
 
+// Incremental neighbour-delta companion to accumulate_angle_histogram. Adds
+// into `hist` (caller zeroes) every angle j–i–k PRESENT in `coords` whose
+// vertex set {apex i, leg j, leg k} intersects `moved`, each exactly once, in
+// the SAME bin/column layout. `grid` must already be synced to `coords` (it
+// serves the neighbour queries). Used for the before/after-move delta:
+// new_hist = saved − accumulate_moved_angles(old) + accumulate_moved_angles(new).
+//
+// Iterating by apex over the candidate centres { moved ∪ neighbours(moved) }
+// counts each affected angle exactly once (the apex is its unique key — no
+// ordering trick is needed, unlike accumulate_moved_pairs). The seed reads a
+// moved atom's coordinate row even when it is absent, so a removed atom's
+// former neighbours are still revisited (its angles get subtracted, not
+// re-added). Per-step cost is independent of N.
+void accumulate_moved_angles(vec_t &hist, const coords_t &coords,
+                             const BoundaryConditions *bc,
+                             const std::vector<uint8_t> &elem_id, int n_types,
+                             double max_dis, int n_bins,
+                             std::span<const std::size_t> moved,
+                             const NeighborGrid &grid,
+                             const AtomsCollector *collector = nullptr);
+
 // Soft constraint fitting the bond-angle distribution function (ADF) — the
 // angular companion to PairDistributionConstraint. Distinct from
 // AngleConstraint (a rigid per-triplet bound check): this fits the full angular
@@ -81,6 +103,13 @@ public:
   // volume normalization) when validating against the reference code.
   constexpr void set_scale_invariant(bool v) noexcept { scale_invariant_ = v; }
 
+  // Force a full histogram + grid rebuild every `n` accepted moves to bound the
+  // floating-point drift of the incremental `saved − D_old + D_new` update. 0
+  // (default) disables it, matching the never-resyncing pair constraints; the
+  // per-step deltas are sums of integer counts so drift is negligible in
+  // practice.
+  constexpr void set_resync_interval(unsigned n) noexcept { resync_every_ = n; }
+
   // build species ids, per-column normalization, and flatten/validate target.
   // Call after set_experimental_data and set_elements (automatic).
   void initialise();
@@ -98,14 +127,34 @@ public:
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;
 
-  void set_n_frames(Constraint::Token, std::size_t n);
-  void set_active_frame(Constraint::Token, std::size_t k) noexcept {
+  // Public (non-token) multi-frame controls, mirroring PairConstraintBase so
+  // tests and tools can drive them directly. set_active_frame_idx resets the
+  // pending before-move delta: the saved snapshot/grid belong to the previously
+  // active frame, so a before-move on a switched-to frame must not be mistaken
+  // for an after-move.
+  void set_n_frames(std::size_t n);
+  void set_active_frame_idx(std::size_t k) noexcept {
     active_frame_ = k;
+    incremental_ready_ = false;
+  }
+  // Restore the active frame's histogram + grid after a rejected move; commit
+  // drops the rollback snapshot (and drives the optional drift resync).
+  void rollback_frame() noexcept;
+  void commit_frame() noexcept;
+
+  // Token-gated wrappers (CConstraint).
+  void set_n_frames(Constraint::Token, std::size_t n) { set_n_frames(n); }
+  void set_active_frame(Constraint::Token, std::size_t k) noexcept {
+    set_active_frame_idx(k);
   }
   void initialise(Constraint::Token) { initialise(); }
   void reject(Constraint::Token tok) noexcept {
     SingularConstraintBase<AngularDistributionConstraint>::reject(tok);
     rollback_frame();
+  }
+  void accept(Constraint::Token tok) noexcept {
+    SingularConstraintBase<AngularDistributionConstraint>::accept(tok);
+    commit_frame();
   }
 
   [[nodiscard]] constexpr const vec_t &computed() const noexcept {
@@ -116,8 +165,12 @@ public:
   }
 
 private:
-  void rollback_frame() noexcept;
   void normalise_and_smooth(const coords_t &coords) const;
+
+  // The neighbour grid backing the active frame (grid_ in single-frame mode).
+  [[nodiscard]] NeighborGrid &active_grid() const noexcept {
+    return n_frames_ > 1 ? frame_grids_[active_frame_] : grid_;
+  }
 
   // ---- Configuration ----
   vec_t exp_theta_;     // angle bin centres (col 0 of the data file)
@@ -139,20 +192,31 @@ private:
   // ---- Histogram state ----
   mutable vec_t computed_;       // normalised, smoothed (length hist_len_)
   mutable vec_t single_hist_;    // raw counts, single-frame path
+  mutable bool single_hist_current_{false}; // false ⇒ next call full-rebuilds
   mutable vec_t smooth_scratch_; // reused smoothing buffer
 
   // ---- Multi-frame state (mutable: modified inside const compute_error) ----
   std::size_t n_frames_{1};
   std::size_t active_frame_{0};
-  mutable std::vector<vec_t> frame_hists_; // raw counts, per frame
-  mutable vec_t sum_hist_;                 // running Σ over frames
-  mutable vec_t saved_frame_hist_;         // pre-move snapshot for rollback
+  mutable std::vector<vec_t> frame_hists_;       // raw counts, per frame
+  mutable std::vector<bool> frame_hist_current_; // per-frame one-time-build gate
+  mutable vec_t sum_hist_;                        // running Σ over frames
+  mutable vec_t saved_frame_hist_;                // pre-move snapshot for rollback
 
-  // Reserved for the planned incremental neighbour-delta path (see
-  // accumulate_angle_histogram): the before-move call would record the touched
-  // angles here and the after-move call would patch saved_frame_hist_ ± deltas,
-  // exactly as PairConstraintBase does with accumulate_moved_pairs.
-  // mutable vec_t saved_moved_delta_, scratch_delta_;
+  // ---- Incremental neighbour-delta state ----
+  // The before-move call records the moved-vertex angle contribution at the old
+  // coords into saved_moved_delta_; the after-move call recomputes it at the new
+  // coords into scratch_delta_ and patches saved_frame_hist_ ± deltas, exactly
+  // as PairConstraintBase does with accumulate_moved_pairs.
+  mutable vec_t saved_moved_delta_;
+  mutable vec_t scratch_delta_;
+  mutable bool incremental_ready_{false}; // set by before-move, cleared after
+  mutable NeighborGrid grid_;             // single-frame neighbour grid
+  mutable std::vector<NeighborGrid> frame_grids_; // per-frame neighbour grids
+
+  // ---- Optional drift-resync guard ----
+  unsigned resync_every_{0};            // 0 = off; full rebuild every N accepts
+  unsigned accepts_since_resync_{0};
 };
 
 static_assert(CConstraint<AngularDistributionConstraint>,

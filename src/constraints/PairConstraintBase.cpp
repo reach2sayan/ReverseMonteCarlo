@@ -77,7 +77,8 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
   // TBB thread pool — no per-call spawn cost. Each row i bins into its own
   // private vector; they are summed at the end.
   std::vector<Eigen::Index> rows(static_cast<std::size_t>(N - 1));
-  std::iota(rows.begin(), rows.end(), Eigen::Index{0});
+  std::ranges::iota(rows, Eigen::Index{0});
+
   std::vector<vec_t> partial(static_cast<std::size_t>(N - 1),
                              vec_t::Zero(n_bins));
   parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
@@ -89,6 +90,7 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
     Eigen::Matrix3Xd delta_scratch, frac_scratch;
     squared_distances(d2, X, Y, Z, i, pbc, delta_scratch, frac_scratch);
     for (Eigen::Index j = i + 1; j < N; ++j) {
+
       if (collector && collector->absent(static_cast<std::size_t>(j))) {
         continue;
       }
@@ -96,6 +98,7 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                               molecule_ids[static_cast<std::size_t>(j)]) {
         continue;
       }
+
       const double w = weights.weight_of(elem_id, static_cast<std::size_t>(i),
                                          static_cast<std::size_t>(j));
       bin_distance(local, std::sqrt(d2(j)), 2.0 * w, r_min, inv_dr, n_bins);
@@ -157,10 +160,10 @@ void accumulate_moved_pairs(
     moved_pos[k] = static_cast<std::size_t>(mk);
   }
 
-  // #3 + Eigen vectorisation: coords is RowMajor AoS, so column access is
+  // #3 + Eigen vectorization: coords is RowMajor AoS, so column access is
   // strided. Copy the three columns into contiguous SoA arrays once; every
   // moved atom then gets its squared distances to all atoms in a single
-  // vectorised Eigen expression (see squared_distances()).
+  // vectorized Eigen expression (see squared_distances()).
   thread_local Eigen::ArrayXd X, Y, Z, d2;
   X = coords.col(0);
   Y = coords.col(1);

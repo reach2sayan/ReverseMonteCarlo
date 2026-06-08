@@ -29,8 +29,8 @@ void ConstraintCollection::add(Constraint c) {
 void ConstraintCollection::set_boundary_conditions(
     const BoundaryConditions &bc) noexcept {
   bc_ = bc;
-  std::ranges::for_each(
-      constraints_, [&](Constraint &c) { c.set_boundary_conditions(bc); });
+  std::ranges::for_each(constraints_,
+                        [&](Constraint &c) { c.set_boundary_conditions(bc); });
 }
 
 void ConstraintCollection::set_collector(const AtomsCollector *c) noexcept {

@@ -1,4 +1,5 @@
 #include <RMC/analysis/AngularDistribution.hpp>
+#include <RMC/analysis/detail/InputCheck.hpp>
 #include <RMC/constraints/AngularDistributionConstraint.hpp>
 #include <RMC/io/LammpsReader.hpp>
 #include <RMC/io/PdbReader.hpp>
@@ -15,7 +16,6 @@
 #include <numbers>
 #include <set>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace RMC::analysis {
@@ -25,25 +25,10 @@ Result<AdfResult> compute_adf(const coords_t &coords,
                               std::span<const std::string> elements,
                               const AdfParams &params) {
   const Eigen::Index N = coords.rows();
-  if (N == 0) {
-    return boost::leaf::new_error(std::string{"compute_adf: empty structure"});
-  } else if (params.n_bins <= 0) {
-    return boost::leaf::new_error(std::string{"compute_adf: need n_bins > 0"});
-  } else if (elements.size() != static_cast<std::size_t>(N)) {
-    return boost::leaf::new_error(
-        std::string{"compute_adf: elements size does not match atom count"});
-  }
-
-  // MAST's volume normalisation needs a finite cell volume.
-  if (!std::holds_alternative<PeriodicBC>(bc)) {
-    return boost::leaf::new_error(
-        std::string{"compute_adf: a periodic box is required for the ADF"});
-  }
-  const double V = bc_volume(bc);
-  if (!(V > 0.0)) {
-    return boost::leaf::new_error(
-        std::string{"compute_adf: box volume must be positive"});
-  }
+  // Shared precondition check (non-empty, matching labels, positive bins,
+  // periodic box); returns the cell volume MAST's normalisation needs.
+  BOOST_LEAF_AUTO(V, detail::check_periodic_inputs("compute_adf", coords,
+                                                   elements, params.n_bins, bc));
 
   // Sorted species ids — identical convention to AngularDistributionConstraint.
   std::set<std::string> unique(elements.begin(), elements.end());
@@ -76,7 +61,7 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   accumulate_angle_histogram(hist, coords, &bc, elem_id, S, params.max_dis,
                              params.n_bins);
 
-  // Per-column MAST normalisation: inc / (N_a·N_p·N_q),
+  // Per-column MAST normalization: inc / (N_a·N_p·N_q),
   // inc = V · N / π · n_bins. Absent species → 0.
   const double inc = V * static_cast<double>(N) / std::numbers::pi *
                      static_cast<double>(params.n_bins);
@@ -91,9 +76,14 @@ Result<AdfResult> compute_adf(const coords_t &coords,
             static_cast<double>(out.counts[static_cast<std::size_t>(q)]);
         col_scale(col) = denom > 0.0 ? inc / denom : 0.0;
       }
-  for (int b = 0; b < params.n_bins; ++b)
-    for (int c = 0; c < n_cols; ++c)
-      hist(static_cast<Eigen::Index>(b) * n_cols + c) *= col_scale(c);
+  // Per-column scaling: `hist` is a row-major (bin × column) matrix flattened
+  // into a vector, so a column-tiled copy of col_scale aligns element-for-
+  // element with it (entry b·n_cols+c ↦ col_scale(c)).
+  hist.array() *= col_scale.replicate(params.n_bins, 1).array();
+
+  // Row-major (n_bins × n_cols) view over the flat histogram; reused below.
+  using RowMajMat =
+      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
   // Per-column boxcar smoothing (shrinking window), 2 passes — matches the
   // constraint and MAST's smooth(hist, 2, 2).
@@ -101,18 +91,14 @@ Result<AdfResult> compute_adf(const coords_t &coords,
     const int range = params.smooth_range;
     vec_t scratch = hist;
     for (int pass = 0; pass < 2; ++pass) {
+      Eigen::Map<const RowMajMat> H(hist.data(), params.n_bins, n_cols);
+      Eigen::Map<RowMajMat> Hs(scratch.data(), params.n_bins, n_cols);
       for (int c = 0; c < n_cols; ++c)
         for (int b = 0; b < params.n_bins; ++b) {
           const int lo = std::max(0, b - range);
           const int hi = std::min(params.n_bins - 1, b + range);
-          const Eigen::Index n_rows = hist.size() / n_cols;
-          Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-                                         Eigen::RowMajor>>
-              H(hist.data(), n_rows, n_cols);
-
-          const double sum = H.col(c).segment(lo, hi - lo + 1).sum();
-          scratch(static_cast<Eigen::Index>(b) * n_cols + c) =
-              sum / static_cast<double>(hi - lo + 1);
+          Hs(b, c) = H.col(c).segment(lo, hi - lo + 1).sum() /
+                     static_cast<double>(hi - lo + 1);
         }
       hist.swap(scratch);
     }
@@ -128,13 +114,12 @@ Result<AdfResult> compute_adf(const coords_t &coords,
 
   // Split into partials (canonical column order) and accumulate the total.
   out.total = vec_t::Zero(params.n_bins);
+  Eigen::Map<const RowMajMat> H(hist.data(), params.n_bins, n_cols);
   for (int a = 0; a < S; ++a)
     for (int p = 0; p < S; ++p)
       for (int q = p; q < S; ++q) {
         const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, S);
-        vec_t partial(params.n_bins);
-        for (int b = 0; b < params.n_bins; ++b)
-          partial(b) = hist(static_cast<Eigen::Index>(b) * n_cols + col);
+        vec_t partial = H.col(col);
         out.total += partial;
         out.partials.push_back(std::move(partial));
         out.triplet_labels.push_back(std::format(

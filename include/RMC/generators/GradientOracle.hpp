@@ -56,15 +56,13 @@ struct GradientOracle {
     Eigen::MatrixXd saved = coords(idx, Eigen::all);
 
     auto apply_rot = [&](double theta) {
-      Eigen::AngleAxisd rot(theta, axis);
-      for (auto ai = 0u; ai < k; ++ai) {
-        const auto atom = static_cast<Eigen::Index>(indices[ai]);
-        coords.row(atom) =
-            (rot * (saved.row(static_cast<Eigen::Index>(ai)).transpose() -
-                    pivot) +
-             pivot)
-                .transpose();
-      }
+      // Rotate every saved row about `pivot` in one batched product:
+      // row_i' = R·(row_iᵀ − pivot) + pivot, written for row-vectors as
+      // (saved − pivot)·Rᵀ + pivot.
+      const mat3_t R = Eigen::AngleAxisd(theta, axis).toRotationMatrix();
+      const Eigen::MatrixXd centered = saved.rowwise() - pivot.transpose();
+      coords(idx, Eigen::all) =
+          (centered * R.transpose()).rowwise() + pivot.transpose();
     };
 
     apply_rot(+fd_step);

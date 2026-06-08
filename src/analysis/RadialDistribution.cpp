@@ -1,4 +1,5 @@
 #include <RMC/analysis/RadialDistribution.hpp>
+#include <RMC/analysis/detail/InputCheck.hpp>
 #include <RMC/constraints/PairHistogram.hpp>
 #include <RMC/io/LammpsReader.hpp>
 #include <RMC/io/PdbReader.hpp>
@@ -12,7 +13,6 @@
 #include <map>
 #include <numbers>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace RMC::analysis {
@@ -36,27 +36,11 @@ Result<GrResult> compute_gr(const coords_t &coords,
                             std::span<const std::string> elements,
                             const GrParams &params) {
   const Eigen::Index N = coords.rows();
-  if (N == 0) {
-    return boost::leaf::new_error(std::string{"compute_gr: empty structure"});
-  } else if (params.n_bins <= 0 || !(params.r_max > params.r_min)) {
-    return boost::leaf::new_error(
-        std::string{"compute_gr: need n_bins > 0 and r_max > r_min"});
-  } else if (elements.size() != static_cast<std::size_t>(N)) {
-    return boost::leaf::new_error(
-        std::string{"compute_gr: elements size does not match atom count"});
-  }
-
-  // Partials need per-species densities ρ_b = N_b/V, so a finite cell volume is
-  // required; a non-periodic cell has no meaningful V.
-  if (!std::holds_alternative<PeriodicBC>(bc)) {
-    return boost::leaf::new_error(
-        std::string{"compute_gr: a periodic box is required for g(r)"});
-  }
-  const double V = bc_volume(bc);
-  if (!(V > 0.0)) {
-    return boost::leaf::new_error(
-        std::string{"compute_gr: box volume must be positive"});
-  }
+  if (!(params.r_max > params.r_min))
+    return boost::leaf::new_error(std::string{"compute_gr: need r_max > r_min"});
+  // Shared precondition check; returns the cell volume the densities need.
+  BOOST_LEAF_AUTO(V, detail::check_periodic_inputs("compute_gr", coords,
+                                                   elements, params.n_bins, bc));
 
   // Map distinct element labels → contiguous, sorted species ids.
   std::map<std::string, std::uint8_t> id_of;
@@ -64,7 +48,7 @@ Result<GrResult> compute_gr(const coords_t &coords,
     id_of.try_emplace(e);
   }
   std::uint8_t next = 0;
-  for (auto& [_, id] : id_of) {
+  for (auto &[_, id] : id_of) {
     id = next++;
   }
 

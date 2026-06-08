@@ -223,19 +223,24 @@ void ClusterCorrelationConstraint::build_index() {
   const std::size_t n =
       std::max(structure_.elements.size(),
                static_cast<std::size_t>(structure_.atomic_numbers.size()));
-  orbit_base_.resize(orbits_.size());
   orbit_count_.resize(orbits_.size());
+  orbit_base_.resize(orbits_.size());
+  std::ranges::transform(orbits_, orbit_count_.begin(), [](const auto &orbit) {
+    return orbit.instance_count();
+  });
+
   std::size_t total = 0;
-  for (std::size_t o = 0; o < orbits_.size(); ++o) {
+  for (std::size_t o = 0; o < orbit_count_.size(); ++o) {
     orbit_base_[o] = total;
-    orbit_count_[o] = orbits_[o].instance_count();
     total += orbit_count_[o];
   }
+
   inst_orbit_.assign(total, 0);
   seen_inst_.assign(total, 0);
   seen_orbit_.assign(orbits_.size(), 0);
   orbit_sum_.assign(orbits_.size(), 0.0);
   site_to_instances_.assign(n, {});
+
   for (std::size_t o = 0; o < orbits_.size(); ++o) {
     const ClusterOrbit &orb = orbits_[o];
     for (std::size_t li = 0; li < orbit_count_[o]; ++li) {
@@ -285,27 +290,26 @@ void ClusterCorrelationConstraint::ensure_built() {
 }
 
 // True if the live structure no longer matches the committed occ_ baseline.
-bool ClusterCorrelationConstraint::occ_mismatch() const {
-  for (std::size_t k = 0; k < occ_.size(); ++k) {
-    if (current_occ(k) != occ_[k]) {
-      return true;
-    }
-  }
-  return false;
+constexpr bool ClusterCorrelationConstraint::occ_mismatch() const {
+  return std::ranges::any_of(
+      std::views::iota(std::size_t{0}, occ_.size()),
+      [&](std::size_t k) { return current_occ(k) != occ_[k]; });
 }
 
 // Apply the just-proposed move: diff changed sites, update only the affected
 // orbit sums + total error, and record undo info for a possible reject().
 void ClusterCorrelationConstraint::apply_move_update() {
   changed_sites_.clear();
-  for (std::size_t k = 0; k < occ_.size(); ++k) {
-    if (current_occ(k) != occ_[k]) {
-      changed_sites_.push_back(k);
-    }
-  }
+  changed_sites_.reserve(occ_.size());
+  std::ranges::copy_if(std::views::iota(std::size_t{0}, occ_.size()),
+                       std::back_inserter(changed_sites_), [&](std::size_t k) {
+                         return current_occ(k) != occ_[k];
+                       });
+
   if (changed_sites_.empty()) {
     return; // no occupation change (e.g. generator found no candidate)
   }
+
   ++epoch_;
   affected_insts_.clear();
   affected_orbits_.clear();
@@ -324,22 +328,27 @@ void ClusterCorrelationConstraint::apply_move_update() {
   }
   // Save undo (occupations of changed sites, raw sums of affected orbits).
   undo_sites_.clear();
-  for (const std::size_t site : changed_sites_) {
-    undo_sites_.emplace_back(site, occ_[site]);
-  }
+  undo_sites_.reserve(changed_sites_.size());
+  std::ranges::transform(
+      changed_sites_, std::back_inserter(undo_sites_),
+      [&](std::size_t site) { return std::pair{site, occ_[site]}; });
+
   undo_orbit_sums_.clear();
-  for (const std::size_t o : affected_orbits_) {
-    undo_orbit_sums_.emplace_back(o, orbit_sum_[o]);
-  }
+  undo_orbit_sums_.reserve(affected_orbits_.size());
+  std::ranges::transform(
+      affected_orbits_, std::back_inserter(undo_orbit_sums_),
+      [&](std::size_t o) { return std::pair{o, orbit_sum_[o]}; });
+
   // Old per-instance products (computed against the pre-move occ_).
   old_prod_.resize(affected_insts_.size());
-  for (std::size_t a = 0; a < affected_insts_.size(); ++a) {
-    old_prod_[a] = instance_product(affected_insts_[a]);
-  }
+  std::ranges::transform(affected_insts_, old_prod_.begin(),
+                         [&](auto gid) { return instance_product(gid); });
+
   // Commit the new occupations, then apply the per-instance product deltas.
   for (const std::size_t site : changed_sites_) {
     occ_[site] = current_occ(site);
   }
+
   for (std::size_t a = 0; a < affected_insts_.size(); ++a) {
     const std::uint32_t gid = affected_insts_[a];
     orbit_sum_[inst_orbit_[gid]] += instance_product(gid) - old_prod_[a];

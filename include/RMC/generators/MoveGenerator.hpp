@@ -46,15 +46,15 @@ concept CMoveGeneratorWithSpeciesModification =
 // by satisfying the refining concept; otherwise the wrapper reports the default
 // (std::nullopt / false). Unlike generate(), the optionals forward without the
 // passkey token (the refining concepts require token-free calls).
-#define RMC_MOVEGENERATOR_METHODS                                             \
-  ((0, void, generate,                                                        \
-    (coords_t &coords, std::span<const std::size_t> indices), 2,             \
+#define RMC_MOVEGENERATOR_METHODS                                              \
+  ((0, void, generate,                                                         \
+    (coords_t & coords, std::span<const std::size_t> indices), 2,              \
     (coords, indices), , , WITH_TOKEN))
-#define RMC_MOVEGENERATOR_OPT_METHODS                                         \
-  ((1, std::optional<bool>, rejection_override, (), 0, (), const, noexcept,  \
-    CMoveGeneratorWithRejectionOverride, std::nullopt))                       \
-  ((1, bool, modifies_species, (), 0, (), const, noexcept,                   \
-    CMoveGeneratorWithSpeciesModification, false))
+#define RMC_MOVEGENERATOR_OPT_METHODS                                          \
+  ((1, std::optional<bool>, rejection_override, (), 0, (), const, noexcept,    \
+    CMoveGeneratorWithRejectionOverride,                                       \
+    std::nullopt))((1, bool, modifies_species, (), 0, (), const, noexcept,     \
+                    CMoveGeneratorWithSpeciesModification, false))
 RMC_DEFINE_ERASED_TYPE_EXT(MoveGenerator, RMC_MOVEGENERATOR_METHODS,
                            RMC_MOVEGENERATOR_OPT_METHODS)
 #undef RMC_MOVEGENERATOR_METHODS

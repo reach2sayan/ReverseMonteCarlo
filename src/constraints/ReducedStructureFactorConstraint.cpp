@@ -34,13 +34,14 @@ void ReducedStructureFactorConstraint::initialise() {
 
   const Eigen::Index nQ = exp_Q_.size();
   Fr2FQ_.resize(nQ, n_r_bins_);
+  // Bin-centre radii r_i = r_min + (i + ½)·Δr.
+  const Eigen::ArrayXd r =
+      Eigen::ArrayXd::LinSpaced(n_r_bins_, 0, n_r_bins_ - 1) * r_bin_ +
+      (r_min_ + 0.5 * r_bin_);
+  // F(Q) = ∫ G(r) sin(Qr) dr — no 1/Q factor here.
   for (Eigen::Index qi = 0; qi < nQ; ++qi) {
-    double q = exp_Q_(qi);
-    for (int ri = 0; ri < n_r_bins_; ++ri) {
-      double r = r_min_ + (ri + 0.5) * r_bin_;
-      // F(Q) = ∫ G(r) sin(Qr) dr  — no 1/Q factor here
-      Fr2FQ_(qi, ri) = r_bin_ * std::sin(q * r);
-    }
+    const double q = exp_Q_(qi);
+    Fr2FQ_.row(qi) = (r_bin_ * (q * r).sin()).matrix().transpose();
   }
   computed_F_.resize(nQ);
 }

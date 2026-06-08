@@ -40,15 +40,11 @@ struct LangevinTranslationGenerator
       const auto atom =
           static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
 
-      auto pos = coords.row(atom).transpose();
-      vec3_t grad;
-      for (int d : {0, 1, 2}) {
-        grad[d] = -half_eps_sq * g(3 * ai + d);
-      }
-      const auto noise =
+      const vec3_t grad = -half_eps_sq * g.segment<3>(3 * ai);
+      const vec3_t noise =
           step_size * vec3_t::NullaryExpr([&] { return rng.normal(); });
 
-      pos += grad + noise;
+      coords.row(atom) += (grad + noise).transpose();
     }
   }
 };
