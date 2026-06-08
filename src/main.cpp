@@ -1,11 +1,13 @@
 #include <RMC/Engine.hpp>
 #include <RMC/Ensemble.hpp>
+#include <RMC/analysis/RadialDistribution.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/io/DataReader.hpp>
+#include <RMC/io/LammpsReader.hpp>
 #include <RMC/io/PdbReader.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
@@ -28,7 +30,11 @@ int main(int argc, char *argv[]) {
   po::options_description desc(
       "RMC_run — Reverse Monte Carlo structural refinement");
   desc.add_options()("help,h", "Show this help")(
-      "pdb,p", po::value<std::string>()->required(), "Input PDB file")(
+      "pdb,p", po::value<std::string>(), "Input PDB file")(
+      "lammps,l", po::value<std::string>(),
+      "Input LAMMPS data file (atom_style atomic); supplies the periodic box")(
+      "types,t", po::value<std::string>(),
+      "Element symbols for LAMMPS atom types, in order, e.g. 'Zr Cu Ag'")(
       "pdf,d", po::value<std::string>(), "Experimental G(r) data file")(
       "sq,q", po::value<std::string>(), "Experimental S(Q) data file")(
       "steps,n", po::value<std::uint64_t>()->default_value(100000), "MC steps")(
@@ -44,6 +50,15 @@ int main(int argc, char *argv[]) {
       "Box vectors: 'a b c' for orthogonal periodic or 'inf' for infinite")(
       "smart", po::bool_switch()->default_value(false),
       "Use smart adaptive selector")(
+      "gr", po::bool_switch()->default_value(false),
+      "Compute g(r) (total + partials) from the input structure and exit; "
+      "no MC is run")("gr-out", po::value<std::string>()->default_value("gr.dat"),
+                      "Output path for g(r) (used with --gr)")(
+      "rmin", po::value<double>()->default_value(0.0), "g(r) minimum radius (Å)")(
+      "rmax", po::value<double>()->default_value(10.0),
+      "g(r) maximum radius (Å)")(
+      "nbins", po::value<std::size_t>()->default_value(200),
+      "g(r) number of radial bins")(
       "verbose,v", po::bool_switch()->default_value(false), "Verbose logging");
 
   po::variables_map vm;
@@ -66,20 +81,73 @@ int main(int argc, char *argv[]) {
 
   return leaf::try_handle_all(
       [&]() -> leaf::result<int> {
-        BOOST_LEAF_AUTO(s, RMC::io::read_pdb(vm["pdb"].as<std::string>()));
-        BOOST_LOG_TRIVIAL(info) << "Loaded " << s.size() << " atoms";
+        const bool has_pdb_in = vm.count("pdb") > 0;
+        const bool has_lammps_in = vm.count("lammps") > 0;
+        if (has_pdb_in == has_lammps_in)
+          return boost::leaf::new_error(std::string{
+              "Provide exactly one of --pdb or --lammps as the input structure"});
+
+        RMC::AtomicStructure s;
         RMC::BoundaryConditions bc = RMC::InfiniteBC(1.0);
-        if (vm.count("box") && vm["box"].as<std::string>() != "inf") {
-          std::istringstream ss(vm["box"].as<std::string>());
-          double a, b, c;
-          ss >> a >> b >> c;
-          RMC::mat3_t box = RMC::mat3_t::Zero();
-          box(0, 0) = a;
-          box(1, 1) = b;
-          box(2, 2) = c;
-          bc = RMC::PeriodicBC(box);
+
+        if (has_lammps_in) {
+          // Parse the optional 'Zr Cu Ag' type→element legend.
+          std::vector<std::string> type_to_element;
+          if (vm.count("types")) {
+            std::istringstream ts(vm["types"].as<std::string>());
+            for (std::string e; ts >> e;)
+              type_to_element.push_back(std::move(e));
+          }
+          BOOST_LEAF_AUTO(data, RMC::io::read_lammps_data(
+                                    vm["lammps"].as<std::string>(),
+                                    type_to_element));
+          s = std::move(data.structure);
+          // A LAMMPS data file carries its own cell; use it unless the user
+          // overrides with --box below.
+          bc = data.periodic_bc();
           BOOST_LOG_TRIVIAL(info)
-              << "Periodic box: " << a << " x " << b << " x " << c;
+              << "Loaded " << s.size() << " atoms from LAMMPS data; box "
+              << data.box(0, 0) << " x " << data.box(1, 1) << " x "
+              << data.box(2, 2);
+        } else {
+          BOOST_LEAF_AUTO(ps, RMC::io::read_pdb(vm["pdb"].as<std::string>()));
+          s = std::move(ps);
+          BOOST_LOG_TRIVIAL(info) << "Loaded " << s.size() << " atoms";
+        }
+
+        // --box overrides whatever box the input implied (incl. the LAMMPS cell).
+        if (vm.count("box")) {
+          if (vm["box"].as<std::string>() == "inf") {
+            bc = RMC::InfiniteBC(1.0);
+            BOOST_LOG_TRIVIAL(info) << "Box: infinite (non-periodic)";
+          } else {
+            std::istringstream ss(vm["box"].as<std::string>());
+            double a, b, c;
+            ss >> a >> b >> c;
+            RMC::mat3_t box = RMC::mat3_t::Zero();
+            box(0, 0) = a;
+            box(1, 1) = b;
+            box(2, 2) = c;
+            bc = RMC::PeriodicBC(box);
+            BOOST_LOG_TRIVIAL(info)
+                << "Periodic box: " << a << " x " << b << " x " << c;
+          }
+        }
+
+        // ---- g(r) mode: compute the pair distribution and exit (no MC) ----
+        if (vm["gr"].as<bool>()) {
+          RMC::analysis::GrParams gp;
+          gp.r_min = vm["rmin"].as<double>();
+          gp.r_max = vm["rmax"].as<double>();
+          gp.n_bins = static_cast<int>(vm["nbins"].as<std::size_t>());
+          BOOST_LEAF_AUTO(
+              g, RMC::analysis::compute_gr(s.coordinates, bc, s.elements, gp));
+          BOOST_LEAF_CHECK(
+              RMC::analysis::write_gr(g, vm["gr-out"].as<std::string>()));
+          BOOST_LOG_TRIVIAL(info)
+              << "Wrote g(r) (" << g.pair_labels.size() << " partials) to "
+              << vm["gr-out"].as<std::string>();
+          return 0;
         }
 
         // ---- Pre-load experimental data (once, shared across replicas) ----

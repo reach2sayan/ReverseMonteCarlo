@@ -172,7 +172,9 @@ add_library(RMC SHARED
         src/selectors/DirectionalOrderSelector.cpp
         src/io/PdbReader.cpp
         src/io/DataReader.cpp
+        src/io/LammpsReader.cpp
         src/io/Checkpoint.cpp
+        src/analysis/RadialDistribution.cpp
         src/Engine.cpp
         src/MultiFrameEngine.cpp
         src/Ensemble.cpp
@@ -249,6 +251,7 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_sampler.cpp
             tests/test_atat_pipeline.cpp
             tests/test_io_readers.cpp
+            tests/test_radial_distribution.cpp
             tests/test_callbacks.cpp
             tests/bench_scaling.cpp
             tests/bench_thf.cpp
