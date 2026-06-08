@@ -35,7 +35,6 @@ struct PairWeightMatrix {
   int n_types{0};
   bool weighted{false};
   std::vector<double> w; // n_types*n_types, row-major, symmetric
-
   [[nodiscard]] constexpr double at(uint8_t a, uint8_t b) const noexcept {
     return w[static_cast<std::size_t>(a) * static_cast<std::size_t>(n_types) +
              static_cast<std::size_t>(b)];
@@ -83,7 +82,8 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                                const PairWeightMatrix &weights, double r_min,
                                double r_max, int n_bins,
                                std::span<const std::size_t> molecule_ids = {},
-                               bool exclude_intra = false);
+                               bool exclude_intra = false,
+                               const AtomsCollector *collector = nullptr);
 
 // Accumulate only the pairs that involve at least one atom from `moved`.
 // Used for O(K·N) incremental histogram updates in the multi-frame MC path.
@@ -94,7 +94,8 @@ void accumulate_moved_pairs(
     vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
     const std::vector<uint8_t> &elem_id, const PairWeightMatrix &weights,
     double r_min, double r_max, int n_bins, std::span<const std::size_t> moved,
-    std::span<const std::size_t> molecule_ids = {}, bool exclude_intra = false);
+    std::span<const std::size_t> molecule_ids = {}, bool exclude_intra = false,
+    const AtomsCollector *collector = nullptr);
 
 class PairConstraintBase {
 protected:
@@ -253,7 +254,7 @@ double PairFunctionConstraint<Mode>::compute_error(
       scratch_delta_.setZero();
       accumulate_moved_pairs(scratch_delta_, coords, bc_, elem_id_,
                              weight_table_, r_min_, r_max_, n_bins_, moved,
-                             molecule_ids_, exclude_intra_);
+                             molecule_ids_, exclude_intra_, this->collector_);
       const vec_t new_frame_hist =
           saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
       sum_hist_ += new_frame_hist - frame_hists_[active_frame_];
@@ -267,7 +268,7 @@ double PairFunctionConstraint<Mode>::compute_error(
         vec_t tmp = vec_t::Zero(n_bins_);
         accumulate_pair_histogram(tmp, coords, bc_, elem_id_, weight_table_,
                                   r_min_, r_max_, n_bins_, molecule_ids_,
-                                  exclude_intra_);
+                                  exclude_intra_, this->collector_);
         sum_hist_ += tmp - saved_frame_hist_;
         frame_hists_[active_frame_] = tmp;
         saved_frame_hist_ = tmp;
@@ -278,7 +279,7 @@ double PairFunctionConstraint<Mode>::compute_error(
         saved_moved_delta_.setZero();
         accumulate_moved_pairs(saved_moved_delta_, coords, bc_, elem_id_,
                                weight_table_, r_min_, r_max_, n_bins_, moved,
-                               molecule_ids_, exclude_intra_);
+                               molecule_ids_, exclude_intra_, this->collector_);
         incremental_ready_ = true;
       }
     }
@@ -302,17 +303,17 @@ double PairFunctionConstraint<Mode>::compute_error(
       scratch_delta_.setZero();
       accumulate_moved_pairs(scratch_delta_, coords, bc_, elem_id_,
                              weight_table_, r_min_, r_max_, n_bins_, moved,
-                             molecule_ids_, exclude_intra_);
+                             molecule_ids_, exclude_intra_, this->collector_);
       single_hist_ = saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
       incremental_ready_ = false;
     } else {
-      // Before-move (or first call after initialise / set_experimental_data).
+      // Before-move (or first call after initialize / set_experimental_data).
       saved_frame_hist_ = single_hist_;
       if (!single_hist_current_) {
         single_hist_ = vec_t::Zero(n_bins_);
         accumulate_pair_histogram(single_hist_, coords, bc_, elem_id_,
                                   weight_table_, r_min_, r_max_, n_bins_,
-                                  molecule_ids_, exclude_intra_);
+                                  molecule_ids_, exclude_intra_, this->collector_);
         saved_frame_hist_ = single_hist_;
         single_hist_current_ = true;
       }
@@ -320,7 +321,7 @@ double PairFunctionConstraint<Mode>::compute_error(
         saved_moved_delta_.setZero();
         accumulate_moved_pairs(saved_moved_delta_, coords, bc_, elem_id_,
                                weight_table_, r_min_, r_max_, n_bins_, moved,
-                               molecule_ids_, exclude_intra_);
+                               molecule_ids_, exclude_intra_, this->collector_);
         incremental_ready_ = true;
       }
     }
@@ -340,8 +341,9 @@ double PairFunctionConstraint<Mode>::compute_error(
   // Apply shape function (nanoparticle envelope), if set.
   if (shape_fn_) {
     const auto &fn = *shape_fn_;
-    for (int i = 0; i < n_bins_; ++i) {
-      computed_[i] *= std::invoke(fn, r_min_ + (i + 0.5) * bin_width_);
+    assert(computed_.size() == n_bins_);
+    for (auto&& [i, computed_val] : computed_ | std::views::enumerate) {//int i = 0; i < n_bins_; ++i) {
+      computed_val *= std::invoke(fn, r_min_ + (i + 0.5) * bin_width_);
     }
   }
 

@@ -284,7 +284,8 @@ int main(int argc, char *argv[]) {
         .t0 = t0, .cooling = cooling, .interval = cool_interval}}};
   };
 
-  // corrdump path: --corrdump > compile-time vendored path > "corrdump" on PATH.
+  // corrdump path: --corrdump > compile-time vendored path > "corrdump" on
+  // PATH.
   const auto resolve_corrdump = [&]() -> std::string {
     const std::string opt = vm["corrdump"].as<std::string>();
     if (!opt.empty()) {
@@ -313,7 +314,8 @@ int main(int argc, char *argv[]) {
       lattice_path = vm["lattice"].as<std::string>();
       const double d2 = vm["d2"].as<double>();
       if (d2 <= 0.0) {
-        throw std::runtime_error("--d2 (max pair diameter) is required with --lattice");
+        throw std::runtime_error(
+            "--d2 (max pair diameter) is required with --lattice");
       }
       std::map<int, double> diam{{2, d2}};
       if (vm["d3"].as<double>() > 0.0) {
@@ -323,7 +325,8 @@ int main(int argc, char *argv[]) {
         diam[4] = vm["d4"].as<double>();
       }
 
-      const Eigen::Matrix3i sc = build_sc_matrix(vm["supercell"].as<std::string>());
+      const Eigen::Matrix3i sc =
+          build_sc_matrix(vm["supercell"].as<std::string>());
       const auto lat = RMC::atat::parse_lattice(lattice_path);
       const auto workdir =
           std::filesystem::temp_directory_path() / "mcsqs_rmc_clusters";
@@ -414,26 +417,26 @@ int main(int argc, char *argv[]) {
   };
 
   RMC::Engine best_engine =
-      (n_replicas > 1)
-          ? RMC::run_ensemble(
-                [&](std::size_t ri) {
-                  return make_engine(seed +
-                                     static_cast<std::uint32_t>(ri * 17u));
-                },
-                n_replicas, n_steps)
-          : [&] {
-              auto eng = make_engine(seed);
-              eng.run(n_steps);
-              return eng;
-            }();
+      (n_replicas > 1) ? RMC::run_ensemble(
+                             [&](std::size_t ri) {
+                               return make_engine(
+                                   seed + static_cast<std::uint32_t>(ri * 17u));
+                             },
+                             n_replicas, n_steps)
+                       : [&] {
+                           auto eng = make_engine(seed);
+                           eng.run(n_steps);
+                           return eng;
+                         }();
 
   const auto &best = best_engine.best_structure();
   write_pdb(best, out_path);
   std::cout << "Best SQS written to " << out_path
             << "  best error: " << best_engine.best_error() << "\n";
 
-  // ATAT pipeline: also emit bestsqs.out (str.out) and report corrdump-recomputed
-  // correlations of the result — a direct cross-check against the search.
+  // ATAT pipeline: also emit bestsqs.out (str.out) and report
+  // corrdump-recomputed correlations of the result — a direct cross-check
+  // against the search.
   if (enumerated) {
     try {
       const std::filesystem::path bestsqs =

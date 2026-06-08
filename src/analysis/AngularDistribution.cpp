@@ -13,6 +13,7 @@
 #include <fstream>
 #include <map>
 #include <numbers>
+#include <set>
 #include <string>
 #include <variant>
 #include <vector>
@@ -24,31 +25,33 @@ Result<AdfResult> compute_adf(const coords_t &coords,
                               std::span<const std::string> elements,
                               const AdfParams &params) {
   const Eigen::Index N = coords.rows();
-  if (N == 0)
+  if (N == 0) {
     return boost::leaf::new_error(std::string{"compute_adf: empty structure"});
-  if (params.n_bins <= 0)
-    return boost::leaf::new_error(
-        std::string{"compute_adf: need n_bins > 0"});
-  if (elements.size() != static_cast<std::size_t>(N))
+  } else if (params.n_bins <= 0) {
+    return boost::leaf::new_error(std::string{"compute_adf: need n_bins > 0"});
+  } else if (elements.size() != static_cast<std::size_t>(N)) {
     return boost::leaf::new_error(
         std::string{"compute_adf: elements size does not match atom count"});
+  }
 
   // MAST's volume normalisation needs a finite cell volume.
-  if (!std::holds_alternative<PeriodicBC>(bc))
+  if (!std::holds_alternative<PeriodicBC>(bc)) {
     return boost::leaf::new_error(
         std::string{"compute_adf: a periodic box is required for the ADF"});
+  }
   const double V = bc_volume(bc);
-  if (!(V > 0.0))
+  if (!(V > 0.0)) {
     return boost::leaf::new_error(
         std::string{"compute_adf: box volume must be positive"});
+  }
 
   // Sorted species ids — identical convention to AngularDistributionConstraint.
+  std::set<std::string> unique(elements.begin(), elements.end());
   std::map<std::string, std::uint8_t> id_of;
-  for (const auto &e : elements)
-    id_of.emplace(e, 0);
   std::uint8_t next = 0;
-  for (auto &kv : id_of)
-    kv.second = next++;
+  for (const auto& e : unique) {
+    id_of.emplace(e, next++);
+  }
   const int S = static_cast<int>(id_of.size());
   const int n_leg_pairs = adf_n_leg_pairs(S);
   const int n_cols = S * n_leg_pairs;
@@ -57,8 +60,9 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   out.max_dis = params.max_dis;
   out.species.resize(static_cast<std::size_t>(S));
   out.counts.assign(static_cast<std::size_t>(S), 0);
-  for (const auto &[sym, id] : id_of)
+  for (const auto &[sym, id] : id_of) {
     out.species[id] = sym;
+  }
 
   std::vector<std::uint8_t> elem_id(static_cast<std::size_t>(N));
   for (Eigen::Index i = 0; i < N; ++i) {
@@ -101,9 +105,12 @@ Result<AdfResult> compute_adf(const coords_t &coords,
         for (int b = 0; b < params.n_bins; ++b) {
           const int lo = std::max(0, b - range);
           const int hi = std::min(params.n_bins - 1, b + range);
-          double sum = 0.0;
-          for (int t = lo; t <= hi; ++t)
-            sum += hist(static_cast<Eigen::Index>(t) * n_cols + c);
+          const Eigen::Index n_rows = hist.size() / n_cols;
+          Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
+                                         Eigen::RowMajor>>
+              H(hist.data(), n_rows, n_cols);
+
+          const double sum = H.col(c).segment(lo, hi - lo + 1).sum();
           scratch(static_cast<Eigen::Index>(b) * n_cols + c) =
               sum / static_cast<double>(hi - lo + 1);
         }
@@ -114,8 +121,10 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   // Bin centres.
   const double bw = std::numbers::pi / static_cast<double>(params.n_bins);
   out.theta.resize(params.n_bins);
-  for (int b = 0; b < params.n_bins; ++b)
-    out.theta(b) = (b + 0.5) * bw;
+  out.theta =
+      (Eigen::VectorXd::LinSpaced(params.n_bins, 0, params.n_bins - 1).array() +
+       0.5) *
+      bw;
 
   // Split into partials (canonical column order) and accumulate the total.
   out.total = vec_t::Zero(params.n_bins);
@@ -168,17 +177,22 @@ Result<void> write_adf(const AdfResult &a, const std::filesystem::path &path) {
         std::string{"Cannot write ADF file: " + path.string()});
 
   f << "# adf: max_dis=" << a.max_dis << ", species=";
-  for (std::size_t i = 0; i < a.species.size(); ++i)
-    f << (i ? "," : "") << a.species[i] << "(" << a.counts[i] << ")";
+  for (const auto &[i, species_and_count] :
+       std::views::zip(a.species, a.counts) | std::views::enumerate) {
+    const auto &[species, count] = species_and_count;
+    f << (i ? "," : "") << species << "(" << count << ")";
+  }
   f << "\n# theta";
-  for (const auto &lbl : a.triplet_labels)
+  for (const auto &lbl : a.triplet_labels) {
     f << "  adf_" << lbl;
+  }
   f << "\n";
 
   for (Eigen::Index b = 0; b < a.theta.size(); ++b) {
     f << std::format("{:.6f}", a.theta(b));
-    for (const auto &p : a.partials)
+    for (const auto &p : a.partials) {
       f << std::format(" {:.8f}", p(b));
+    }
     f << "\n";
   }
   return {};

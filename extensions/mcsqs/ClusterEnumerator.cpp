@@ -42,12 +42,9 @@ bool same_site(const vec3_t &a, const vec3_t &b, const mat3_t &inv_cell) {
 // Index of the supercell site coincident with `pos` (mod supercell), or -1.
 int which_atom(const vec3_t &pos, const std::vector<vec3_t> &sites,
                const mat3_t &inv_super) {
-  for (std::size_t i = 0; i < sites.size(); ++i) {
-    if (same_site(pos, sites[i], inv_super)) {
-      return static_cast<int>(i);
-    }
-  }
-  return -1;
+  const auto it = std::ranges::find_if(
+      sites, [&](const vec3_t &s) { return same_site(pos, s, inv_super); });
+  return it == sites.end() ? -1 : static_cast<int>(it - sites.begin());
 }
 
 // Local mutable cluster (ATAT MultiCluster) in axes coords.
@@ -61,22 +58,20 @@ MC apply_sym(const SymOp &op, const MC &a) {
   MC b;
   b.func = a.func;
   b.site_type = a.site_type;
-  b.clus.resize(a.clus.size());
-  for (std::size_t i = 0; i < a.clus.size(); ++i) {
-    b.clus[i] = op.rot * a.clus[i] + op.trans;
-  }
+  b.clus.reserve(a.clus.size());
+  std::ranges::transform(a.clus, std::back_inserter(b.clus),
+                         [&](const vec3_t &p) -> vec3_t {
+                           return op.rot * p + op.trans;
+                         });
   return b;
 }
 
 // Index in `clus` matching `pos` mod primitive cell, else -1.
 int which_in_cluster(const std::vector<vec3_t> &clus, const vec3_t &pos,
                      const mat3_t &inv_cell) {
-  for (std::size_t i = 0; i < clus.size(); ++i) {
-    if (same_site(clus[i], pos, inv_cell)) {
-      return static_cast<int>(i);
-    }
-  }
-  return -1;
+  const auto it = std::ranges::find_if(
+      clus, [&](const vec3_t &c) { return same_site(c, pos, inv_cell); });
+  return it == clus.end() ? -1 : static_cast<int>(it - clus.begin());
 }
 
 // ATAT equivalent_mod_cell for MultiCluster (xtalutil.c++:181-203).
@@ -87,24 +82,20 @@ bool cluster_equiv(const MC &a, const MC &b, const mat3_t &inv_cell) {
   if (a.clus.empty()) {
     return true;
   }
-  for (std::size_t i = 0; i < b.clus.size(); ++i) {
-    if (!same_site(a.clus[0], b.clus[i], inv_cell)) {
-      continue;
+  // Each candidate anchor in `b` that matches a.clus[0] fixes a shift; the
+  // mapping is valid iff every a-point lands on a b-point with the same func.
+  return std::ranges::any_of(b.clus, [&](const vec3_t &anchor) {
+    if (!same_site(a.clus[0], anchor, inv_cell)) {
+      return false;
     }
-    const vec3_t shift = b.clus[i] - a.clus[0];
-    bool ok = true;
-    for (std::size_t j = 0; j < a.clus.size(); ++j) {
-      const int at = which_in_cluster(b.clus, a.clus[j] + shift, inv_cell);
-      if (at < 0 || b.func[static_cast<std::size_t>(at)] != a.func[j]) {
-        ok = false;
-        break;
-      }
-    }
-    if (ok) {
-      return true;
-    }
-  }
-  return false;
+    const vec3_t shift = anchor - a.clus[0];
+    return std::ranges::all_of(
+        std::views::zip(a.clus, a.func), [&](const auto &pf) {
+          const auto &[pt, fn] = pf;
+          const int at = which_in_cluster(b.clus, pt + shift, inv_cell);
+          return at >= 0 && b.func[static_cast<std::size_t>(at)] == fn;
+        });
+  });
 }
 
 // ATAT find_equivalent_clusters (calccorr.c++:186-208): symmetry images of the
@@ -116,9 +107,8 @@ std::vector<MC> find_equivalent(const MC &rep, const std::vector<SymOp> &sym,
   std::vector<MC> list;
   for (const auto &op : sym) {
     MC img = apply_sym(op, rep);
-    const bool dup = std::any_of(list.begin(), list.end(), [&](const MC &e) {
-      return cluster_equiv(e, img, inv_cell);
-    });
+    const bool dup = std::ranges::any_of(
+        list, [&](const MC &e) { return cluster_equiv(e, img, inv_cell); });
     if (!dup) {
       list.push_back(std::move(img));
     }
@@ -140,27 +130,27 @@ std::vector<vec3_t> enumerate_lattice_points(const mat3_t &cell,
   const vec3_t shift = vec3_t::Constant(M_PI * kTol * 0.1);
   vec3_t mn = vec3_t::Constant(1e30);
   vec3_t mx = vec3_t::Constant(-1e30);
-  for (int cx = 0; cx < 2; ++cx) {
-    for (int cy = 0; cy < 2; ++cy) {
-      for (int cz = 0; cz < 2; ++cz) {
-        const vec3_t corner(cx, cy, cz);
-        const vec3_t v = super_to_cell * (corner + shift);
-        mn = mn.cwiseMin(v);
-        mx = mx.cwiseMax(v);
-      }
-    }
+  for (const auto [cx, cy, cz] : std::views::cartesian_product(
+           std::views::iota(0, 2), std::views::iota(0, 2),
+           std::views::iota(0, 2))) {
+    const vec3_t corner(cx, cy, cz);
+    const vec3_t v = super_to_cell * (corner + shift);
+    mn = mn.cwiseMin(v);
+    mx = mx.cwiseMax(v);
   }
   const vec3_t lo = floor_vec(mn);
   const vec3_t hi = floor_vec(mx) + vec3_t::Constant(1.0); // ceil-ish bound
   std::vector<vec3_t> pts;
-  for (int i = static_cast<int>(lo(0)); i <= static_cast<int>(hi(0)); ++i) {
-    for (int j = static_cast<int>(lo(1)); j <= static_cast<int>(hi(1)); ++j) {
-      for (int k = static_cast<int>(lo(2)); k <= static_cast<int>(hi(2)); ++k) {
-        const vec3_t cur(i, j, k);
-        if (in01(cell_to_super * cur + shift)) {
-          pts.push_back(cell * cur);
-        }
-      }
+  for (const auto [i, j, k] : std::views::cartesian_product(
+           std::views::iota(static_cast<int>(lo(0)),
+                            static_cast<int>(hi(0)) + 1),
+           std::views::iota(static_cast<int>(lo(1)),
+                            static_cast<int>(hi(1)) + 1),
+           std::views::iota(static_cast<int>(lo(2)),
+                            static_cast<int>(hi(2)) + 1))) {
+    const vec3_t cur(i, j, k);
+    if (in01(cell_to_super * cur + shift)) {
+      pts.push_back(cell * cur);
     }
   }
   return pts;
@@ -214,11 +204,8 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
     if (s.occ.size() <= 1) {
       continue;
     }
-    std::vector<std::string> set;
-    for (const auto &p : s.occ) {
-      set.push_back(p.first);
-    }
-    std::sort(set.begin(), set.end());
+    auto set = s.occ | std::views::keys | std::ranges::to<std::vector>();
+    std::ranges::sort(set);
     if (!active_set) {
       active_set = set;
     } else if (*active_set != set) {
@@ -234,13 +221,13 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
   const mat3_t inv_cell = cell.inverse();
 
   std::unordered_map<std::string, int> occ_index;
-  for (std::size_t i = 0; i < lat.labels.size(); ++i) {
-    occ_index[lat.labels[i]] = static_cast<int>(i);
+  for (const auto [i, label] : std::views::enumerate(lat.labels)) {
+    occ_index[label] = static_cast<int>(i);
   }
-  int maxc = 2;
-  for (const auto &s : lat.sites) {
-    maxc = std::max(maxc, static_cast<int>(s.occ.size()));
-  }
+  const int maxc = std::ranges::fold_left(
+      lat.sites | std::views::transform(
+                      [](const auto &s) { return static_cast<int>(s.occ.size()); }),
+      2, [](int acc, int n) { return std::max(acc, n); });
   CorrFuncTable table = CorrFuncTable::trigonometric(maxc);
 
   const std::vector<vec3_t> pts = enumerate_lattice_points(cell, supercell);
@@ -257,12 +244,11 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
   std::vector<int> super_prim;
   super_pos.reserve(pts.size() * n_prim);
   super_prim.reserve(pts.size() * n_prim);
-  for (const auto &t : pts) {
-    for (std::size_t s = 0; s < n_prim; ++s) {
-      super_pos.push_back(
-          wrap_inside(t + lat.sites[s].frac, supercell, inv_super));
-      super_prim.push_back(static_cast<int>(s));
-    }
+  for (const auto [t, s] : std::views::cartesian_product(
+           pts, std::views::iota(std::size_t{0}, n_prim))) {
+    super_pos.push_back(
+        wrap_inside(t + lat.sites[s].frac, supercell, inv_super));
+    super_prim.push_back(static_cast<int>(s));
   }
   const std::size_t n_atoms = super_pos.size();
 
@@ -282,29 +268,29 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
     std::vector<std::size_t> counts(occ.size(), 0);
     std::vector<double> frac(occ.size(), 0.0);
     std::size_t base = 0;
-    for (std::size_t k = 0; k < occ.size(); ++k) {
-      const double e = occ[k].second * static_cast<double>(n);
-      counts[k] = static_cast<std::size_t>(std::floor(e));
-      frac[k] = e - static_cast<double>(counts[k]);
-      base += counts[k];
+    for (auto [cnt, fr, o] : std::views::zip(counts, frac, occ)) {
+      const double e = o.second * static_cast<double>(n);
+      cnt = static_cast<std::size_t>(std::floor(e));
+      fr = e - static_cast<double>(cnt);
+      base += cnt;
     }
     std::vector<std::size_t> order(occ.size());
-    std::iota(order.begin(), order.end(), std::size_t{0});
-    std::sort(order.begin(), order.end(),
-              [&](std::size_t a, std::size_t b) { return frac[a] > frac[b]; });
-    for (std::size_t r = 0; base < n && r < order.size(); ++r, ++base) {
-      counts[order[r]]++;
+    std::ranges::iota(order, std::size_t{0});
+    std::ranges::sort(
+        order, [&](std::size_t a, std::size_t b) { return frac[a] > frac[b]; });
+    // Largest-remainder: hand the `n - base` leftover atoms to the buckets with
+    // the biggest fractional parts (take clamps to order.size()).
+    for (const std::size_t k : order | std::views::take(n - base)) {
+      counts[k]++;
     }
     std::vector<std::string> pool;
     pool.reserve(n);
-    for (std::size_t k = 0; k < occ.size(); ++k) {
-      for (std::size_t c = 0; c < counts[k]; ++c) {
-        pool.push_back(occ[k].first);
-      }
+    for (const auto &[count, o] : std::views::zip(counts, occ)) {
+      std::ranges::fill_n(std::back_inserter(pool), count, o.first);
     }
-    std::shuffle(pool.begin(), pool.end(), rng);
-    for (std::size_t a = 0; a < idx.size() && a < pool.size(); ++a) {
-      elements[idx[a]] = pool[a];
+    std::ranges::shuffle(pool, rng);
+    for (const auto &[i, sp] : std::views::zip(idx, pool)) {
+      elements[i] = sp;
     }
   }
 

@@ -109,7 +109,7 @@ int CoordinationConstraint::count_shell(const coords_t &coords, std::size_t si,
   if (elem_id_.empty()) {
     // No element filtering.
     for (std::size_t j = 0; j < N; ++j) {
-      if (j == sh.centre_idx) {
+      if (j == sh.centre_idx || absent(j)) {
         continue;
       }
       const double d2 = distance_sq(coords, sh.centre_idx, j);
@@ -120,7 +120,7 @@ int CoordinationConstraint::count_shell(const coords_t &coords, std::size_t si,
   } else {
     const uint8_t nb_id = shell_nb_id_[si];
     for (std::size_t j = 0; j < N; ++j) {
-      if (j == sh.centre_idx) {
+      if (j == sh.centre_idx || absent(j)) {
         continue;
       } else if (elem_id_[j] != nb_id) {
         continue;
@@ -167,7 +167,9 @@ void CoordinationConstraint::incremental_update(
       };
 
       const bool was_in = in_shell(old_k);
-      const bool is_in = in_shell(new_k);
+      // A removed atom leaves every shell it was in. Removal does not move the
+      // atom, so the geometric test alone (old_k == new_k) would miss it.
+      const bool is_in = !absent(k) && in_shell(new_k);
       if (was_in && !is_in) {
         --cn_[si];
       } else if (!was_in && is_in) {
@@ -179,8 +181,11 @@ void CoordinationConstraint::incremental_update(
 
 double CoordinationConstraint::error_from_cn() const noexcept {
   return std::ranges::fold_left(
-      std::views::zip(cn_, shells_), 0.0, [](double err, const auto &t) {
+      std::views::zip(cn_, shells_), 0.0, [this](double err, const auto &t) {
         const auto &[cn, sh] = t;
+        if (absent(sh.centre_idx)) {
+          return err; // a removed centre has no coordination requirement
+        }
         if (cn < sh.min_cn) {
           return err + static_cast<double>(sh.min_cn - cn);
         }

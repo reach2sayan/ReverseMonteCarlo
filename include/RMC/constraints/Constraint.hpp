@@ -1,4 +1,5 @@
 #pragma once
+#include <RMC/core/AtomsCollector.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/TypeErasure.hpp>
 #include <RMC/core/Types.hpp>
@@ -23,7 +24,7 @@ template <typename T>
 concept CConstraint =
     requires(T &c, detail::ConstraintToken tok, const coords_t &coords,
              std::span<const std::size_t> moved, const BoundaryConditions &bc,
-             std::size_t k) {
+             const AtomsCollector *col, std::size_t k) {
       c.compute_before_move(tok, coords, moved);
       c.compute_after_move(tok, coords, moved);
       c.accept(tok);
@@ -34,6 +35,7 @@ concept CConstraint =
       { c.name() } -> std::convertible_to<std::string_view>;
       { c.computation_cost(tok) } -> std::convertible_to<double>;
       c.set_boundary_conditions(tok, bc);
+      c.set_collector(tok, col);
       { c.is_rigid(tok) } -> std::convertible_to<bool>;
       { c.is_singular(tok) } -> std::convertible_to<bool>;
       c.set_n_frames(tok, k);
@@ -61,6 +63,8 @@ concept CConstraint =
       (1, double, computation_cost, (), 0, (), const, noexcept, WITH_TOKEN))(  \
       (0, void, set_boundary_conditions, (const BoundaryConditions &bc), 1,    \
        (bc), , , WITH_TOKEN))(                                                 \
+      (0, void, set_collector, (const AtomsCollector *col), 1, (col), , ,      \
+       WITH_TOKEN))(                                                           \
       (1, bool, is_rigid, (), 0, (), const, noexcept, WITH_TOKEN))(            \
       (1, bool, is_singular, (), 0, (), const, noexcept, WITH_TOKEN))(         \
       (0, void, set_n_frames, (std::size_t n), 1, (n), , noexcept,             \
@@ -85,6 +89,7 @@ range_violation(double x, double lo, double hi) noexcept {
 template <typename Derived> class ConstraintBase {
 protected:
   const BoundaryConditions *bc_{nullptr};
+  const AtomsCollector *collector_{nullptr};
   double err_before_{0.0};
   double err_after_{0.0};
 
@@ -97,6 +102,15 @@ public:
   constexpr void
   set_boundary_conditions(const BoundaryConditions &bc) noexcept {
     bc_ = &bc;
+  }
+  // The engine's AtomsCollector (null when the collector feature is off). Lets
+  // term-accumulating loops skip atoms staged/committed for removal.
+  constexpr void set_collector(Constraint::Token,
+                               const AtomsCollector *c) noexcept {
+    collector_ = c;
+  }
+  constexpr void set_collector(const AtomsCollector *c) noexcept {
+    collector_ = c;
   }
 
   void compute_before_move(Constraint::Token, const coords_t &coords,
@@ -149,6 +163,12 @@ public:
   constexpr void initialise(Constraint::Token) noexcept {}
 
 protected:
+  // True when atom `i` is staged or committed for removal — a term that
+  // involves it must be skipped (contribute nothing). Cheap when the collector
+  // feature is off (null pointer short-circuits before any lookup).
+  [[nodiscard]] FORCE_INLINE bool absent(std::size_t i) const noexcept {
+    return collector_ != nullptr && collector_->absent(i);
+  }
   [[nodiscard]] FORCE_INLINE double
   distance_sq(const coords_t &c, std::size_t i, std::size_t j) const noexcept {
     vec3_t d = c.row(j).transpose() - c.row(i).transpose();

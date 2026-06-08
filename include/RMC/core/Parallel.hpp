@@ -1,5 +1,5 @@
 #pragma once
-
+#include <RMC/core/Types.hpp>
 #include <algorithm>
 #include <utility>
 
@@ -19,7 +19,6 @@ inline int default_concurrency() noexcept {
 // Process-wide arena. Concurrency defaults to all hardware threads, or to
 // $RMC_NUM_THREADS when that env var is set to a positive int.
 tbb::task_arena &arena();
-
 inline void set_max_concurrency(int n) {
   arena().terminate();
   arena().initialize(n);

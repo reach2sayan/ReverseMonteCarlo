@@ -8,7 +8,12 @@ double DihedralAngleConstraint::compute_error(
     const coords_t &coords, std::span<const std::size_t> moved) const {
   return cache_.compute(
       quads_, [](const Quad &q) { return std::array{q.i, q.j, q.k, q.l}; },
-      [this](const coords_t &c, const Quad &q) { return quad_error(c, q); },
+      [this](const coords_t &c, const Quad &q) {
+        if (absent(q.i) || absent(q.j) || absent(q.k) || absent(q.l)) {
+          return 0.0; // dihedral through a removed atom no longer exists
+        }
+        return quad_error(c, q);
+      },
       coords, moved);
 }
 

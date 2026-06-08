@@ -18,26 +18,28 @@ Result<RandomStructure>
 make_random_amorphous(std::span<const std::string> elements,
                       std::span<const std::size_t> counts, double spacing,
                       std::uint32_t seed) {
-  if (elements.empty() || counts.size() != elements.size())
-    return boost::leaf::new_error(std::string{
-        "make_random_amorphous: elements and counts must match and be non-empty"});
-  if (!(spacing > 0.0))
+  if (elements.empty() || counts.size() != elements.size()) {
+    return boost::leaf::new_error(
+        std::string{"make_random_amorphous: elements and counts must match and "
+                    "be non-empty"});
+  } else if (!(spacing > 0.0)) {
     return boost::leaf::new_error(
         std::string{"make_random_amorphous: spacing must be positive"});
+  }
 
   const std::size_t total =
       std::accumulate(counts.begin(), counts.end(), std::size_t{0});
-  if (total == 0)
+  if (total == 0) {
     return boost::leaf::new_error(
         std::string{"make_random_amorphous: total atom count is zero"});
-
+  }
   // The exact composition as a flat list of species indices, then shuffled, so
   // every grid site gets a uniformly random species while the counts stay exact.
   std::vector<std::size_t> species;
   species.reserve(total);
-  for (std::size_t e = 0; e < counts.size(); ++e)
-    species.insert(species.end(), counts[e], e);
-
+  for (auto [e, count] : counts | std::views::enumerate) {
+    species.insert(species.end(), count, e);
+  }
   RngBuffer<> rng(seed);
   auto &eng = rng.engine();
   for (std::size_t i = species.size(); i-- > 1;) {
@@ -57,9 +59,11 @@ make_random_amorphous(std::span<const std::string> elements,
   for (int i = 0; i < n && frac.size() < total; ++i)
     for (int j = 0; j < n && frac.size() < total; ++j)
       for (int k = 0; k < n && frac.size() < total; ++k) {
+
         frac.emplace_back(i * inv_n, j * inv_n, k * inv_n);
-        if (frac.size() >= total)
+        if (frac.size() >= total) {
           break;
+        }
         frac.emplace_back((i + 0.5) * inv_n, (j + 0.5) * inv_n,
                           (k + 0.5) * inv_n);
       }

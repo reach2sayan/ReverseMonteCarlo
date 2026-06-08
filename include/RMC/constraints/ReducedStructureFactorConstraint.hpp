@@ -27,6 +27,18 @@ public:
     pdf_.set_boundary_conditions(bc);
   }
 
+  // Forward the collector to the internal PDF (which does the atom iteration);
+  // also re-applied in initialise(), where pdf_ is reconstructed.
+  constexpr void set_collector(Constraint::Token tok,
+                               const AtomsCollector *c) noexcept {
+    SingularConstraintBase::set_collector(tok, c);
+    pdf_.set_collector(c);
+  }
+  constexpr void set_collector(const AtomsCollector *c) noexcept {
+    SingularConstraintBase::set_collector(c);
+    pdf_.set_collector(c);
+  }
+
   constexpr void set_elements(std::span<const std::string> elements) noexcept {
     elements_ = elements;
   }

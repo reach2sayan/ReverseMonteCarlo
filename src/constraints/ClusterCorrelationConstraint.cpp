@@ -146,7 +146,7 @@ void ClusterCorrelationConstraint::refresh_site_occ() const {
     const int cap = static_cast<int>(occ_of_code_.size());
     for (std::size_t s = 0; s < n; ++s) {
       const int code = structure_.atomic_numbers[static_cast<Eigen::Index>(s)];
-      site_occ_[s] = (code >= 0 && code < cap)
+      site_occ_[s] = (!absent(s) && code >= 0 && code < cap)
                          ? occ_of_code_[static_cast<std::size_t>(code)]
                          : -1;
     }
@@ -154,7 +154,7 @@ void ClusterCorrelationConstraint::refresh_site_occ() const {
   }
   for (std::size_t s = 0; s < n; ++s) {
     const auto it = occ_index_.find(structure_.elements[s]);
-    site_occ_[s] = (it == occ_index_.end()) ? -1 : it->second;
+    site_occ_[s] = (absent(s) || it == occ_index_.end()) ? -1 : it->second;
   }
 }
 
@@ -185,6 +185,9 @@ double ClusterCorrelationConstraint::orbit_correlation(
 // Current occupation index of site k from the live structure (mirrors the two
 // paths in refresh_site_occ but for a single site).
 int ClusterCorrelationConstraint::current_occ(std::size_t k) const {
+  if (absent(k)) {
+    return -1; // removed atom: drop every cluster instance that touches it
+  }
   if (!occ_of_code_.empty()) {
     const int code = structure_.atomic_numbers[static_cast<Eigen::Index>(k)];
     const int cap = static_cast<int>(occ_of_code_.size());

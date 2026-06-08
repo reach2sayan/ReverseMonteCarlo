@@ -15,6 +15,9 @@ public:
   // (bonds, angles) run before expensive O(N²) ones (PDF, S(Q)).
   void add(Constraint c);
   void set_boundary_conditions(const BoundaryConditions &bc) noexcept;
+  // Hand every constraint the engine's AtomsCollector (or null when the
+  // collector feature is off) so term loops can skip removed atoms.
+  void set_collector(const AtomsCollector *c) noexcept;
   void compute_before_move(const coords_t &coords,
                            std::span<const std::size_t> moved);
 
@@ -59,6 +62,7 @@ public:
 private:
   std::vector<Constraint> constraints_;
   std::optional<BoundaryConditions> bc_{std::nullopt};
+  const AtomsCollector *collector_{nullptr};
 };
 
 } // namespace RMC

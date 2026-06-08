@@ -31,43 +31,50 @@ vec_t shell_volumes(double r_min, double bin_width, int n_bins) {
 
 } // namespace
 
-Result<GrResult> compute_gr(const coords_t &coords, const BoundaryConditions &bc,
+Result<GrResult> compute_gr(const coords_t &coords,
+                            const BoundaryConditions &bc,
                             std::span<const std::string> elements,
                             const GrParams &params) {
   const Eigen::Index N = coords.rows();
-  if (N == 0)
+  if (N == 0) {
     return boost::leaf::new_error(std::string{"compute_gr: empty structure"});
-  if (params.n_bins <= 0 || !(params.r_max > params.r_min))
+  } else if (params.n_bins <= 0 || !(params.r_max > params.r_min)) {
     return boost::leaf::new_error(
         std::string{"compute_gr: need n_bins > 0 and r_max > r_min"});
-  if (elements.size() != static_cast<std::size_t>(N))
+  } else if (elements.size() != static_cast<std::size_t>(N)) {
     return boost::leaf::new_error(
         std::string{"compute_gr: elements size does not match atom count"});
+  }
 
   // Partials need per-species densities ρ_b = N_b/V, so a finite cell volume is
   // required; a non-periodic cell has no meaningful V.
-  if (!std::holds_alternative<PeriodicBC>(bc))
+  if (!std::holds_alternative<PeriodicBC>(bc)) {
     return boost::leaf::new_error(
         std::string{"compute_gr: a periodic box is required for g(r)"});
+  }
   const double V = bc_volume(bc);
-  if (!(V > 0.0))
+  if (!(V > 0.0)) {
     return boost::leaf::new_error(
         std::string{"compute_gr: box volume must be positive"});
+  }
 
   // Map distinct element labels → contiguous, sorted species ids.
   std::map<std::string, std::uint8_t> id_of;
-  for (const auto &e : elements)
-    id_of.emplace(e, 0); // insert keys; values assigned below in sorted order
+  for (const auto &e : elements) {
+    id_of.try_emplace(e);
+  }
   std::uint8_t next = 0;
-  for (auto &kv : id_of)
-    kv.second = next++;
-  const int S = static_cast<int>(id_of.size());
+  for (auto& [_, id] : id_of) {
+    id = next++;
+  }
 
+  const int S = static_cast<int>(id_of.size());
   GrResult out;
   out.species.resize(static_cast<std::size_t>(S));
   out.counts.assign(static_cast<std::size_t>(S), 0);
-  for (const auto &[sym, id] : id_of)
+  for (const auto &[sym, id] : id_of) {
     out.species[id] = sym;
+  }
 
   std::vector<std::uint8_t> elem_id(static_cast<std::size_t>(N));
   for (Eigen::Index i = 0; i < N; ++i) {
@@ -81,8 +88,10 @@ Result<GrResult> compute_gr(const coords_t &coords, const BoundaryConditions &bc
 
   // Bin centers.
   out.r.resize(params.n_bins);
-  for (int k = 0; k < params.n_bins; ++k)
-    out.r(k) = params.r_min + (k + 0.5) * bin_width;
+  out.r =
+      Eigen::VectorXd::LinSpaced(params.n_bins, 0, params.n_bins - 1).array() *
+          bin_width +
+      (params.r_min + 0.5 * bin_width);
 
   out.density = static_cast<double>(N) / V;
 
@@ -95,7 +104,8 @@ Result<GrResult> compute_gr(const coords_t &coords, const BoundaryConditions &bc
       PairWeightMatrix wm;
       wm.n_types = S;
       wm.weighted = true;
-      wm.w.assign(static_cast<std::size_t>(S) * static_cast<std::size_t>(S), 0.0);
+      wm.w.assign(static_cast<std::size_t>(S) * static_cast<std::size_t>(S),
+                  0.0);
       wm.w[static_cast<std::size_t>(a) * S + b] = 1.0;
       wm.w[static_cast<std::size_t>(b) * S + a] = 1.0;
 
@@ -115,7 +125,7 @@ Result<GrResult> compute_gr(const coords_t &coords, const BoundaryConditions &bc
       vec_t g = vec_t::Zero(params.n_bins);
       if (Na > 0.0 && Nb > 0.0) {
         const double denom_const = pair_factor * Na * Nb;
-        g.array() = hist.array() * V / (shell.array() * denom_const);
+        g.array() = hist.array() * (V / denom_const) / shell.array();
       }
       out.partials.push_back(std::move(g));
       out.pair_labels.push_back(
@@ -126,14 +136,15 @@ Result<GrResult> compute_gr(const coords_t &coords, const BoundaryConditions &bc
   // Total g(r): identical convention to PairDistributionConstraint —
   // total_hist (all ordered pairs) / (shell · ρ · N).
   out.total = vec_t::Zero(params.n_bins);
-  out.total.array() =
-      total_hist.array() / (shell.array() * out.density * static_cast<double>(N));
+  out.total.array() = total_hist.array() /
+                      (shell.array() * out.density * static_cast<double>(N));
 
   return out;
 }
 
 Result<GrResult> compute_gr(const std::filesystem::path &path,
-                            const BoundaryConditions &bc, const GrParams &params,
+                            const BoundaryConditions &bc,
+                            const GrParams &params,
                             const std::vector<std::string> &type_to_element) {
   const std::string ext = path.extension().string();
 

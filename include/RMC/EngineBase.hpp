@@ -194,6 +194,9 @@ protected:
     if (initialised_) {
       return;
     }
+    // Give constraints the engine's collector before any compute_error runs
+    // (do_initialise primes frames by computing errors).
+    constraints_.set_collector(self().collector_policy().collector_ptr());
     constraints_.initialise_all();
     self().do_initialise();
     initialised_ = true;

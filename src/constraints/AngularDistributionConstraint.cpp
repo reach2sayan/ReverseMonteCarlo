@@ -16,7 +16,8 @@ namespace RMC {
 void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
                                 const BoundaryConditions *bc,
                                 const std::vector<uint8_t> &elem_id, int n_types,
-                                double max_dis, int n_bins) {
+                                double max_dis, int n_bins,
+                                const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
   const int n_leg_pairs = adf_n_leg_pairs(n_types);
   const int n_cols = n_types * n_leg_pairs;
@@ -31,7 +32,13 @@ void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
   // see the header note on the planned cell-list / incremental optimisation.
   std::vector<std::vector<std::uint32_t>> adj(static_cast<std::size_t>(N));
   for (Eigen::Index i = 0; i < N; ++i) {
+    if (collector && collector->absent(static_cast<std::size_t>(i))) {
+      continue; // a removed atom joins no neighbour list, so forms no angle
+    }
     for (Eigen::Index j = i + 1; j < N; ++j) {
+      if (collector && collector->absent(static_cast<std::size_t>(j))) {
+        continue;
+      }
       vec3_t d = (coords.row(j) - coords.row(i)).transpose();
       if (bc) {
         d = bc_min_image(*bc, d);
@@ -220,14 +227,14 @@ double AngularDistributionConstraint::compute_error(
     saved_frame_hist_ = frame_hists_[active_frame_];
     vec_t tmp = vec_t::Zero(hist_len_);
     accumulate_angle_histogram(tmp, coords, bc_, elem_id_, n_types_, max_dis_,
-                               n_bins_);
+                               n_bins_, collector_);
     sum_hist_ += tmp - frame_hists_[active_frame_];
     frame_hists_[active_frame_] = std::move(tmp);
     computed_ = sum_hist_ / static_cast<double>(n_frames_);
   } else {
     saved_frame_hist_ = single_hist_;
     accumulate_angle_histogram(single_hist_, coords, bc_, elem_id_, n_types_,
-                               max_dis_, n_bins_);
+                               max_dis_, n_bins_, collector_);
     computed_ = single_hist_;
   }
 

@@ -422,7 +422,7 @@ TEST_CASE("removes - RemoveGenerator stages, commits, and rolls back correctly",
     REQUIRE(col->n_active(6) == 6); // pending, not yet committed
 
     col->commit_removal();
-    REQUIRE(col->removed().size() == 2);
+    REQUIRE(col->n_removed() == 2);
     REQUIRE(col->is_removed(1));
     REQUIRE(col->is_removed(3));
     REQUIRE(!col->is_removed(0));
@@ -435,7 +435,7 @@ TEST_CASE("removes - RemoveGenerator stages, commits, and rolls back correctly",
 
     col->rollback_removal();
     REQUIRE(col->pending().empty());
-    REQUIRE(col->removed().empty());
+    REQUIRE(col->n_removed() == 0);
     REQUIRE(col->n_active(6) == 6);
   }
 
@@ -447,7 +447,7 @@ TEST_CASE("removes - RemoveGenerator stages, commits, and rolls back correctly",
     gen.generate(c, g2);
     col->commit_removal();
 
-    REQUIRE(col->removed().size() == 2);
+    REQUIRE(col->n_removed() == 2);
     REQUIRE(col->is_removed(0));
     REQUIRE(col->is_removed(4));
     REQUIRE(col->n_active(6) == 4);

@@ -29,6 +29,7 @@ void ReducedStructureFactorConstraint::initialise() {
   if (!elements_.empty()) {
     pdf_.set_elements(elements_);
   }
+  pdf_.set_collector(collector_); // pdf_ was just reconstructed; re-apply
   pdf_.initialise();
 
   const Eigen::Index nQ = exp_Q_.size();

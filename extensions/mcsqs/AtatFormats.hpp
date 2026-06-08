@@ -45,8 +45,8 @@ struct SymOp {
 // One point of a cluster representative.
 struct ClusterPoint {
   vec3_t coord{vec3_t::Zero()}; // axes coords
-  int site_type = 0;            // (#species on the site) - 2  (0 for binary)
-  int func = 0;                 // cluster-function index (0..site_type)
+  int site_type = 0; // (#species on the site) - 2  (0 for binary)
+  int func = 0; // cluster-function index (0..site_type)
 };
 
 // One cluster orbit representative (clusters.out block).

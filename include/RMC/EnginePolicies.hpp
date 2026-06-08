@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <optional>
 
 namespace RMC {
@@ -47,20 +48,36 @@ struct NoFeedback {
 
 // --- Pending atom removal (RemoveGenerator) --------------------------------
 struct WithCollector {
-  AtomsCollector collector_;
+  // Heap-owned so a RemoveGenerator and the constraints share the SAME collector
+  // the engine commits/rolls back, and so the address stays stable when the
+  // Engine is moved (e.g. into an ensemble vector).
+  std::shared_ptr<AtomsCollector> collector_{
+      std::make_shared<AtomsCollector>()};
   void commit_or_rollback(bool accepted) {
-    if (accepted && !collector_.pending().empty()) {
-      collector_.commit_removal();
+    if (accepted && !collector_->pending().empty()) {
+      collector_->commit_removal();
     } else {
-      collector_.rollback_removal();
+      collector_->rollback_removal();
     }
   }
-  [[nodiscard]] constexpr AtomsCollector &collector() noexcept {
+  [[nodiscard]] AtomsCollector &collector() noexcept { return *collector_; }
+  // Shared handle for binding a RemoveGenerator to this collector.
+  [[nodiscard]] std::shared_ptr<AtomsCollector>
+  shared_collector() const noexcept {
     return collector_;
+  }
+  // Pointer the engine hands to the constraints so they can skip removed atoms.
+  [[nodiscard]] const AtomsCollector *collector_ptr() const noexcept {
+    return collector_.get();
   }
 };
 struct NoCollector {
   constexpr void commit_or_rollback(bool) noexcept {}
+  // No collector: constraints get a null pointer and skip nothing.
+  [[nodiscard]] static constexpr const AtomsCollector *
+  collector_ptr() noexcept {
+    return nullptr;
+  }
 };
 
 // --- Best-ever configuration tracking --------------------------------------

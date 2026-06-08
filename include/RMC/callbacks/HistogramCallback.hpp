@@ -27,7 +27,6 @@ struct HistogramCallback {
   // Returns (computed, experimental) as a pair of column vectors.
   // Capture whatever constraint reference you need at construction time.
   using Getter = std::function<std::pair<vec_t, vec_t>()>;
-
   vec_t axis;    // r or Q axis values (captured at construction)
   Getter getter; // captures constraint ref(s) at construction
   std::filesystem::path dir;

@@ -25,7 +25,7 @@ namespace RMC {
 // contiguous subranges via instances() (the index order within each subrange
 // matches the orbit's per-point func/site_type).
 struct ClusterOrbit {
-  std::size_t body = 0;                // points per instance (0 ⇒ empty orbit)
+  std::size_t body = 0;  // points per instance (0 ⇒ empty orbit)
   std::vector<std::size_t> flat_sites; // body * instance_count, contiguous
   double target = 0.0; // target correlation (0 = random equiatomic binary)
   double weight = 1.0; // weight in objective function
@@ -63,15 +63,15 @@ struct ClusterOrbit {
 };
 
 // ATAT trigonometric (Chebyshev-like) site-basis table: value indexed by
-// [site_type][func][occupation], where site_type = (#components − 2). For binary
-// it reduces to {occ 0 → −1, occ 1 → +1}. Port of TrigoCorrFuncTable::init
-// (atat/src/calccorr.c++:163-180).
+// [site_type][func][occupation], where site_type = (#components − 2). For
+// binary it reduces to {occ 0 → −1, occ 1 → +1}. Port of
+// TrigoCorrFuncTable::init (atat/src/calccorr.c++:163-180).
 struct CorrFuncTable {
   std::vector<std::vector<std::vector<double>>> t; // [site_type][func][occ]
 
   [[nodiscard]] constexpr double value(int site_type, int func, int occ) const {
-    return t[static_cast<std::size_t>(site_type)][static_cast<std::size_t>(func)]
-            [static_cast<std::size_t>(occ)];
+    return t[static_cast<std::size_t>(site_type)]
+            [static_cast<std::size_t>(func)][static_cast<std::size_t>(occ)];
   }
 
   [[nodiscard]] static CorrFuncTable trigonometric(int max_components);
@@ -168,7 +168,8 @@ private:
   std::vector<ClusterOrbit> orbits_;
   // Per-site occupation index, refreshed once per evaluation from
   // structure_.elements; -1 = unknown species. Source of the hot-loop reads.
-  // mutable: refreshed by const current_correlations() as well as compute_error.
+  // mutable: refreshed by const current_correlations() as well as
+  // compute_error.
   mutable std::vector<int> site_occ_;
   std::size_t total_instances_ = [this] {
     return std::transform_reduce(
@@ -178,11 +179,11 @@ private:
 
   // --- Incremental state (built lazily by ensure_built) --------------------
   bool built_ = false;
-  std::vector<int> occ_;            // committed per-site occupation index
-  std::vector<double> orbit_sum_;   // running raw Σ of per-instance products
-  std::vector<std::size_t> orbit_count_; // cached instance_count per orbit
-  double total_err_ = 0.0;          // running Σ weight·(corr−target)²
-  std::vector<std::size_t> orbit_base_;  // global-instance-id base per orbit
+  std::vector<int> occ_;          // committed per-site occupation index
+  std::vector<double> orbit_sum_; // running raw Σ of per-instance products
+  std::vector<std::size_t> orbit_count_;  // cached instance_count per orbit
+  double total_err_ = 0.0;                // running Σ weight·(corr−target)²
+  std::vector<std::size_t> orbit_base_;   // global-instance-id base per orbit
   std::vector<std::uint32_t> inst_orbit_; // global instance id → orbit index
   std::vector<std::vector<std::uint32_t>> site_to_instances_; // site → gids
   // Per-step dedup of touched instances/orbits via an epoch stamp.
@@ -202,7 +203,8 @@ private:
   static constexpr std::size_t kResyncInterval = 4096;
 };
 
-static_assert(CConstraint<ClusterCorrelationConstraint>,
-              "ClusterCorrelationConstraint must satisfy the CConstraint concept");
+static_assert(
+    CConstraint<ClusterCorrelationConstraint>,
+    "ClusterCorrelationConstraint must satisfy the CConstraint concept");
 
 } // namespace RMC

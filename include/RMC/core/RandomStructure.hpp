@@ -12,7 +12,6 @@ namespace RMC {
 struct RandomStructure {
   AtomicStructure structure;
   mat3_t box{mat3_t::Zero()};
-
   [[nodiscard]] PeriodicBC periodic_bc() const { return PeriodicBC(box); }
 };
 

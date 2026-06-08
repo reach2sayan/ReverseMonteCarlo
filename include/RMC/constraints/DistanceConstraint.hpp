@@ -3,6 +3,7 @@
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/IncrementalCache.hpp>
 #include <boost/container/flat_map.hpp>
+#include <limits>
 #include <optional>
 #include <string>
 #include <variant>
@@ -81,6 +82,9 @@ public:
       return cache_.compute(
           N, threshold,
           [&](std::size_t i, std::size_t j) {
+            if (this->absent(i) || this->absent(j)) {
+              return std::numeric_limits<double>::infinity(); // pair gone
+            }
             const vec3_t d =
                 coords.row(j).transpose() - coords.row(i).transpose();
             return d.squaredNorm();
@@ -92,6 +96,9 @@ public:
           return cache_.compute(
               N, threshold,
               [&](std::size_t i, std::size_t j) {
+                if (this->absent(i) || this->absent(j)) {
+                  return std::numeric_limits<double>::infinity(); // pair gone
+                }
                 vec3_t d =
                     coords.row(j).transpose() - coords.row(i).transpose();
                 return b.min_image(d).squaredNorm();

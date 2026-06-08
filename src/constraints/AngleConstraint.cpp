@@ -10,6 +10,9 @@ double AngleConstraint::compute_error(const coords_t &coords,
   return cache_.compute(
       triplets_, [](const Triplet &t) { return std::array{t.i, t.j, t.k}; },
       [this](const coords_t &c, const Triplet &t) {
+        if (absent(t.i) || absent(t.j) || absent(t.k)) {
+          return 0.0; // angle through a removed atom no longer exists
+        }
         return triplet_error(c, t);
       },
       coords, moved);

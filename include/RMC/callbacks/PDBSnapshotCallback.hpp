@@ -11,7 +11,6 @@ namespace RMC::callbacks {
 // step order. The output directory is created on first use if absent.
 struct PDBSnapshotCallback {
   std::filesystem::path dir;
-
   void operator()(std::uint64_t step, std::uint64_t acc, std::uint64_t tried,
                   double chi2, const AtomicStructure &s) const;
 };

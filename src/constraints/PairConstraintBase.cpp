@@ -62,7 +62,8 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                                const PairWeightMatrix &weights,
                                double r_min, double r_max, int n_bins,
                                std::span<const std::size_t> molecule_ids,
-                               bool exclude_intra) {
+                               bool exclude_intra,
+                               const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
   const double inv_dr = static_cast<double>(n_bins) / (r_max - r_min);
@@ -80,11 +81,17 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
   std::vector<vec_t> partial(static_cast<std::size_t>(N - 1),
                              vec_t::Zero(n_bins));
   parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
+    if (collector && collector->absent(static_cast<std::size_t>(i))) {
+      return; // every pair (i, ·) involves a removed atom
+    }
     vec_t &local = partial[static_cast<std::size_t>(i)];
     Eigen::ArrayXd d2;
     Eigen::Matrix3Xd delta_scratch, frac_scratch;
     squared_distances(d2, X, Y, Z, i, pbc, delta_scratch, frac_scratch);
     for (Eigen::Index j = i + 1; j < N; ++j) {
+      if (collector && collector->absent(static_cast<std::size_t>(j))) {
+        continue;
+      }
       if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
                               molecule_ids[static_cast<std::size_t>(j)]) {
         continue;
@@ -102,8 +109,14 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
   Eigen::ArrayXd d2;
   Eigen::Matrix3Xd delta_scratch, frac_scratch;
   for (Eigen::Index i = 0; i < N; ++i) {
+    if (collector && collector->absent(static_cast<std::size_t>(i))) {
+      continue; // every pair (i, ·) involves a removed atom
+    }
     squared_distances(d2, X, Y, Z, i, pbc, delta_scratch, frac_scratch);
     for (Eigen::Index j = i + 1; j < N; ++j) {
+      if (collector && collector->absent(static_cast<std::size_t>(j))) {
+        continue;
+      }
       if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
                               molecule_ids[static_cast<std::size_t>(j)]) {
         continue;
@@ -120,7 +133,8 @@ void accumulate_moved_pairs(
     vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
     const std::vector<uint8_t> &elem_id, const PairWeightMatrix &weights,
     double r_min, double r_max, int n_bins, std::span<const std::size_t> moved,
-    std::span<const std::size_t> molecule_ids, bool exclude_intra) {
+    std::span<const std::size_t> molecule_ids, bool exclude_intra,
+    const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
   if (N == 0 || moved.empty()) {
     return;
@@ -156,12 +170,18 @@ void accumulate_moved_pairs(
 
   for (const auto [mk, k] : std::views::enumerate(moved)) {
     const auto kk = static_cast<std::size_t>(k);
+    if (collector && collector->absent(kk)) {
+      continue; // moved atom is removed: every pair (k, ·) is gone
+    }
     squared_distances(d2, X, Y, Z, static_cast<Eigen::Index>(k), pbc,
                       delta_scratch, frac_scratch);
     for (Eigen::Index jj = 0; jj < N; ++jj) {
       const std::size_t j = static_cast<std::size_t>(jj);
       if (j == kk) {
         continue;
+      }
+      if (collector && collector->absent(j)) {
+        continue; // partner atom is removed
       }
       // Avoid double-counting pairs where both atoms are in `moved`:
       // count (k,j) only when k appears before j in the moved array, i.e. skip

@@ -122,8 +122,6 @@ AtatLattice parse_lattice(std::istream &in) {
   const auto sep = bp::char_(" \t\r\n,;/");
   const auto name = +(bp::char_ - bp::char_(" \t\r\n,;/="));
   const auto species_p = bp::lexeme[name >> -('=' >> bp::double_)];
-  // Spell out the three coordinates (rather than reusing vec3_p) so the
-  // sequence attribute is a flat (x, y, z, species-list) tuple.
   const auto site_p = bp::double_ >> bp::double_ >> bp::double_ >> +species_p;
 
   std::set<std::string> labelset;
@@ -172,35 +170,39 @@ std::vector<SymOp> parse_sym(std::istream &in) {
   auto it = text.begin();
   const auto end = text.end();
 
-  const auto n_opt = bp::prefix_parse(it, end, bp::uint_, bp::ws);
-  if (!n_opt) {
-    throw std::runtime_error("sym.out: missing operation count");
-  }
-  const auto n = *n_opt;
+  const auto n =
+      bp::prefix_parse(it, end, bp::uint_, bp::ws)
+          .or_else([]() -> std::optional<unsigned> {
+            throw std::runtime_error("sym.out: missing operation count");
+          })
+          .value();
 
   std::vector<SymOp> ops;
   ops.reserve(n);
-  for (unsigned k = 0; k < n; ++k) {
-    SymOp op;
-    // 3x3 rotation, stored row-major in sym.out.
-    const auto rot =
-        bp::prefix_parse(it, end, bp::repeat(9)[bp::double_], bp::ws);
-    if (!rot) {
-      throw std::runtime_error("sym.out: truncated point operation");
-    }
-    std::ranges::for_each(std::views::iota(0, 9), [&](int k) {
-      op.rot(k / 3, k % 3) = (*rot)[static_cast<std::size_t>(k)];
-    });
-    const auto tr =
-        bp::prefix_parse(it, end, bp::repeat(3)[bp::double_], bp::ws);
-    if (!tr) {
-      throw std::runtime_error("sym.out: truncated translation");
-    }
-    for (int i = 0; i < 3; ++i) {
-      op.trans(i) = (*tr)[static_cast<std::size_t>(i)];
-    }
-    ops.push_back(op);
-  }
+  std::ranges::transform(
+      std::views::iota(0u, n), std::back_inserter(ops), [&](unsigned) {
+        SymOp op;
+
+        const auto rot =
+            bp::prefix_parse(it, end, bp::repeat(9)[bp::double_], bp::ws)
+                .or_else([]() -> std::optional<std::vector<double>> {
+                  throw std::runtime_error(
+                      "sym.out: truncated point operation");
+                });
+
+        std::ranges::for_each(std::views::iota(0, 9), [&](int k) {
+          op.rot(k / 3, k % 3) = (*rot)[static_cast<std::size_t>(k)];
+        });
+
+        const auto tr =
+            bp::prefix_parse(it, end, bp::repeat(3)[bp::double_], bp::ws)
+                .or_else([]() -> std::optional<std::vector<double>> {
+                  throw std::runtime_error("sym.out: truncated translation");
+                });
+
+        op.trans = Eigen::Map<const Eigen::Vector3d>(tr->data());
+        return op;
+      });
   return ops;
 }
 
@@ -238,9 +240,11 @@ std::vector<RawOrbit> parse_clusters(std::istream &in) {
       throw std::runtime_error("clusters.out: malformed orbit header");
     }
     const auto &[mult, length, npts] = *hdr;
+
     RawOrbit o;
     o.multiplicity = mult;
     o.length = length;
+
     const auto pts =
         bp::prefix_parse(it, end, bp::repeat(npts)[point_p], bp::ws);
     if (!pts) {
@@ -290,16 +294,14 @@ void write_str_out(const std::filesystem::path &path, const mat3_t &axes,
     throw std::runtime_error("Cannot write str.out: " + path.string());
   }
   f << std::setprecision(9);
-  for (int i = 0; i < 3; ++i) {
-    f << axes(0, i) << " " << axes(1, i) << " " << axes(2, i) << "\n";
+  for (Eigen::Index i = 0; i < 3; ++i) {
+    f << axes.col(i).transpose() << '\n';
   }
-  for (int i = 0; i < 3; ++i) {
-    f << supercell(0, i) << " " << supercell(1, i) << " " << supercell(2, i)
-      << "\n";
+  for (Eigen::Index i = 0; i < 3; ++i) {
+    f << supercell.col(i).transpose() << '\n';
   }
-  for (std::size_t a = 0; a < positions.size(); ++a) {
-    f << positions[a](0) << " " << positions[a](1) << " " << positions[a](2)
-      << " " << species[a] << "\n";
+  for (auto &&[pos, sp] : std::views::zip(positions, species)) {
+    f << pos(0) << ' ' << pos(1) << ' ' << pos(2) << ' ' << sp << '\n';
   }
 }
 

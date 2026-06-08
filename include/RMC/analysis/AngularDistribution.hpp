@@ -16,13 +16,13 @@ struct AdfParams {
 };
 
 // Per-element-triplet partial ADFs plus their sum, on a shared angle grid. The
-// triplet ordering matches AngularDistributionConstraint's column order (central
-// element outer, unordered leg pair inner), so an ADF written by write_adf is
-// directly usable as that constraint's target.
+// triplet ordering matches AngularDistributionConstraint's column order
+// (central element outer, unordered leg pair inner), so an ADF written by
+// write_adf is directly usable as that constraint's target.
 struct AdfResult {
   vec_t theta;                             // bin centres (rad), length n_bins
   vec_t total;                             // sum over triplet columns
-  std::vector<std::string> triplet_labels; // "central-legA-legB" (central first)
+  std::vector<std::string> triplet_labels; // "central-legA-legB"(central first)
   std::vector<vec_t> partials;             // aligned with triplet_labels
   std::vector<std::string> species;        // distinct elements, sorted
   std::vector<std::size_t> counts;         // atom count per species (aligned)
@@ -30,16 +30,14 @@ struct AdfResult {
 };
 
 // Compute the ADF from an in-memory configuration. Requires a periodic box (the
-// MAST volume normalisation needs the cell volume); returns a failed Result for
-// a non-periodic cell. Normalisation and smoothing match
-// AngularDistributionConstraint so the output is comparable to the values it
-// fits.
+// MAST volume normalization needs the cell volume); returns a failed Result for
+// a non-periodic cell.
 [[nodiscard]] Result<AdfResult>
 compute_adf(const coords_t &coords, const BoundaryConditions &bc,
             std::span<const std::string> elements, const AdfParams &params);
 
-// Convenience overload: read a structure file (.pdb, VASP POSCAR by .vasp /
-// .poscar / "POSCAR" name, else LAMMPS data by extension) and compute the ADF.
+// Convenience overload: read a structure file (.pdb, or .vasp /.poscar / "POSCAR" name,
+// else LAMMPS data
 // For LAMMPS and VASP the file's own cell is used; for PDB the supplied `bc`
 // provides the box. `type_to_element` maps LAMMPS atom types to element symbols
 // (ignored for PDB/VASP).
@@ -49,10 +47,10 @@ compute_adf(const std::filesystem::path &path, const BoundaryConditions &bc,
             const std::vector<std::string> &type_to_element = {});
 
 // Write theta and the per-triplet partials as a commented whitespace table in
-// the exact column order (and format) AngularDistributionConstraint consumes via
-// read_xy_data — so a computed ADF can be fed straight back as a fit target. The
-// total is *not* emitted as a column (it is the sum of the partials); plot_adf.py
-// reconstructs it.
+// the exact column order (and format) AngularDistributionConstraint consumes
+// via read_xy_data — so a computed ADF can be fed straight back as a fit
+// target. The total is *not* emitted as a column (it is the sum of the
+// partials); plot_adf.py reconstructs it.
 [[nodiscard]] Result<void> write_adf(const AdfResult &a,
                                      const std::filesystem::path &path);
 

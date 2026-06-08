@@ -5,7 +5,10 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace RMC {
 
@@ -31,6 +34,18 @@ public:
 
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
+
+  // Add a move group whose proposal removes `indices` from the system. The
+  // RemoveGenerator is bound to this engine's collector, so the staged removal
+  // is the one settle() commits/rolls back and the constraints skip.
+  void add_removal_group(std::string name, std::vector<std::size_t> indices);
+
+  // The engine's shared removal collector. Bind your own RemoveGenerator to it
+  // (RemoveGenerator{engine.collector()}) when building groups by hand; the
+  // staged removals must land in this collector to be committed and skipped.
+  [[nodiscard]] std::shared_ptr<AtomsCollector> collector() noexcept {
+    return col_.shared_collector();
+  }
 
   void set_selector(GroupSelector s) { selector_ = std::move(s); }
 

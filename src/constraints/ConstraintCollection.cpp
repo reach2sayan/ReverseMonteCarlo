@@ -16,6 +16,9 @@ void ConstraintCollection::add(Constraint c) {
   if (bc_.has_value()) {
     c.set_boundary_conditions(bc_.value());
   }
+  if (collector_ != nullptr) {
+    c.set_collector(collector_);
+  }
   const double cost = c.computation_cost();
   auto it = std::lower_bound(
       constraints_.begin(), constraints_.end(), cost,
@@ -28,6 +31,12 @@ void ConstraintCollection::set_boundary_conditions(
   bc_ = bc;
   std::ranges::for_each(
       constraints_, [&](Constraint &c) { c.set_boundary_conditions(bc); });
+}
+
+void ConstraintCollection::set_collector(const AtomsCollector *c) noexcept {
+  collector_ = c;
+  std::ranges::for_each(constraints_,
+                        [&](Constraint &cc) { cc.set_collector(c); });
 }
 
 void ConstraintCollection::compute_before_move(

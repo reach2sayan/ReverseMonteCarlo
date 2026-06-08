@@ -13,7 +13,6 @@ struct Group {
   std::vector<std::size_t> indices;
   std::optional<MoveGenerator> generator;
   bool refine = true;
-
   [[nodiscard]] constexpr std::size_t size() const noexcept {
     return indices.size();
   }
