@@ -30,6 +30,7 @@ struct EnumeratedSqs {
   std::vector<ClusterOrbit> orbits; // instances + func/site_type + target
   std::unordered_map<std::string, int> occ_index; // element → occupation index
   CorrFuncTable table;              // trigonometric site basis
+
   // Kept for writing str.out (the corrdump validation oracle / bestsqs.out):
   mat3_t axes{mat3_t::Identity()};
   mat3_t supercell{mat3_t::Identity()}; // axes coords

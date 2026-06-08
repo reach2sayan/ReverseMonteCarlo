@@ -16,7 +16,7 @@ namespace RMC::analysis::detail {
 // bin count, and a periodic box with positive volume (both normalisations need
 // a finite cell volume). `fn` prefixes the error message so callers keep their
 // distinct diagnostics. Returns the cell volume V on success for reuse.
-[[nodiscard]] inline Result<double>
+[[nodiscard]] FORCE_INLINE Result<double>
 check_periodic_inputs(std::string_view fn, const coords_t &coords,
                       std::span<const std::string> elements, int n_bins,
                       const BoundaryConditions &bc) {

@@ -241,20 +241,16 @@ std::vector<RawOrbit> parse_clusters(std::istream &in) {
     }
     const auto &[mult, length, npts] = *hdr;
 
-    RawOrbit o;
-    o.multiplicity = mult;
-    o.length = length;
-
+    RawOrbit o{.multiplicity = mult, .length = length, .points = {}};
     const auto pts =
         bp::prefix_parse(it, end, bp::repeat(npts)[point_p], bp::ws);
     if (!pts) {
       throw std::runtime_error("clusters.out: malformed point");
     }
+
     for (const auto &[x, y, z, site_type, func] : *pts) {
-      ClusterPoint cp;
-      cp.coord = vec3_t(x, y, z);
-      cp.site_type = site_type;
-      cp.func = func;
+      ClusterPoint cp{
+          .coord = vec3_t(x, y, z), .site_type = site_type, .func = func};
       o.points.push_back(cp);
     }
     orbits.push_back(std::move(o));

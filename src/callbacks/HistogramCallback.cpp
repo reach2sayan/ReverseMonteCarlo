@@ -30,9 +30,9 @@ void HistogramCallback::operator()(std::uint64_t step, std::uint64_t /*acc*/,
     return;
   }
   f << "axis,computed,experimental\n";
-  for (Eigen::Index i = 0; i < n; ++i) {
-    f << std::format("{:.6g},{:.6g},{:.6g}\n", axis[i], computed[i],
-                     experimental[i]);
+  for (const auto &[ax, comp, exp] :
+       std::views::zip(axis, computed, experimental)) {
+    f << std::format("{:.6g},{:.6g},{:.6g}\n", ax, comp, exp);
   }
 }
 

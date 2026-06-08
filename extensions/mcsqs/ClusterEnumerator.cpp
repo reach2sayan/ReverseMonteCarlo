@@ -17,30 +17,25 @@ namespace {
 constexpr double kTol = 1e-3; // ATAT zero_tolerance for site/symmetry matching
 
 // Distance of x to the nearest integer (ATAT cylinder_norm, xtalutil.h:41).
-double cyl(double x) {
+double FORCE_INLINE cyl(double x) {
   return std::fabs(std::fmod(std::fabs(x) + 0.5, 1.0) - 0.5);
 }
 
-bool in01(const vec3_t &v) {
-  for (int i = 0; i < 3; ++i) {
-    if (v(i) < 0.0 || v(i) >= 1.0) {
-      return false;
-    }
-  }
-  return true;
+FORCE_INLINE bool in01(const vec3_t &v) {
+  return (v.array() >= 0.0).all() && (v.array() < 1.0).all();
 }
 
-bool frac_zero(const vec3_t &d) {
+FORCE_INLINE bool frac_zero(const vec3_t &d) {
   return cyl(d(0)) < kTol && cyl(d(1)) < kTol && cyl(d(2)) < kTol;
 }
 
 // Two positions equal modulo the (primitive or super) cell.
-bool same_site(const vec3_t &a, const vec3_t &b, const mat3_t &inv_cell) {
+FORCE_INLINE bool same_site(const vec3_t &a, const vec3_t &b, const mat3_t &inv_cell) {
   return frac_zero(inv_cell * (a - b));
 }
 
 // Index of the supercell site coincident with `pos` (mod supercell), or -1.
-int which_atom(const vec3_t &pos, const std::vector<vec3_t> &sites,
+FORCE_INLINE int which_atom(const vec3_t &pos, const std::vector<vec3_t> &sites,
                const mat3_t &inv_super) {
   const auto it = std::ranges::find_if(
       sites, [&](const vec3_t &s) { return same_site(pos, s, inv_super); });

@@ -76,8 +76,9 @@ parse_species(const std::string &s) {
   std::string token;
   while (std::getline(ss, token, ',')) {
     const auto colon = token.find(':');
-    if (colon == std::string::npos)
+    if (colon == std::string::npos) {
       throw std::runtime_error("species: expected 'Elem:value', got: " + token);
+    }
     const std::string elem = token.substr(0, colon);
     const double val = std::stod(token.substr(colon + 1));
     m[elem] = val;
@@ -88,16 +89,17 @@ parse_species(const std::string &s) {
 // Parse the cluster file into a vector of ClusterOrbit.
 static std::vector<RMC::ClusterOrbit> load_clusters(const std::string &path) {
   std::ifstream f(path);
-  if (!f)
+  if (!f) {
     throw std::runtime_error("Cannot open cluster file: " + path);
-
+  }
   std::vector<RMC::ClusterOrbit> orbits;
   std::string line;
   std::optional<RMC::ClusterOrbit> cur;
 
   auto flush = [&] {
-    if (cur && cur->instance_count() != 0)
+    if (cur && cur->instance_count() != 0) {
       orbits.push_back(std::move(*cur));
+    }
     cur.reset();
   };
 
@@ -117,14 +119,16 @@ static std::vector<RMC::ClusterOrbit> load_clusters(const std::string &path) {
       continue;
     }
     // Otherwise it's a cluster instance: space-separated site indices.
-    if (!cur)
+    if (!cur) {
       continue;
+    }
     ls.clear();
     ls.str(line);
     std::vector<std::size_t> sites;
     std::size_t idx;
-    while (ls >> idx)
+    while (ls >> idx) {
       sites.push_back(idx);
+    }
     if (!sites.empty())
       cur->add_instance(sites);
   }
@@ -137,11 +141,15 @@ static std::vector<RMC::ClusterOrbit> load_clusters(const std::string &path) {
 static std::vector<std::vector<std::size_t>>
 build_sublattices(const RMC::AtomicStructure &str) {
   std::unordered_map<std::string, std::vector<std::size_t>> by_residue;
-  for (std::size_t i = 0; i < str.size(); ++i)
+  for (std::size_t i = 0; i < str.size(); ++i) {
     by_residue[str.residues.empty() ? "all" : str.residues[i]].push_back(i);
+  }
+
   std::vector<std::vector<std::size_t>> result;
-  for (auto &[_, sites] : by_residue)
-    result.push_back(std::move(sites));
+  result.reserve(by_residue.size());
+  std::ranges::transform(by_residue, std::back_inserter(result),
+                         [](auto &kv) { return std::move(kv.second); });
+
   return result;
 }
 
