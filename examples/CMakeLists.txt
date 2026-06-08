@@ -3,6 +3,7 @@ foreach(ex
     rotations
     bonds_constraint
     angles_constraint
+    angular_distribution
     dihedral_constraint
     improper_constraint
     coordination_constraint

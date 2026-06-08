@@ -1,14 +1,18 @@
 #include <RMC/Engine.hpp>
 #include <RMC/Ensemble.hpp>
+#include <RMC/analysis/AngularDistribution.hpp>
 #include <RMC/analysis/RadialDistribution.hpp>
+#include <RMC/constraints/AngularDistributionConstraint.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>
 #include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
+#include <RMC/core/RandomStructure.hpp>
 #include <RMC/io/DataReader.hpp>
 #include <RMC/io/LammpsReader.hpp>
 #include <RMC/io/PdbReader.hpp>
+#include <RMC/io/VaspReader.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
 #include <boost/leaf.hpp>
@@ -22,9 +26,35 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <variant>
+#include <vector>
 
 namespace po = boost::program_options;
 namespace leaf = boost::leaf;
+
+namespace {
+
+// Write a structure choosing the format from the output path: a VASP POSCAR for
+// .vasp/.poscar (or a POSCAR/CONTCAR name), a LAMMPS data file for
+// .lammps/.lmp/.data, otherwise a PDB. The box (from the active periodic cell;
+// zero for infinite) is needed by the VASP and LAMMPS writers.
+RMC::Result<void> write_structure_by_ext(const RMC::AtomicStructure &s,
+                                         const RMC::mat3_t &box,
+                                         const std::string &path) {
+  const std::filesystem::path p(path);
+  const std::string ext = p.extension().string();
+  const std::string stem = p.filename().string();
+  if (ext == ".vasp" || ext == ".poscar" || ext == ".VASP" || stem == "POSCAR" ||
+      stem == "CONTCAR") {
+    return RMC::io::write_vasp(s, box, path);
+  }
+  if (ext == ".lammps" || ext == ".lmp" || ext == ".data") {
+    return RMC::io::write_lammps_data(s, box, path);
+  }
+  return RMC::io::write_pdb(s, path);
+}
+
+} // namespace
 
 int main(int argc, char *argv[]) {
   po::options_description desc(
@@ -58,7 +88,28 @@ int main(int argc, char *argv[]) {
       "rmax", po::value<double>()->default_value(10.0),
       "g(r) maximum radius (Å)")(
       "nbins", po::value<std::size_t>()->default_value(200),
-      "g(r) number of radial bins")(
+      "g(r) / ADF number of bins")(
+      "vasp", po::value<std::string>(),
+      "Input VASP POSCAR/CONTCAR; supplies the periodic cell")(
+      "adf,a", po::value<std::string>(),
+      "Experimental ADF (bond-angle distribution) target file")(
+      "adf-cutoff", po::value<double>()->default_value(3.4),
+      "ADF bond cutoff (Å)")(
+      "adf-smooth", po::value<int>()->default_value(2),
+      "ADF boxcar smoothing half-width (0 disables)")(
+      "adf-compute", po::bool_switch()->default_value(false),
+      "Compute the ADF (total + partials) from the input structure and exit; "
+      "no MC is run")(
+      "adf-out", po::value<std::string>()->default_value("adf.dat"),
+      "Output path for the ADF (used with --adf-compute)")(
+      "gen-random", po::bool_switch()->default_value(false),
+      "Generate a random amorphous structure, write it to --out, and exit")(
+      "elements", po::value<std::string>(),
+      "Element symbols for --gen-random, e.g. 'Zr Cu'")(
+      "counts", po::value<std::string>(),
+      "Atom count per element for --gen-random, e.g. '50 50'")(
+      "spacing", po::value<double>()->default_value(3.0),
+      "Grid spacing (Å) for --gen-random")(
       "verbose,v", po::bool_switch()->default_value(false), "Verbose logging");
 
   po::variables_map vm;
@@ -81,11 +132,42 @@ int main(int argc, char *argv[]) {
 
   return leaf::try_handle_all(
       [&]() -> leaf::result<int> {
+        // ---- Random-structure generation: build, write, exit (no input) ----
+        if (vm["gen-random"].as<bool>()) {
+          if (!vm.count("elements") || !vm.count("counts"))
+            return boost::leaf::new_error(std::string{
+                "--gen-random requires --elements and --counts"});
+          std::vector<std::string> els;
+          {
+            std::istringstream es(vm["elements"].as<std::string>());
+            for (std::string e; es >> e;)
+              els.push_back(std::move(e));
+          }
+          std::vector<std::size_t> cnts;
+          {
+            std::istringstream cs(vm["counts"].as<std::string>());
+            for (std::size_t c; cs >> c;)
+              cnts.push_back(c);
+          }
+          BOOST_LEAF_AUTO(gen, RMC::make_random_amorphous(
+                                   els, cnts, vm["spacing"].as<double>(),
+                                   vm["seed"].as<std::uint32_t>()));
+          const std::string out = vm["out"].as<std::string>();
+          BOOST_LEAF_CHECK(write_structure_by_ext(gen.structure, gen.box, out));
+          BOOST_LOG_TRIVIAL(info)
+              << "Generated " << gen.structure.size() << " atoms; wrote " << out;
+          return 0;
+        }
+
         const bool has_pdb_in = vm.count("pdb") > 0;
         const bool has_lammps_in = vm.count("lammps") > 0;
-        if (has_pdb_in == has_lammps_in)
+        const bool has_vasp_in = vm.count("vasp") > 0;
+        if (static_cast<int>(has_pdb_in) + static_cast<int>(has_lammps_in) +
+                static_cast<int>(has_vasp_in) !=
+            1)
           return boost::leaf::new_error(std::string{
-              "Provide exactly one of --pdb or --lammps as the input structure"});
+              "Provide exactly one of --pdb, --lammps or --vasp as the input "
+              "structure"});
 
         RMC::AtomicStructure s;
         RMC::BoundaryConditions bc = RMC::InfiniteBC(1.0);
@@ -107,6 +189,15 @@ int main(int argc, char *argv[]) {
           bc = data.periodic_bc();
           BOOST_LOG_TRIVIAL(info)
               << "Loaded " << s.size() << " atoms from LAMMPS data; box "
+              << data.box(0, 0) << " x " << data.box(1, 1) << " x "
+              << data.box(2, 2);
+        } else if (has_vasp_in) {
+          BOOST_LEAF_AUTO(data, RMC::io::read_vasp(vm["vasp"].as<std::string>()));
+          s = std::move(data.structure);
+          // A POSCAR carries its own cell; use it unless --box overrides below.
+          bc = data.periodic_bc();
+          BOOST_LOG_TRIVIAL(info)
+              << "Loaded " << s.size() << " atoms from VASP POSCAR; box "
               << data.box(0, 0) << " x " << data.box(1, 1) << " x "
               << data.box(2, 2);
         } else {
@@ -150,6 +241,22 @@ int main(int argc, char *argv[]) {
           return 0;
         }
 
+        // ---- ADF mode: compute the angular distribution and exit (no MC) ----
+        if (vm["adf-compute"].as<bool>()) {
+          RMC::analysis::AdfParams ap;
+          ap.max_dis = vm["adf-cutoff"].as<double>();
+          ap.n_bins = static_cast<int>(vm["nbins"].as<std::size_t>());
+          ap.smooth_range = vm["adf-smooth"].as<int>();
+          BOOST_LEAF_AUTO(
+              a, RMC::analysis::compute_adf(s.coordinates, bc, s.elements, ap));
+          BOOST_LEAF_CHECK(
+              RMC::analysis::write_adf(a, vm["adf-out"].as<std::string>()));
+          BOOST_LOG_TRIVIAL(info)
+              << "Wrote ADF (" << a.triplet_labels.size() << " triplets) to "
+              << vm["adf-out"].as<std::string>();
+          return 0;
+        }
+
         // ---- Pre-load experimental data (once, shared across replicas) ----
         double rho0 = vm["rho0"].as<double>();
         RMC::mat_t pdf_data, sq_data;
@@ -165,12 +272,24 @@ int main(int argc, char *argv[]) {
           sq_data = std::move(d);
           BOOST_LOG_TRIVIAL(info) << "Loaded StructureFactor data";
         }
+        RMC::mat_t adf_data;
+        bool has_adf = vm.count("adf") > 0;
+        if (has_adf) {
+          // The ADF target is multi-column (angle + one column per triplet), so
+          // read all columns, not just two.
+          BOOST_LEAF_AUTO(d, RMC::io::read_columns(vm["adf"].as<std::string>()));
+          adf_data = std::move(d);
+          BOOST_LOG_TRIVIAL(info) << "Loaded AngularDistribution data";
+        }
+        double adf_cutoff = vm["adf-cutoff"].as<double>();
+        int adf_smooth = vm["adf-smooth"].as<int>();
 
         // ---- Engine factory: builds a fresh engine for replica i ----
         auto base_seed = vm["seed"].as<std::uint32_t>();
         bool use_smart = vm["smart"].as<bool>();
-        auto make_engine = [s, bc, pdf_data, sq_data, has_pdf, has_sq, rho0,
-                            base_seed, use_smart](std::size_t replica) {
+        auto make_engine = [s, bc, pdf_data, sq_data, adf_data, has_pdf, has_sq,
+                            has_adf, rho0, adf_cutoff, adf_smooth, base_seed,
+                            use_smart](std::size_t replica) {
           auto seed = base_seed + static_cast<std::uint32_t>(replica);
           RMC::Engine engine(s, bc);
           engine.build_atomic_groups(0.0, 0.2, seed);
@@ -188,6 +307,15 @@ int main(int argc, char *argv[]) {
             RMC::StructureFactorConstraint c;
             c.set_experimental_data(sq_data);
             c.set_number_density(rho0);
+            c.set_elements(engine.structure().elements);
+            c.initialise();
+            engine.add_constraint(std::move(c));
+          }
+          if (has_adf) {
+            RMC::AngularDistributionConstraint c;
+            c.set_experimental_data(adf_data);
+            c.set_cutoff(adf_cutoff);
+            c.set_smoothing(adf_smooth);
             c.set_elements(engine.structure().elements);
             c.initialise();
             engine.add_constraint(std::move(c));
@@ -225,8 +353,11 @@ int main(int argc, char *argv[]) {
           return e;
         }();
 
-        BOOST_LEAF_CHECK(RMC::io::write_pdb(engine.structure(),
-                                            vm["out"].as<std::string>()));
+        RMC::mat3_t out_box = RMC::mat3_t::Zero();
+        if (const auto *p = std::get_if<RMC::PeriodicBC>(&bc))
+          out_box = p->box();
+        BOOST_LEAF_CHECK(write_structure_by_ext(
+            engine.structure(), out_box, vm["out"].as<std::string>()));
         BOOST_LOG_TRIVIAL(info)
             << "Wrote refined structure to " << vm["out"].as<std::string>();
 

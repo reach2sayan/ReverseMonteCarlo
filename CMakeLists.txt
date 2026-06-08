@@ -163,6 +163,7 @@ add_library(RMC SHARED
         src/constraints/CoordinationConstraint.cpp
         src/constraints/ClusterCorrelationConstraint.cpp
         src/constraints/AngleConstraint.cpp
+        src/constraints/AngularDistributionConstraint.cpp
         src/constraints/BondConstraint.cpp
         src/constraints/DihedralAngleConstraint.cpp
         src/constraints/ImproperAngleConstraint.cpp
@@ -173,8 +174,11 @@ add_library(RMC SHARED
         src/io/PdbReader.cpp
         src/io/DataReader.cpp
         src/io/LammpsReader.cpp
+        src/io/VaspReader.cpp
         src/io/Checkpoint.cpp
         src/analysis/RadialDistribution.cpp
+        src/analysis/AngularDistribution.cpp
+        src/core/RandomStructure.cpp
         src/Engine.cpp
         src/MultiFrameEngine.cpp
         src/Ensemble.cpp
@@ -252,6 +256,7 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_atat_pipeline.cpp
             tests/test_io_readers.cpp
             tests/test_radial_distribution.cpp
+            tests/test_angular_distribution.cpp
             tests/test_callbacks.cpp
             tests/bench_scaling.cpp
             tests/bench_thf.cpp
