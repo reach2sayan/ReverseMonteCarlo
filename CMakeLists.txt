@@ -215,7 +215,7 @@ elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     target_compile_options(RMC PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
 endif ()
 
-add_executable(RMC_run src/main.cpp)
+add_executable(RMC_run src/main.cpp src/RMCRunner.cpp)
 target_link_libraries(RMC_run PRIVATE RMC Boost::program_options)
 
 if (RMC_COMPILER_MSVC)

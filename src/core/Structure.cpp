@@ -15,9 +15,6 @@ void AtomicStructure::save_snapshot(std::span<const std::size_t> indices) {
     snapshot_coords_.resize(n, 3);
   }
   snapshot_coords_ = coordinates(indices, Eigen::all);
-  //for (Eigen::Index k = 0; k < n; ++k) {
-  //  snapshot_coords_.row(k) = coordinates.row(indices[k]);
-  //}
 }
 
 void AtomicStructure::restore_snapshot(std::span<const std::size_t>) {

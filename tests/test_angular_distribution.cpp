@@ -16,11 +16,16 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
+#include <map>
+#include <numbers>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 using Catch::Matchers::WithinAbs;
@@ -235,6 +240,245 @@ TEST_CASE("compute_adf bins a known 90-degree angle", "[analysis][adf]") {
     for (Eigen::Index b = 0; b < r->partials[c].size(); ++b)
       if (!(c == 2 && b == 9))
         REQUIRE_THAT(r->partials[c](b), WithinAbs(0.0, 1e-12));
+}
+
+// ============================================================
+// compute_adf - analytic ground truth (the "MAST oracle")
+// ============================================================
+// Upstream MAST (siyazhu/MAST, src/angles.cpp) ships no test suite, so the
+// algorithm itself is the reference. The self-consistency tests below (chi2
+// vanishes, incremental == full recompute) cannot catch a bug baked into the
+// full-recompute path, so these cases assert *absolute* values hand-derived
+// from MAST's normalisation:
+//
+//   partial[col][bin] = (count of that triplet's angles in that bin)
+//                       * inc / (N_a * N_p * N_q),   inc = V * N / pi * n_bins
+//
+// (V = cell volume, N = total atoms; see Angles::calculate_str). Smoothing is
+// disabled so each bin is an exact, independent count -> this pins down the
+// binning, angle counting, column layout, and the absolute scale at once.
+//
+// Each structure is an isolated cluster in a large box, so no periodic image is
+// ever within the cutoff: the geometry is unambiguous and MAST's incomplete
+// {-1,0}-shift min-image (a real upstream bug for fractional deltas in
+// (-1,-0.5)) cannot perturb the reference.
+
+namespace {
+
+using Catch::Matchers::WithinRel;
+
+// compute_adf reads only coordinates + element labels off the structure.
+struct Cluster {
+  coords_t coords;
+  std::vector<std::string> elements;
+};
+
+struct Atom {
+  std::string element;
+  double x, y, z;
+};
+
+Cluster make_cluster(std::initializer_list<Atom> atoms) {
+  Cluster c;
+  c.coords.resize(static_cast<Eigen::Index>(atoms.size()), 3);
+  Eigen::Index i = 0;
+  for (const auto &a : atoms) {
+    c.coords(i, 0) = a.x;
+    c.coords(i, 1) = a.y;
+    c.coords(i, 2) = a.z;
+    c.elements.push_back(a.element);
+    ++i;
+  }
+  return c;
+}
+
+// MAST per-angle scale numerator: inc = V * N / pi * n_bins (Angles::calculate_str).
+double mast_inc(double volume, int n_total, int n_bins) {
+  return volume * static_cast<double>(n_total) / std::numbers::pi *
+         static_cast<double>(n_bins);
+}
+
+// Assert the ADF partials equal the listed {column,bin}->value entries (1e-9
+// relative) and are exactly zero everywhere else. With smoothing off every bin
+// is independent, so "everything else is zero" also verifies no spurious angle
+// leaked into another bin or column.
+void require_adf_equals(const analysis::AdfResult &r, int n_bins,
+                        const std::map<std::pair<int, int>, double> &nonzero) {
+  for (std::size_t c = 0; c < r.partials.size(); ++c) {
+    for (int b = 0; b < n_bins; ++b) {
+      const auto it = nonzero.find({static_cast<int>(c), b});
+      if (it == nonzero.end()) {
+        REQUIRE_THAT(r.partials[c](b), WithinAbs(0.0, 1e-9));
+      } else {
+        REQUIRE_THAT(r.partials[c](b), WithinRel(it->second, 1e-9));
+      }
+    }
+  }
+}
+
+} // namespace
+
+TEST_CASE("compute_adf - exact MAST normalisation for one 90-degree angle",
+          "[analysis][adf][groundtruth]") {
+  // Cu apex with two Zr legs along x and y: a single Zr-Cu-Zr right angle.
+  const double L = 20.0;
+  const auto cl = make_cluster({{"Cu", 0.0, 0.0, 0.0},
+                                {"Zr", 2.5, 0.0, 0.0},
+                                {"Zr", 0.0, 2.5, 0.0}});
+  const BoundaryConditions bc = PeriodicBC(mat3_t::Identity() * L);
+
+  analysis::AdfParams ap;
+  ap.max_dis = 3.0;    // Cu-Zr = 2.5 bonds; Zr-Zr = 2.5*sqrt2 ~ 3.54 does not
+  ap.n_bins = 18;      // 10 deg / bin -> 90 deg is bin 9
+  ap.smooth_range = 0; // exact bin counts
+
+  const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
+  REQUIRE(r);
+  REQUIRE(r->partials.size() == 6); // 2 species -> 6 triplet columns
+  REQUIRE(r->triplet_labels[2] == "Cu-Zr-Zr");
+
+  // One angle, column Cu-Zr-Zr (apex Cu, legs Zr,Zr), bin 9, / (N_Cu*N_Zr*N_Zr).
+  const double inc = mast_inc(L * L * L, /*N=*/3, ap.n_bins);
+  const double expected = 1.0 * inc / (1.0 * 2.0 * 2.0);
+  require_adf_equals(*r, ap.n_bins, {{{2, 9}, expected}});
+}
+
+TEST_CASE("compute_adf - linear 180-degree angle clamps into the last bin",
+          "[analysis][adf][groundtruth]") {
+  // Three collinear Cu; the centre is the apex of one straight (180 deg) angle.
+  const double L = 30.0, c = 15.0, d = 2.0;
+  const auto cl = make_cluster({{"Cu", c - d, c, c},
+                                {"Cu", c, c, c},
+                                {"Cu", c + d, c, c}});
+  const BoundaryConditions bc = PeriodicBC(mat3_t::Identity() * L);
+
+  analysis::AdfParams ap;
+  ap.max_dis = 3.0; // apex-leg = 2 bonds; end-to-end = 4 does not
+  ap.n_bins = 18;
+  ap.smooth_range = 0;
+
+  const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
+  REQUIRE(r);
+  REQUIRE(r->partials.size() == 1); // single species -> one column
+  REQUIRE(r->triplet_labels[0] == "Cu-Cu-Cu");
+
+  // floor(pi * 18 / pi) = 18 -> clamped to the last bin 17. One angle, / N^3.
+  const double inc = mast_inc(L * L * L, 3, ap.n_bins);
+  const double expected = 1.0 * inc / (3.0 * 3.0 * 3.0);
+  require_adf_equals(*r, ap.n_bins, {{{0, 17}, expected}});
+}
+
+TEST_CASE("compute_adf - counts every angle at a square-planar apex",
+          "[analysis][adf][groundtruth]") {
+  // Centre Cu with 4 Cu legs at +/-x, +/-y: C(4,2) = 6 angles, four 90 deg
+  // (adjacent legs) and two 180 deg (opposite legs). A 2.5 cutoff bonds only the
+  // legs to the centre (adjacent legs are 2*sqrt2 ~ 2.83 apart), so the centre
+  // is the sole apex.
+  const double L = 20.0, c = 10.0, d = 2.0;
+  const auto cl = make_cluster({{"Cu", c, c, c},
+                                {"Cu", c + d, c, c},
+                                {"Cu", c - d, c, c},
+                                {"Cu", c, c + d, c},
+                                {"Cu", c, c - d, c}});
+  const BoundaryConditions bc = PeriodicBC(mat3_t::Identity() * L);
+
+  analysis::AdfParams ap;
+  ap.max_dis = 2.5;
+  ap.n_bins = 18;
+  ap.smooth_range = 0;
+
+  const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
+  REQUIRE(r);
+  REQUIRE(r->partials.size() == 1);
+
+  const double inc = mast_inc(L * L * L, 5, ap.n_bins);
+  const double unit = inc / (5.0 * 5.0 * 5.0); // single species -> / N^3
+  require_adf_equals(*r, ap.n_bins,
+                     {{{0, 9}, 4.0 * unit}, {{0, 17}, 2.0 * unit}});
+}
+
+TEST_CASE("compute_adf - bins a tetrahedral 109.47-degree angle",
+          "[analysis][adf][groundtruth]") {
+  // Centre Cu with 4 legs along the tetrahedral directions: all C(4,2) = 6
+  // angles equal acos(-1/3) ~ 109.47 deg, in bin 10 ([100,110) deg) -- safely
+  // mid-bin, unlike the 90/180 boundary cases.
+  const double L = 20.0, c = 10.0;
+  const double s = 2.0 / std::sqrt(3.0); // leg length 2 along (+/-1,+/-1,+/-1)/sqrt3
+  const auto cl = make_cluster({{"Cu", c, c, c},
+                                {"Cu", c + s, c + s, c + s},
+                                {"Cu", c + s, c - s, c - s},
+                                {"Cu", c - s, c + s, c - s},
+                                {"Cu", c - s, c - s, c + s}});
+  const BoundaryConditions bc = PeriodicBC(mat3_t::Identity() * L);
+
+  analysis::AdfParams ap;
+  ap.max_dis = 2.5; // centre-leg = 2; leg-leg = 2*sqrt(8/3) ~ 3.27 excluded
+  ap.n_bins = 18;
+  ap.smooth_range = 0;
+
+  const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
+  REQUIRE(r);
+  REQUIRE(r->partials.size() == 1);
+
+  const double inc = mast_inc(L * L * L, 5, ap.n_bins);
+  const double expected = 6.0 * inc / (5.0 * 5.0 * 5.0);
+  require_adf_equals(*r, ap.n_bins, {{{0, 10}, expected}});
+}
+
+TEST_CASE("compute_adf - 60 and 120 degree angles land off bin boundaries",
+          "[analysis][adf][groundtruth]") {
+  // 60 and 120 deg sit exactly on a bin edge whenever n_bins is a multiple of 3,
+  // so use n_bins = 16 (11.25 deg / bin): 60 -> bin 5, 120 -> bin 10, both
+  // mid-bin and floating-point robust.
+  const int n_bins = 16;
+
+  SECTION("equilateral triangle - three 60-degree angles") {
+    // Side 2.5, all three pairs bonded (cutoff 3.0): each vertex is the apex of
+    // one 60 deg angle -> three angles total.
+    const double L = 30.0, c = 15.0, a = 2.5;
+    const auto cl =
+        make_cluster({{"Cu", c, c, c},
+                      {"Cu", c + a, c, c},
+                      {"Cu", c + a / 2.0, c + a * std::sqrt(3.0) / 2.0, c}});
+    const BoundaryConditions bc = PeriodicBC(mat3_t::Identity() * L);
+
+    analysis::AdfParams ap;
+    ap.max_dis = 3.0;
+    ap.n_bins = n_bins;
+    ap.smooth_range = 0;
+
+    const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
+    REQUIRE(r);
+    REQUIRE(r->partials.size() == 1);
+
+    const double inc = mast_inc(L * L * L, 3, n_bins);
+    const double expected = 3.0 * inc / (3.0 * 3.0 * 3.0);
+    require_adf_equals(*r, n_bins, {{{0, 5}, expected}}); // 60 deg -> bin 5
+  }
+
+  SECTION("bent triple - one 120-degree angle") {
+    // Apex Cu with two legs 120 deg apart; the legs (2*sqrt3 ~ 3.46 apart) are
+    // not bonded under the 2.5 cutoff, so there is exactly one 120 deg angle.
+    const double L = 30.0, c = 15.0, d = 2.0;
+    const auto cl =
+        make_cluster({{"Cu", c, c, c},
+                      {"Cu", c + d, c, c},
+                      {"Cu", c - d / 2.0, c + d * std::sqrt(3.0) / 2.0, c}});
+    const BoundaryConditions bc = PeriodicBC(mat3_t::Identity() * L);
+
+    analysis::AdfParams ap;
+    ap.max_dis = 2.5;
+    ap.n_bins = n_bins;
+    ap.smooth_range = 0;
+
+    const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
+    REQUIRE(r);
+    REQUIRE(r->partials.size() == 1);
+
+    const double inc = mast_inc(L * L * L, 3, n_bins);
+    const double expected = 1.0 * inc / (3.0 * 3.0 * 3.0);
+    require_adf_equals(*r, n_bins, {{{0, 10}, expected}}); // 120 deg -> bin 10
+  }
 }
 
 // ============================================================
