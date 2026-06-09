@@ -17,6 +17,8 @@
 #include <RMC/io/VaspReader.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
+#include <boost/hof/lift.hpp>
+#include <boost/hof/match.hpp>
 #include <boost/leaf.hpp>
 #include <boost/log/core.hpp>
 #include <boost/log/expressions.hpp>
@@ -83,23 +85,6 @@ struct LoadedStructure {
   RMC::BoundaryConditions bc = RMC::InfiniteBC(1.0);
 };
 
-// =====================================================================
-// Input formats
-//
-// The chosen input is modelled as a variant of one struct per format, each
-// carrying just the data that format needs. select_input() resolves the options
-// into the right alternative (validating "exactly one"); a std::visit over an
-// overload set — one lambda per format — then loads it. Adding a format is a
-// struct, a selection branch, and a lambda, and the visit will not compile if
-// the lambda is missing.
-// =====================================================================
-
-// The overload-set helper: fuse a pack of lambdas into one visitor.
-template <typename... Fs> struct overloaded : Fs... {
-  using Fs::operator()...;
-};
-template <typename... Fs> overloaded(Fs...) -> overloaded<Fs...>;
-
 struct PdbInput {
   std::string path;
 };
@@ -110,6 +95,7 @@ struct LammpsInput {
 struct VaspInput {
   std::string path;
 };
+
 using Input = std::variant<PdbInput, LammpsInput, VaspInput>;
 
 // Resolve the one input option the user supplied into a typed Input.
@@ -131,54 +117,58 @@ RMC::Result<Input> select_input(const po::variables_map &vm) {
     ++given;
     chosen = VaspInput{vm["vasp"].as<std::string>()};
   }
-  if (given != 1)
+  if (given != 1) {
     return leaf::new_error(std::string{
         "Provide exactly one of --pdb, --lammps or --vasp as the input "
         "structure"});
+  }
   return std::move(*chosen);
 }
 
+// Per-format loaders — the std::visit overload set, one free function per
+// alternative, fused below with boost::hof::match.
+RMC::Result<LoadedStructure> load_pdb(const PdbInput &in) {
+  BOOST_LEAF_AUTO(ps, RMC::io::read_pdb(in.path));
+  LoadedStructure out;
+  out.structure = std::move(ps);
+  BOOST_LOG_TRIVIAL(info) << "Loaded " << out.structure.size() << " atoms";
+  return out;
+}
+
+RMC::Result<LoadedStructure> load_lammps(const LammpsInput &in) {
+  BOOST_LEAF_AUTO(data, RMC::io::read_lammps_data(in.path, in.types));
+  LoadedStructure out;
+  out.structure = std::move(data.structure);
+  // A LAMMPS data file carries its own cell; --box may override.
+  out.bc = data.periodic_bc();
+  BOOST_LOG_TRIVIAL(info) << "Loaded " << out.structure.size()
+                          << " atoms from LAMMPS data; box " << data.box(0, 0)
+                          << " x " << data.box(1, 1) << " x " << data.box(2, 2);
+  return out;
+}
+
+RMC::Result<LoadedStructure> load_vasp(const VaspInput &in) {
+  BOOST_LEAF_AUTO(data, RMC::io::read_vasp(in.path));
+  LoadedStructure out;
+  out.structure = std::move(data.structure);
+  // A POSCAR carries its own cell; --box may override.
+  out.bc = data.periodic_bc();
+  BOOST_LOG_TRIVIAL(info) << "Loaded " << out.structure.size()
+                          << " atoms from VASP POSCAR; box " << data.box(0, 0)
+                          << " x " << data.box(1, 1) << " x " << data.box(2, 2);
+  return out;
+}
+
 // Load the single input structure. The format's own cell is captured in `bc`;
-// --box may override it later.
+// --box may override it later. boost::hof::match fuses the per-format loaders
+// into one overload set for the visit (BOOST_HOF_LIFT wraps each free function
+// so overload resolution picks the loader matching the active alternative).
 RMC::Result<LoadedStructure> load_input_structure(const po::variables_map &vm) {
   BOOST_LEAF_AUTO(input, select_input(vm));
-  return std::visit(
-      overloaded{
-          [](const PdbInput &in) -> RMC::Result<LoadedStructure> {
-            BOOST_LEAF_AUTO(ps, RMC::io::read_pdb(in.path));
-            LoadedStructure out;
-            out.structure = std::move(ps);
-            BOOST_LOG_TRIVIAL(info)
-                << "Loaded " << out.structure.size() << " atoms";
-            return out;
-          },
-          [](const LammpsInput &in) -> RMC::Result<LoadedStructure> {
-            BOOST_LEAF_AUTO(data,
-                            RMC::io::read_lammps_data(in.path, in.types));
-            LoadedStructure out;
-            out.structure = std::move(data.structure);
-            // A LAMMPS data file carries its own cell; --box may override.
-            out.bc = data.periodic_bc();
-            BOOST_LOG_TRIVIAL(info)
-                << "Loaded " << out.structure.size()
-                << " atoms from LAMMPS data; box " << data.box(0, 0) << " x "
-                << data.box(1, 1) << " x " << data.box(2, 2);
-            return out;
-          },
-          [](const VaspInput &in) -> RMC::Result<LoadedStructure> {
-            BOOST_LEAF_AUTO(data, RMC::io::read_vasp(in.path));
-            LoadedStructure out;
-            out.structure = std::move(data.structure);
-            // A POSCAR carries its own cell; --box may override.
-            out.bc = data.periodic_bc();
-            BOOST_LOG_TRIVIAL(info)
-                << "Loaded " << out.structure.size()
-                << " atoms from VASP POSCAR; box " << data.box(0, 0) << " x "
-                << data.box(1, 1) << " x " << data.box(2, 2);
-            return out;
-          },
-      },
-      input);
+  return std::visit(boost::hof::match(BOOST_HOF_LIFT(load_pdb),
+                                      BOOST_HOF_LIFT(load_lammps),
+                                      BOOST_HOF_LIFT(load_vasp)),
+                    input);
 }
 
 // --box overrides whatever box the input implied (incl. the LAMMPS/VASP cell).
@@ -203,27 +193,15 @@ void apply_box_override(const po::variables_map &vm,
   BOOST_LOG_TRIVIAL(info) << "Periodic box: " << a << " x " << b << " x " << c;
 }
 
-// =====================================================================
-// RMCCommand pattern
-//
-// Each sub-command is a value — a name, a predicate that decides whether the
-// parsed flags select it, and a type-erased action over a shared Context. This
-// is the "generalized functor" form of the RMCCommand pattern (à la Alexandrescu):
-// commands are data, not a class hierarchy. Adding one is a single entry in
-// build_commands(); the dispatcher (RMCRunner::run) never changes.
-// =====================================================================
-
 // State threaded through every command. The input structure is loaded lazily
 // (and the --box override applied) the first time a command asks for it, then
 // cached — so structure-free commands like --gen-random never read a structure,
 // while the structure-consuming commands share a single load.
-class Context {
+class RMCContext {
 public:
-  explicit Context(const po::variables_map &vm) : vm_(vm) {}
-
+  explicit RMCContext(const po::variables_map &vm) : vm_(vm) {}
   const po::variables_map &options() const { return vm_; }
-
-  // Load-on-first-use; the pointer stays valid for the Context's lifetime.
+  // Load-on-first-use; the pointer stays valid for the RMCContext's lifetime.
   RMC::Result<LoadedStructure *> structure() {
     if (!loaded_) {
       BOOST_LEAF_AUTO(ls, load_input_structure(vm_));
@@ -238,16 +216,14 @@ private:
   std::optional<LoadedStructure> loaded_;
 };
 
-// A command, dispatched by value: its name (for diagnostics), a predicate over
-// the parsed options, and the action to run.
 struct RMCCommand {
   std::string_view name;
   std::function<bool(const po::variables_map &)> selected;
-  std::function<RMC::Result<int>(Context &)> run;
+  std::function<RMC::Result<int>(RMCContext &)> run;
 };
 
 // --gen-random: build a random amorphous structure, write it to --out, exit.
-RMC::Result<int> cmd_gen_random(Context &ctx) {
+RMC::Result<int> cmd_gen_random(RMCContext &ctx) {
   const auto &vm = ctx.options();
   if (!vm.count("elements") || !vm.count("counts")) {
     return leaf::new_error(
@@ -266,7 +242,7 @@ RMC::Result<int> cmd_gen_random(Context &ctx) {
 }
 
 // --gr: compute the pair distribution g(r) and exit.
-RMC::Result<int> cmd_compute_gr(Context &ctx) {
+RMC::Result<int> cmd_compute_gr(RMCContext &ctx) {
   const auto &vm = ctx.options();
   BOOST_LEAF_AUTO(in, ctx.structure());
   const RMC::AtomicStructure &s = in->structure;
@@ -284,7 +260,7 @@ RMC::Result<int> cmd_compute_gr(Context &ctx) {
 }
 
 // --adf-compute: compute the angular distribution function and exit.
-RMC::Result<int> cmd_compute_adf(Context &ctx) {
+RMC::Result<int> cmd_compute_adf(RMCContext &ctx) {
   const auto &vm = ctx.options();
   BOOST_LEAF_AUTO(in, ctx.structure());
   const RMC::AtomicStructure &s = in->structure;
@@ -307,65 +283,86 @@ RMC::Result<int> cmd_compute_adf(Context &ctx) {
 // Refinement (the default command — the main MC path)
 // =====================================================================
 
-// Experimental targets, pre-loaded once and shared across all replicas.
+// Experimental targets, pre-loaded once and shared across all replicas. An
+// engaged optional means the user supplied that target.
 struct ExperimentalData {
-  RMC::mat_t pdf, sq, adf;
-  bool has_pdf = false, has_sq = false, has_adf = false;
+  std::optional<RMC::mat_t> pdf, sq, adf;
 };
+
+// One experimental target: the CLI option carrying its file, a human label, the
+// reader to parse it, and a pointer-to-member naming where the matrix lands in
+// ExperimentalData. The reader varies — S(Q)/G(r) are two-column, the ADF is
+// multi-column (angle + one column per triplet).
+struct RMCExperimentalTarget {
+  const char *option;
+  const char *label;
+  std::function<RMC::Result<RMC::mat_t>(const std::string &)> read;
+  std::optional<RMC::mat_t> ExperimentalData::*field;
+};
+
+// The experimental-target table — the single place to register a new target.
+std::vector<RMCExperimentalTarget> experimental_targets() {
+  const auto two_column = [](const std::string &p) {
+    return RMC::io::read_xy_data(p);
+  };
+  const auto multi_column = [](const std::string &p) {
+    return RMC::io::read_columns(p);
+  };
+  return {
+      {"pdf", "PairDistribution", two_column, &ExperimentalData::pdf},
+      {"sq", "StructureFactor", two_column, &ExperimentalData::sq},
+      {"adf", "AngularDistribution", multi_column, &ExperimentalData::adf},
+  };
+}
 
 RMC::Result<ExperimentalData>
 load_experimental_data(const po::variables_map &vm) {
   ExperimentalData d;
-  d.has_pdf = vm.count("pdf") > 0;
-  d.has_sq = vm.count("sq") > 0;
-  d.has_adf = vm.count("adf") > 0;
-  if (d.has_pdf) {
-    BOOST_LEAF_AUTO(x, RMC::io::read_xy_data(vm["pdf"].as<std::string>()));
-    d.pdf = std::move(x);
-    BOOST_LOG_TRIVIAL(info) << "Loaded PairDistribution data";
-  }
-  if (d.has_sq) {
-    BOOST_LEAF_AUTO(x, RMC::io::read_xy_data(vm["sq"].as<std::string>()));
-    d.sq = std::move(x);
-    BOOST_LOG_TRIVIAL(info) << "Loaded StructureFactor data";
-  }
-  if (d.has_adf) {
-    // The ADF target is multi-column (angle + one column per triplet), so read
-    // all columns, not just two.
-    BOOST_LEAF_AUTO(x, RMC::io::read_columns(vm["adf"].as<std::string>()));
-    d.adf = std::move(x);
-    BOOST_LOG_TRIVIAL(info) << "Loaded AngularDistribution data";
+  for (const RMCExperimentalTarget &t : experimental_targets()) {
+    if (vm.count(t.option) == 0)
+      continue;
+    BOOST_LEAF_AUTO(x, t.read(vm[t.option].as<std::string>()));
+    (d.*t.field) = std::move(x);
+    BOOST_LOG_TRIVIAL(info) << "Loaded " << t.label << " data";
   }
   return d;
+}
+
+// Build a Constraint from its experimental data, apply the caller's
+// type-specific configuration, finalize it, and register it on the engine. The
+// construct → set data → set elements → initialize → add skeleton is identical
+// across constraints; only `configure` (the per-type knobs) differs.
+template <CConstraint Constraint, typename Configure>
+void attach_constraint(RMC::Engine &engine, const RMC::mat_t &experimental,
+                       Configure &&configure) {
+  Constraint c;
+  c.set_experimental_data(experimental);
+  configure(c);
+  c.set_elements(engine.structure().elements);
+  c.initialise();
+  engine.add_constraint(std::move(c));
 }
 
 // Attach the requested experimental constraints to a freshly built engine.
 void attach_constraints(RMC::Engine &engine, const ExperimentalData &data,
                         double rho0, double adf_cutoff, int adf_smooth) {
-  if (data.has_pdf) {
-    RMC::PairDistributionConstraint c;
-    c.set_experimental_data(data.pdf);
-    c.set_number_density(rho0);
-    c.set_elements(engine.structure().elements);
-    c.initialise();
-    engine.add_constraint(std::move(c));
+
+  if (data.pdf) {
+    attach_constraint<RMC::PairDistributionConstraint>(
+        engine, *data.pdf, [&](auto &c) { c.set_number_density(rho0); });
   }
-  if (data.has_sq) {
-    RMC::StructureFactorConstraint c;
-    c.set_experimental_data(data.sq);
-    c.set_number_density(rho0);
-    c.set_elements(engine.structure().elements);
-    c.initialise();
-    engine.add_constraint(std::move(c));
+
+  if (data.sq) {
+    attach_constraint<RMC::StructureFactorConstraint>(
+        engine, *data.sq, [&](auto &c) { c.set_number_density(rho0); });
   }
-  if (data.has_adf) {
-    RMC::AngularDistributionConstraint c;
-    c.set_experimental_data(data.adf);
-    c.set_cutoff(adf_cutoff);
-    c.set_smoothing(adf_smooth);
-    c.set_elements(engine.structure().elements);
-    c.initialise();
-    engine.add_constraint(std::move(c));
+
+  if (data.adf) {
+    attach_constraint<RMC::AngularDistributionConstraint>(
+        engine, *data.adf, [&](auto &c) {
+          c.set_cutoff(adf_cutoff);
+          c.set_smoothing(adf_smooth);
+        });
   }
 }
 
@@ -412,7 +409,7 @@ void print_summary(const RMC::Engine &engine) {
 }
 
 // Default command: refine the input structure against the experimental targets.
-RMC::Result<int> cmd_refine(Context &ctx) {
+RMC::Result<int> cmd_refine(RMCContext &ctx) {
   const auto &vm = ctx.options();
   BOOST_LEAF_AUTO(in, ctx.structure());
   RMC::AtomicStructure s = std::move(in->structure);
@@ -456,13 +453,6 @@ RMC::Result<int> cmd_refine(Context &ctx) {
   return 0;
 }
 
-// =====================================================================
-// Dispatch
-// =====================================================================
-
-// The command table — the program's single extension point. Order matters: the
-// first command whose predicate fires wins, and the trailing always-true entry
-// makes refinement the default. To add a sub-command, add a row here.
 std::vector<RMCCommand> build_commands() {
   const auto flag = [](const char *name) {
     return [name](const po::variables_map &vm) { return vm[name].as<bool>(); };
@@ -476,7 +466,7 @@ std::vector<RMCCommand> build_commands() {
 }
 
 RMC::Result<int> dispatch(const po::variables_map &vm) {
-  Context ctx(vm);
+  RMCContext ctx(vm);
   for (const RMCCommand &cmd : build_commands()) {
     if (cmd.selected(vm)) {
       BOOST_LOG_TRIVIAL(debug) << "Running command '" << cmd.name << "'";

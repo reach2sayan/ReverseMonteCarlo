@@ -65,6 +65,7 @@ endif ()
 
 add_executable(mcsqs_rmc
         mcsqs_rmc.cpp
+        McsqsRunner.cpp
         AtatFormats.cpp
         ClusterEnumerator.cpp
         AtatRunner.cpp)
