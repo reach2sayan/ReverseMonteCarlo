@@ -110,7 +110,7 @@ AngularDistributionConstraint make_adf(const AtomicStructure &s,
   mat_t data(nb, 1 + np);
   data.col(0) = t->theta;
   for (int j = 0; j < np; ++j) {
-    data.col(1 + j) = t->partials[static_cast<std::size_t>(j)];
+    data.col(1 + j) = t->partials[static_cast<std::size_t>(j)].values;
   }
   AngularDistributionConstraint c;
   c.set_experimental_data(data);
@@ -233,13 +233,13 @@ TEST_CASE("compute_adf bins a known 90-degree angle", "[analysis][adf]") {
   REQUIRE(r->theta.size() == 18);
   // Sorted species → Cu(0), Zr(1); 2 types → 6 triplet columns.
   REQUIRE(r->partials.size() == 6);
-  REQUIRE(r->triplet_labels[2] == "Cu-Zr-Zr");
+  REQUIRE(r->partials[2].label == "Cu-Zr-Zr");
   // 90° lands in bin 9; that is the only non-empty column/bin.
-  REQUIRE(r->partials[2](9) > 0.0);
+  REQUIRE(r->partials[2].values(9) > 0.0);
   for (std::size_t c = 0; c < r->partials.size(); ++c)
-    for (Eigen::Index b = 0; b < r->partials[c].size(); ++b)
+    for (Eigen::Index b = 0; b < r->partials[c].values.size(); ++b)
       if (!(c == 2 && b == 9))
-        REQUIRE_THAT(r->partials[c](b), WithinAbs(0.0, 1e-12));
+        REQUIRE_THAT(r->partials[c].values(b), WithinAbs(0.0, 1e-12));
 }
 
 // ============================================================
@@ -308,9 +308,9 @@ void require_adf_equals(const analysis::AdfResult &r, int n_bins,
     for (int b = 0; b < n_bins; ++b) {
       const auto it = nonzero.find({static_cast<int>(c), b});
       if (it == nonzero.end()) {
-        REQUIRE_THAT(r.partials[c](b), WithinAbs(0.0, 1e-9));
+        REQUIRE_THAT(r.partials[c].values(b), WithinAbs(0.0, 1e-9));
       } else {
-        REQUIRE_THAT(r.partials[c](b), WithinRel(it->second, 1e-9));
+        REQUIRE_THAT(r.partials[c].values(b), WithinRel(it->second, 1e-9));
       }
     }
   }
@@ -335,7 +335,7 @@ TEST_CASE("compute_adf - exact MAST normalisation for one 90-degree angle",
   const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
   REQUIRE(r);
   REQUIRE(r->partials.size() == 6); // 2 species -> 6 triplet columns
-  REQUIRE(r->triplet_labels[2] == "Cu-Zr-Zr");
+  REQUIRE(r->partials[2].label == "Cu-Zr-Zr");
 
   // One angle, column Cu-Zr-Zr (apex Cu, legs Zr,Zr), bin 9, / (N_Cu*N_Zr*N_Zr).
   const double inc = mast_inc(L * L * L, /*N=*/3, ap.n_bins);
@@ -360,7 +360,7 @@ TEST_CASE("compute_adf - linear 180-degree angle clamps into the last bin",
   const auto r = analysis::compute_adf(cl.coords, bc, cl.elements, ap);
   REQUIRE(r);
   REQUIRE(r->partials.size() == 1); // single species -> one column
-  REQUIRE(r->triplet_labels[0] == "Cu-Cu-Cu");
+  REQUIRE(r->partials[0].label == "Cu-Cu-Cu");
 
   // floor(pi * 18 / pi) = 18 -> clamped to the last bin 17. One angle, / N^3.
   const double inc = mast_inc(L * L * L, 3, ap.n_bins);
@@ -506,7 +506,7 @@ TEST_CASE("ADF constraint chi2 vanishes against its own ADF",
   mat_t data(n_bins, 1 + n_part);
   data.col(0) = target->theta;
   for (int j = 0; j < n_part; ++j)
-    data.col(1 + j) = target->partials[static_cast<std::size_t>(j)];
+    data.col(1 + j) = target->partials[static_cast<std::size_t>(j)].values;
 
   AngularDistributionConstraint c;
   c.set_experimental_data(data);

@@ -37,6 +37,20 @@ struct BruteGr {
   std::vector<std::string> labels;
 };
 
+// Pull the symbol / label sequences out of the typed result for comparison.
+std::vector<std::string> symbols(const an::Composition &c) {
+  std::vector<std::string> out;
+  for (const auto &s : c)
+    out.push_back(s.symbol);
+  return out;
+}
+std::vector<std::string> labels_of(const std::vector<an::LabeledCurve> &ps) {
+  std::vector<std::string> out;
+  for (const auto &p : ps)
+    out.push_back(p.label);
+  return out;
+}
+
 BruteGr brute_gr(const coords_t &c, double L,
                  const std::vector<std::string> &elems, double r_min,
                  double r_max, int n_bins) {
@@ -128,9 +142,9 @@ TEST_CASE("compute_gr - single A-A peak at the right bin", "[gr][analysis]") {
   REQUIRE(r);
   const auto &g = *r;
 
-  REQUIRE(g.species == std::vector<std::string>{"A"});
-  REQUIRE(g.pair_labels == std::vector<std::string>{"A-A"});
-  REQUIRE(g.counts == std::vector<std::size_t>{2});
+  REQUIRE(symbols(g.species) == std::vector<std::string>{"A"});
+  REQUIRE(labels_of(g.partials) == std::vector<std::string>{"A-A"});
+  REQUIRE(g.species.begin()->count == 2);
   REQUIRE(g.partials.size() == 1);
 
   // Exactly one populated bin, at index 20, both in total and the partial.
@@ -138,10 +152,10 @@ TEST_CASE("compute_gr - single A-A peak at the right bin", "[gr][analysis]") {
     const double expect_zero = (k == 20) ? 1.0 : 0.0; // 1.0 = "is the peak"
     if (expect_zero == 0.0) {
       REQUIRE_THAT(g.total(k), WithinAbs(0.0, 1e-12));
-      REQUIRE_THAT(g.partials[0](k), WithinAbs(0.0, 1e-12));
+      REQUIRE_THAT(g.partials[0].values(k), WithinAbs(0.0, 1e-12));
     } else {
       REQUIRE(g.total(k) > 0.0);
-      REQUIRE(g.partials[0](k) > 0.0);
+      REQUIRE(g.partials[0].values(k) > 0.0);
     }
   }
   // Bin center r = 0 + (20+0.5)*0.1 = 2.05.
@@ -174,14 +188,14 @@ TEST_CASE("compute_gr - matches an independent brute-force g(r)",
   const BruteGr bf = brute_gr(c, L, elems, p.r_min, p.r_max, p.n_bins);
 
   // Species are sorted: Cu < Zr; pairs Cu-Cu, Cu-Zr, Zr-Zr.
-  REQUIRE(g.species == std::vector<std::string>{"Cu", "Zr"});
-  REQUIRE(g.pair_labels == bf.labels);
+  REQUIRE(symbols(g.species) == std::vector<std::string>{"Cu", "Zr"});
+  REQUIRE(labels_of(g.partials) == bf.labels);
   REQUIRE(g.partials.size() == bf.partials.size());
 
   for (int k = 0; k < p.n_bins; ++k) {
     REQUIRE_THAT(g.total(k), WithinAbs(bf.total(k), 1e-9));
     for (std::size_t pr = 0; pr < g.partials.size(); ++pr)
-      REQUIRE_THAT(g.partials[pr](k), WithinAbs(bf.partials[pr](k), 1e-9));
+      REQUIRE_THAT(g.partials[pr].values(k), WithinAbs(bf.partials[pr](k), 1e-9));
   }
 }
 
@@ -205,10 +219,10 @@ TEST_CASE("compute_gr - total equals sum of c_a c_b g_ab", "[gr][analysis]") {
   REQUIRE(r);
   const auto &g = *r;
 
-  // c_a = N_a / N.
-  std::vector<double> conc(g.species.size());
-  for (std::size_t s = 0; s < g.species.size(); ++s)
-    conc[s] = static_cast<double>(g.counts[s]) / N;
+  // c_a = N_a / N (species iterate in sorted-symbol == id order).
+  std::vector<double> conc;
+  for (const auto &sc : g.species)
+    conc.push_back(static_cast<double>(sc.count) / N);
 
   // Reconstruct total = Σ_{a<=b} (a==b ? 1 : 2) c_a c_b g_ab.
   const int S = static_cast<int>(g.species.size());
@@ -217,7 +231,7 @@ TEST_CASE("compute_gr - total equals sum of c_a c_b g_ab", "[gr][analysis]") {
   for (int a = 0; a < S; ++a)
     for (int b = a; b < S; ++b, ++pr) {
       const double w = (a == b ? 1.0 : 2.0) * conc[a] * conc[b];
-      recon += w * g.partials[pr];
+      recon += w * g.partials[pr].values;
     }
   for (int k = 0; k < p.n_bins; ++k)
     REQUIRE_THAT(g.total(k), WithinAbs(recon(k), 1e-9));
@@ -251,8 +265,8 @@ Atoms
   std::filesystem::remove(path, ec);
 
   REQUIRE(r);
-  REQUIRE((*r).species == std::vector<std::string>{"Cu"});
-  REQUIRE((*r).pair_labels == std::vector<std::string>{"Cu-Cu"});
+  REQUIRE(symbols((*r).species) == std::vector<std::string>{"Cu"});
+  REQUIRE(labels_of((*r).partials) == std::vector<std::string>{"Cu-Cu"});
   REQUIRE((*r).total(20) > 0.0); // separation 2.0 → bin 20
 }
 

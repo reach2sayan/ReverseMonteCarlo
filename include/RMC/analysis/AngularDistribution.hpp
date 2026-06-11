@@ -1,4 +1,5 @@
 #pragma once
+#include <RMC/analysis/Composition.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Types.hpp>
 #include <filesystem>
@@ -20,13 +21,11 @@ struct AdfParams {
 // (central element outer, unordered leg pair inner), so an ADF written by
 // write_adf is directly usable as that constraint's target.
 struct AdfResult {
-  vec_t theta;                             // bin centres (rad), length n_bins
-  vec_t total;                             // sum over triplet columns
-  std::vector<std::string> triplet_labels; // "central-legA-legB"(central first)
-  std::vector<vec_t> partials;             // aligned with triplet_labels
-  std::vector<std::string> species;        // distinct elements, sorted
-  std::vector<std::size_t> counts;         // atom count per species (aligned)
-  double max_dis = 0.0;                    // cutoff used
+  vec_t theta;                        // bin centres (rad), length n_bins
+  vec_t total;                       // sum over triplet columns
+  std::vector<LabeledCurve> partials; // one per triplet (label "A-B-C" + adf)
+  Composition species;               // distinct elements (sorted) with counts
+  double max_dis = 0.0;              // cutoff used
 };
 
 // Compute the ADF from an in-memory configuration. Requires a periodic box (the

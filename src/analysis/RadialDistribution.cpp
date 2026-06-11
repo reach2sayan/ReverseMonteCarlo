@@ -12,6 +12,7 @@
 #include <fstream>
 #include <map>
 #include <numbers>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -54,17 +55,22 @@ Result<GrResult> compute_gr(const coords_t &coords,
 
   const int S = static_cast<int>(id_of.size());
   GrResult out;
-  out.species.resize(static_cast<std::size_t>(S));
-  out.counts.assign(static_cast<std::size_t>(S), 0);
+  // Per-id symbol and atom count, accumulated by integer species id; folded
+  // into the result's flat_set once complete (set elements are immutable, so
+  // the counts can't be incremented in place there).
+  std::vector<std::string> sym_of_id(static_cast<std::size_t>(S));
   for (const auto &[sym, id] : id_of) {
-    out.species[id] = sym;
+    sym_of_id[id] = sym;
   }
+  std::vector<std::size_t> counts(static_cast<std::size_t>(S), 0);
 
   std::vector<std::uint8_t> elem_id(static_cast<std::size_t>(N));
-  for (Eigen::Index i = 0; i < N; ++i) {
-    const std::uint8_t id = id_of.at(elements[static_cast<std::size_t>(i)]);
-    elem_id[static_cast<std::size_t>(i)] = id;
-    ++out.counts[id];
+  for (auto &&[id, e] : std::views::zip(elem_id, elements)) {
+    id = id_of.at(e);
+    ++counts[id];
+  }
+  for (auto &&[sym, count] : std::views::zip(sym_of_id, counts)) {
+    out.species.insert({sym, count});
   }
 
   const double bin_width = (params.r_max - params.r_min) / params.n_bins;
@@ -103,17 +109,16 @@ Result<GrResult> compute_gr(const coords_t &coords,
       //   hist = 2·(unordered {a,b} count). For a≠b ordered a→b = hist/2;
       //   for a==b ordered = hist. This collapses to a single factor:
       //   g_ab = hist·V / (shell · N_a · N_b · (a==b ? 1 : 2)).
-      const double Na = static_cast<double>(out.counts[a]);
-      const double Nb = static_cast<double>(out.counts[b]);
+      const double Na = static_cast<double>(counts[a]);
+      const double Nb = static_cast<double>(counts[b]);
       const double pair_factor = (a == b) ? 1.0 : 2.0;
       vec_t g = vec_t::Zero(params.n_bins);
       if (Na > 0.0 && Nb > 0.0) {
         const double denom_const = pair_factor * Na * Nb;
         g.array() = hist.array() * (V / denom_const) / shell.array();
       }
-      out.partials.push_back(std::move(g));
-      out.pair_labels.push_back(
-          std::format("{}-{}", out.species[a], out.species[b]));
+      out.partials.push_back(
+          {std::format("{}-{}", sym_of_id[a], sym_of_id[b]), std::move(g)});
     }
   }
 
@@ -152,17 +157,17 @@ Result<void> write_gr(const GrResult &g, const std::filesystem::path &path) {
 
   // Column header.
   f << "# g(r): density(rho)=" << g.density << ", species=";
-  for (std::size_t i = 0; i < g.species.size(); ++i)
-    f << (i ? "," : "") << g.species[i] << "(" << g.counts[i] << ")";
+  for (const auto &[i, s] : g.species | std::views::enumerate)
+    f << (i ? "," : "") << s.symbol << "(" << s.count << ")";
   f << "\n# r  g_total";
-  for (const auto &lbl : g.pair_labels)
-    f << "  g_" << lbl;
+  for (const auto &p : g.partials)
+    f << "  g_" << p.label;
   f << "\n";
 
   for (Eigen::Index k = 0; k < g.r.size(); ++k) {
     f << std::format("{:.6f} {:.8f}", g.r(k), g.total(k));
     for (const auto &p : g.partials)
-      f << std::format(" {:.8f}", p(k));
+      f << std::format(" {:.8f}", p.values(k));
     f << "\n";
   }
   return {};

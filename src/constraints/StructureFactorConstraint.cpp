@@ -1,6 +1,7 @@
 #include <RMC/constraints/StructureFactorConstraint.hpp>
 #include <boost/assert.hpp>
 #include <cmath>
+#include <ranges>
 
 namespace RMC {
 
@@ -38,7 +39,7 @@ void StructureFactorConstraint::initialise() {
       Eigen::ArrayXd::LinSpaced(n_r_bins_, 0, n_r_bins_ - 1) * r_bin_ +
       (r_min_ + 0.5 * r_bin_);
   // Row qi is the Δr·sin(Q·r)/Q kernel for Q = exp_Q_(qi).
-  for (Eigen::Index qi = 0; qi < nQ; ++qi) {
+  for (const auto qi : std::views::iota(Eigen::Index{0}, nQ)) {
     const double q = exp_Q_(qi);
     if (q > 1e-10)
       Gr2Sq_.row(qi) = (r_bin_ / q * (q * r).sin()).matrix().transpose();

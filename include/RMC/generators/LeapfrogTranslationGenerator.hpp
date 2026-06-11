@@ -7,6 +7,7 @@
 #include <boost/assert.hpp>
 #include <cmath>
 #include <optional>
+#include <ranges>
 
 namespace RMC {
 
@@ -74,10 +75,9 @@ struct LeapfrogTranslationGenerator
 
     int steps_done = 0;
     for (int t = 0; t < n_steps; ++t) {
-      for (Eigen::Index ai = 0; ai < k; ++ai) {
-        const auto atom =
-            static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
-        coords.row(atom) += step_size * p.segment<3>(3 * ai).transpose();
+      for (const auto [ai, atom] : indices | std::views::enumerate) {
+        coords.row(static_cast<Eigen::Index>(atom)) +=
+            step_size * p.segment<3>(3 * ai).transpose();
       }
 
       g = GradientOracle::translation_gradient(coords, indices, *constraints);
@@ -92,11 +92,10 @@ struct LeapfrogTranslationGenerator
       // NUTS U-turn check
       if (nuts_mode) {
         vec_t r_diff_flat(3 * k);
-        for (Eigen::Index ai = 0; ai < k; ++ai) {
-          const auto atom =
-              static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
+        for (const auto [ai, atom] : indices | std::views::enumerate) {
           r_diff_flat.segment<3>(3 * ai) =
-              coords.row(atom).transpose() - saved.row(ai).transpose();
+              coords.row(static_cast<Eigen::Index>(atom)).transpose() -
+              saved.row(ai).transpose();
         }
         if (p.dot(r_diff_flat) < 0.0) {
           break;

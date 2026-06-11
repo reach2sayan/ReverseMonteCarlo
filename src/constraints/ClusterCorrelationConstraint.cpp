@@ -349,9 +349,8 @@ void ClusterCorrelationConstraint::apply_move_update() {
     occ_[site] = current_occ(site);
   }
 
-  for (std::size_t a = 0; a < affected_insts_.size(); ++a) {
-    const std::uint32_t gid = affected_insts_[a];
-    orbit_sum_[inst_orbit_[gid]] += instance_product(gid) - old_prod_[a];
+  for (const auto [gid, old_prod] : std::views::zip(affected_insts_, old_prod_)) {
+    orbit_sum_[inst_orbit_[gid]] += instance_product(gid) - old_prod;
   }
   // Patch total_err_ for the affected orbits using their saved old sums.
   for (const auto &[o, old_sum] : undo_orbit_sums_) {

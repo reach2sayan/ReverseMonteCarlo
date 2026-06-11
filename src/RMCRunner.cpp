@@ -275,13 +275,13 @@ Result<void> write_structure_by_ext(const AtomicStructure &s, const mat3_t &box,
     // through unwrapped.)
     AtomicStructure centered = s;
     const vec3_t half(0.5 * box(0, 0), 0.5 * box(1, 1), 0.5 * box(2, 2));
-    for (Eigen::Index i = 0; i < centered.coordinates.rows(); ++i) {
-      for (int d = 0; d < 3; ++d) {
-        const double L = box(d, d);
-        if (L > 0.0) {
-          double &x = centered.coordinates(i, d);
-          x -= L * std::floor((x + half[d]) / L); // wrap into [-L/2, L/2)
-        }
+    // Wrap each axis into [-L/2, L/2) as a single vectorised column op:
+    // x -= L·floor((x + L/2)/L). The d loop is over the three box dims.
+    for (int d = 0; d < 3; ++d) {
+      const double L = box(d, d);
+      if (L > 0.0) {
+        auto col = centered.coordinates.col(d).array();
+        col -= L * ((col + half[d]) / L).floor();
       }
     }
     return io::write_lammps_data(centered, box, path, -half);
@@ -420,7 +420,7 @@ Result<int> cmd_compute_gr(RMCContext &ctx) {
   gp.n_bins = static_cast<int>(vm["nbins"].as<std::size_t>());
   BOOST_LEAF_AUTO(g, analysis::compute_gr(s.coordinates, bc, s.elements, gp));
   BOOST_LEAF_CHECK(analysis::write_gr(g, vm["gr-out"].as<std::string>()));
-  BOOST_LOG_TRIVIAL(info) << "Wrote g(r) (" << g.pair_labels.size()
+  BOOST_LOG_TRIVIAL(info) << "Wrote g(r) (" << g.partials.size()
                           << " partials) to " << vm["gr-out"].as<std::string>();
   return 0;
 }
@@ -437,7 +437,7 @@ Result<int> cmd_compute_adf(RMCContext &ctx) {
   ap.smooth_range = vm["adf-smooth"].as<int>();
   BOOST_LEAF_AUTO(a, analysis::compute_adf(s.coordinates, bc, s.elements, ap));
   BOOST_LEAF_CHECK(analysis::write_adf(a, vm["adf-out"].as<std::string>()));
-  BOOST_LOG_TRIVIAL(info) << "Wrote ADF (" << a.triplet_labels.size()
+  BOOST_LOG_TRIVIAL(info) << "Wrote ADF (" << a.partials.size()
                           << " triplets) to " << vm["adf-out"].as<std::string>();
   return 0;
 }

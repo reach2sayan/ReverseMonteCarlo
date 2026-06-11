@@ -4,6 +4,7 @@
 #include <RMC/generators/GradientOracle.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
 #include <boost/assert.hpp>
+#include <ranges>
 
 namespace RMC {
 
@@ -31,20 +32,16 @@ struct LangevinTranslationGenerator
         constraints,
         "LangevinTranslationGenerator: constraints pointer is null");
 
-    const auto k = static_cast<Eigen::Index>(indices.size());
     const vec_t g =
         GradientOracle::translation_gradient(coords, indices, *constraints);
 
     const double half_eps_sq = 0.5 * step_size * step_size;
-    for (Eigen::Index ai = 0; ai < k; ++ai) {
-      const auto atom =
-          static_cast<Eigen::Index>(indices[static_cast<std::size_t>(ai)]);
-
+    for (const auto [ai, atom] : indices | std::views::enumerate) {
       const vec3_t grad = -half_eps_sq * g.segment<3>(3 * ai);
       const vec3_t noise =
           step_size * vec3_t::NullaryExpr([&] { return rng.normal(); });
 
-      coords.row(atom) += (grad + noise).transpose();
+      coords.row(static_cast<Eigen::Index>(atom)) += (grad + noise).transpose();
     }
   }
 };

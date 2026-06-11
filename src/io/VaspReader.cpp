@@ -13,6 +13,7 @@
 #include <format>
 #include <fstream>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -172,10 +173,9 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
   AtomicStructure &st = out.structure;
   std::vector<std::array<double, 3>> cart;
   std::vector<int> anum;
-  for (std::size_t e = 0; e < symbols.size(); ++e) {
-    const std::string &sym = symbols[e];
+  for (const auto &[sym, cnt] : std::views::zip(symbols, counts)) {
     const int z = atomic_number(sym);
-    for (int n = 0; n < counts[e]; ++n) {
+    for (int n = 0; n < cnt; ++n) {
       if (!next(line)) {
         return boost::leaf::new_error(
             std::string{"POSCAR has fewer coordinate lines than declared"});
@@ -243,17 +243,17 @@ Result<void> write_vasp(const AtomicStructure &s, const mat3_t &box,
     f << std::format("{:.10f} {:.10f} {:.10f}\n", box(0, c), box(1, c),
                      box(2, c));
 
-  for (std::size_t e = 0; e < order.size(); ++e)
-    f << (e ? " " : "") << order[e];
+  for (const auto &[e, sym] : order | std::views::enumerate)
+    f << (e ? " " : "") << sym;
   f << "\n";
-  for (std::size_t e = 0; e < order.size(); ++e)
-    f << (e ? " " : "") << groups[e].size();
+  for (const auto &[e, g] : groups | std::views::enumerate)
+    f << (e ? " " : "") << g.size();
   f << "\n";
 
   f << "Direct\n";
   const PeriodicBC pbc(box);
-  for (std::size_t e = 0; e < order.size(); ++e)
-    for (const std::size_t idx : groups[e]) {
+  for (const auto &g : groups)
+    for (const std::size_t idx : g) {
       const vec3_t cart =
           s.coordinates.row(static_cast<Eigen::Index>(idx)).transpose();
       const vec3_t frac = pbc.inv_box() * cart;

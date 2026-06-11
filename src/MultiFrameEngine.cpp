@@ -3,6 +3,7 @@
 #include <boost/assert.hpp>
 
 #include <numeric>
+#include <ranges>
 #include <vector>
 
 namespace RMC {
@@ -16,7 +17,7 @@ void MultiFrameEngine::do_initialise() {
   std::vector<std::size_t> all_idx(n_atoms);
   std::iota(all_idx.begin(), all_idx.end(), std::size_t{0});
 
-  for (std::size_t k = 0; k < N; ++k) {
+  for (const auto k : std::views::iota(std::size_t{0}, N)) {
     constraints_.set_active_frame(k);
     constraints_.compute_before_move(store_[k].coordinates, all_idx);
   }

@@ -1,6 +1,7 @@
 #include <RMC/constraints/ReducedStructureFactorConstraint.hpp>
 #include <boost/assert.hpp>
 #include <cmath>
+#include <ranges>
 
 namespace RMC {
 
@@ -39,7 +40,7 @@ void ReducedStructureFactorConstraint::initialise() {
       Eigen::ArrayXd::LinSpaced(n_r_bins_, 0, n_r_bins_ - 1) * r_bin_ +
       (r_min_ + 0.5 * r_bin_);
   // F(Q) = ∫ G(r) sin(Qr) dr — no 1/Q factor here.
-  for (Eigen::Index qi = 0; qi < nQ; ++qi) {
+  for (const auto qi : std::views::iota(Eigen::Index{0}, nQ)) {
     const double q = exp_Q_(qi);
     Fr2FQ_.row(qi) = (r_bin_ * (q * r).sin()).matrix().transpose();
   }

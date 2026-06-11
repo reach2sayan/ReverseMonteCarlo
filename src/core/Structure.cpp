@@ -1,4 +1,5 @@
 #include <RMC/core/Structure.hpp>
+#include <ranges>
 #include <stdexcept>
 
 namespace RMC {
@@ -18,9 +19,8 @@ void AtomicStructure::save_snapshot(std::span<const std::size_t> indices) {
 }
 
 void AtomicStructure::restore_snapshot(std::span<const std::size_t>) {
-  const auto n = static_cast<Eigen::Index>(snapshot_indices_.size());
-  for (Eigen::Index k = 0; k < n; ++k) {
-    coordinates.row(snapshot_indices_[k]) = snapshot_coords_.row(k);
+  for (const auto [k, idx] : snapshot_indices_ | std::views::enumerate) {
+    coordinates.row(idx) = snapshot_coords_.row(k);
   }
 }
 
@@ -39,8 +39,10 @@ void AtomicStructure::save_species_snapshot() {
   // Build the code→symbol map once. Species moves only permute the existing
   // set of (code, symbol) pairs, so this stays valid for the whole run.
   if (code_to_symbol_.empty() && !elements.empty()) {
-    for (std::size_t k = 0; k < n && k < elements.size(); ++k) {
-      code_to_symbol_.try_emplace(snapshot_atomic_numbers_[k], elements[k]);
+    // zip stops at the shorter of the two, giving the min(n, elements) bound.
+    for (const auto &[code, sym] :
+         std::views::zip(snapshot_atomic_numbers_, elements)) {
+      code_to_symbol_.try_emplace(code, sym);
     }
   }
   has_species_snapshot_ = true;

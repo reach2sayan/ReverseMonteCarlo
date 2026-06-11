@@ -254,7 +254,7 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
   // remainder rounding so per-sublattice counts are integer and sum exactly).
   std::vector<std::string> elements(n_atoms);
   std::mt19937 rng(seed);
-  for (std::size_t s = 0; s < n_prim; ++s) {
+  for (const std::size_t s : std::views::iota(std::size_t{0}, n_prim)) {
     std::vector<std::size_t> idx;
     idx.reserve(n_atoms);
     std::ranges::copy_if(

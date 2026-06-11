@@ -43,17 +43,22 @@ Result<AdfResult> compute_adf(const coords_t &coords,
 
   AdfResult out;
   out.max_dis = params.max_dis;
-  out.species.resize(static_cast<std::size_t>(S));
-  out.counts.assign(static_cast<std::size_t>(S), 0);
+  // Per-id symbol and atom count, accumulated by integer species id; folded
+  // into the result's flat_set once complete (set elements are immutable, so
+  // the counts can't be incremented in place there).
+  std::vector<std::string> sym_of_id(static_cast<std::size_t>(S));
   for (const auto &[sym, id] : id_of) {
-    out.species[id] = sym;
+    sym_of_id[id] = sym;
   }
+  std::vector<std::size_t> counts(static_cast<std::size_t>(S), 0);
 
   std::vector<std::uint8_t> elem_id(static_cast<std::size_t>(N));
-  for (Eigen::Index i = 0; i < N; ++i) {
-    const std::uint8_t id = id_of.at(elements[static_cast<std::size_t>(i)]);
-    elem_id[static_cast<std::size_t>(i)] = id;
-    ++out.counts[id];
+  for (auto &&[id, e] : std::views::zip(elem_id, elements)) {
+    id = id_of.at(e);
+    ++counts[id];
+  }
+  for (auto &&[sym, count] : std::views::zip(sym_of_id, counts)) {
+    out.species.insert({sym, count});
   }
 
   // Raw angle histogram (flat angle_bin × triplet_column).
@@ -71,9 +76,9 @@ Result<AdfResult> compute_adf(const coords_t &coords,
       for (int q = p; q < S; ++q) {
         const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, S);
         const double denom =
-            static_cast<double>(out.counts[static_cast<std::size_t>(a)]) *
-            static_cast<double>(out.counts[static_cast<std::size_t>(p)]) *
-            static_cast<double>(out.counts[static_cast<std::size_t>(q)]);
+            static_cast<double>(counts[static_cast<std::size_t>(a)]) *
+            static_cast<double>(counts[static_cast<std::size_t>(p)]) *
+            static_cast<double>(counts[static_cast<std::size_t>(q)]);
         col_scale(col) = denom > 0.0 ? inc / denom : 0.0;
       }
   // Per-column scaling: `hist` is a row-major (bin × column) matrix flattened
@@ -121,9 +126,9 @@ Result<AdfResult> compute_adf(const coords_t &coords,
         const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, S);
         vec_t partial = H.col(col);
         out.total += partial;
-        out.partials.push_back(std::move(partial));
-        out.triplet_labels.push_back(std::format(
-            "{}-{}-{}", out.species[a], out.species[p], out.species[q]));
+        out.partials.push_back(
+            {std::format("{}-{}-{}", sym_of_id[a], sym_of_id[p], sym_of_id[q]),
+             std::move(partial)});
       }
 
   return out;
@@ -162,22 +167,17 @@ Result<void> write_adf(const AdfResult &a, const std::filesystem::path &path) {
         std::string{"Cannot write ADF file: " + path.string()});
 
   f << "# adf: max_dis=" << a.max_dis << ", species=";
-  for (const auto &[i, species_and_count] :
-       std::views::zip(a.species, a.counts) | std::views::enumerate) {
-    const auto &[species, count] = species_and_count;
-    f << (i ? "," : "") << species << "(" << count << ")";
-  }
+  for (const auto &[i, s] : a.species | std::views::enumerate)
+    f << (i ? "," : "") << s.symbol << "(" << s.count << ")";
   f << "\n# theta";
-  for (const auto &lbl : a.triplet_labels) {
-    f << "  adf_" << lbl;
-  }
+  for (const auto &p : a.partials)
+    f << "  adf_" << p.label;
   f << "\n";
 
   for (Eigen::Index b = 0; b < a.theta.size(); ++b) {
     f << std::format("{:.6f}", a.theta(b));
-    for (const auto &p : a.partials) {
-      f << std::format(" {:.8f}", p(b));
-    }
+    for (const auto &p : a.partials)
+      f << std::format(" {:.8f}", p.values(b));
     f << "\n";
   }
   return {};
