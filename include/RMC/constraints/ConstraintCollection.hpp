@@ -2,6 +2,8 @@
 #include <RMC/constraints/Constraint.hpp>
 #include <boost/stl_interfaces/view_interface.hpp>
 #include <optional>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace RMC {
@@ -44,6 +46,13 @@ public:
   // Soft total error BEFORE the proposed move (rigid constraints contribute 0).
   // Paired with total_error() to form the ΔE handed to the Sampler.
   [[nodiscard]] double total_error_before() const noexcept;
+
+  // Per-constraint {name, standard_error()} in evaluation (cost-sorted) order.
+  // Read-only view for diagnostics/UI; the GUI uses it for the convergence
+  // breakdown since standard_error() is otherwise passkey-gated. Rigid
+  // constraints report 0 (they contribute only as a hard gate).
+  [[nodiscard]] std::vector<std::pair<std::string_view, double>>
+  error_breakdown() const;
 
   // Safety net: run each constraint's one-time initialise() (no-op for those
   // without one; idempotent for pair constraints). Lets the engine self-heal a

@@ -88,6 +88,16 @@ double ConstraintCollection::total_error_before() const noexcept {
                                 });
 }
 
+std::vector<std::pair<std::string_view, double>>
+ConstraintCollection::error_breakdown() const {
+  std::vector<std::pair<std::string_view, double>> out;
+  out.reserve(constraints_.size());
+  for (const auto &c : constraints_) {
+    out.emplace_back(c.name(), c.standard_error());
+  }
+  return out;
+}
+
 void ConstraintCollection::initialise_all() {
   std::ranges::for_each(constraints_, [](Constraint &c) { c.initialise(); });
 }

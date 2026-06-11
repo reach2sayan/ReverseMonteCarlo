@@ -3,7 +3,8 @@ if (POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif ()
 
-project(ReverseMonteCarlo VERSION 1.0.0 LANGUAGES CXX)
+# C is needed by the GUI's vendored deps (glad loader, GLFW are C libraries).
+project(ReverseMonteCarlo VERSION 1.0.0 LANGUAGES C CXX)
 
 option(ENABLE_LTO "Enable link-time optimization" ON)
 include(CheckIPOSupported)
@@ -183,6 +184,7 @@ add_library(RMC SHARED
         src/Engine.cpp
         src/MultiFrameEngine.cpp
         src/Ensemble.cpp
+        src/RMCRunner.cpp
 )
 target_include_directories(RMC PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -194,6 +196,7 @@ target_link_libraries(RMC PUBLIC
         Boost::headers
         Boost::log
         Boost::log_setup
+        Boost::program_options
         Boost::serialization
         Boost::container
         Threads::Threads
@@ -214,18 +217,21 @@ if (RMC_COMPILER_MSVC)
 elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     target_compile_options(RMC PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
 endif ()
+# RMCRunner.cpp (now in the library) uses BOOST_LEAF_AUTO, which expands to a GNU
+# statement-expression; silence the resulting Clang diagnostic.
+if (RMC_COMPILER_CLANG)
+    target_compile_options(RMC PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
+endif ()
 
-add_executable(RMC_run src/main.cpp src/RMCRunner.cpp)
-target_link_libraries(RMC_run PRIVATE RMC Boost::program_options)
+# RMC_run is now a thin CLI front-end: the driver (RMCRunner) and the shared
+# RMCConfig/build_engine API live in the RMC library, so RMC_gui can reuse them.
+add_executable(RMC_run src/main.cpp)
+target_link_libraries(RMC_run PRIVATE RMC)
 
 if (RMC_COMPILER_MSVC)
     target_compile_options(RMC_run PRIVATE /W4 /permissive-)
 elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     target_compile_options(RMC_run PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
-endif ()
-# BOOST_LEAF_AUTO expands to a GNU statement-expression; silence on Clang.
-if (RMC_COMPILER_CLANG)
-    target_compile_options(RMC_run PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
 endif ()
 
 option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
@@ -240,6 +246,14 @@ endif ()
 option(RMC_BUILD_EXAMPLES "Build fullrmc-equivalent C++ examples" ON)
 if (RMC_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif ()
+
+# Dear ImGui desktop GUI (separate RMC_gui executable linking RMC). ON by
+# default; the first configure fetches the GUI deps (ImGui/glad/ImPlot, and GLFW
+# if no system package). Turn OFF to skip the GUI and its dependency fetch.
+option(RMC_BUILD_GUI "Build the ImGui desktop GUI (RMC_gui)" ON)
+if (RMC_BUILD_GUI)
+    add_subdirectory(gui)
 endif ()
 
 include(CTest)

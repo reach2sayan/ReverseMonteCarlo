@@ -199,7 +199,10 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
     if (s.occ.size() <= 1) {
       continue;
     }
-    auto set = s.occ | std::views::keys | std::ranges::to<std::vector>();
+    std::vector<std::string> set;
+    for (const auto &species : s.occ | std::views::keys) {
+      set.push_back(species);
+    }
     std::ranges::sort(set);
     if (!active_set) {
       active_set = set;

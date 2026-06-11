@@ -33,10 +33,6 @@ const auto to_vec3 = [](const auto &t) {
   return vec3_t{x, y, z};
 };
 
-// Bridge an optional parse result into the leaf world: a value passes through,
-// an empty optional becomes a leaf error carrying msg. This lets each line read
-// as bp::parse(...).transform(...) bound with BOOST_LEAF_AUTO, instead of an
-// explicit `if (!opt) return new_error` at every step.
 template <class T>
 Result<T> or_error(std::optional<T> o, std::string_view msg) {
   return o ? std::move(*o)
@@ -91,7 +87,6 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
   BOOST_LEAF_AUTO(scale, or_error(bp::prefix_parse(scale_it, line.end(),
                                                    bp::double_, bp::ws),
                                   "POSCAR scaling factor parse error"));
-
 
   // Lines 3-5: lattice vectors a1, a2, a3 — stored as box columns.
   mat3_t lat = mat3_t::Zero();
@@ -148,7 +143,7 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
                                  -> std::optional<std::vector<int>> {
                      if (c.size() != symbols.size())
                        return std::nullopt;
-                     return std::move(c);
+                     return c;
                    }),
                "POSCAR element/count line mismatch"));
 
