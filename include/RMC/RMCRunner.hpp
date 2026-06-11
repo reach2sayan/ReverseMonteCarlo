@@ -16,9 +16,14 @@ namespace RMC {
 // =====================================================================
 // Reusable simulation setup — the program_options-independent core that
 // turns "inputs" into a ready Engine. RMC_run maps its command line onto
-// RMCConfig; RMC_gui maps its widgets onto the same struct, so both build
-// engines through one code path (build_engine).
+// RMCConfig, which feeds the single build path (build_engine).
 // =====================================================================
+
+// Move-proposal strategy. Random is the classic RMC walk; Langevin (MALA) and
+// Leapfrog (HMC) steer atoms along −∇χ² of the constraints toward the target,
+// converging far faster but costing ~6k constraint evals per move for the
+// finite-difference gradient.
+enum class MoveGenKind { Random, Langevin, Leapfrog };
 
 // Plain inputs mirroring the CLI knobs.
 struct RMCConfig {
@@ -43,6 +48,8 @@ struct RMCConfig {
   bool use_smart = false;
   double group_min_amp = 0.0;
   double group_max_amp = 0.2;
+  MoveGenKind move_gen = MoveGenKind::Random; // CLI default keeps the classic walk
+  double move_step = 0.05; // ε (Å) for Langevin/Leapfrog gradient moves
   std::optional<std::string> checkpoint_path;
   std::uint64_t log_every = 1000;
 
@@ -79,7 +86,22 @@ void attach_constraints(Engine &engine, const ExperimentalData &data,
 // are run-policy rather than build inputs are left to the caller.
 [[nodiscard]] Result<Engine> build_engine(const RMCConfig &cfg);
 
+// Apply cfg.move_gen to an already-built engine whose constraints are attached
+// and which is in its FINAL location (the gradient generators bind a pointer to
+// engine.constraints(), which moving the engine afterwards would invalidate).
+// Random is a no-op (build_engine already made the random-walk groups);
+// Langevin/Leapfrog rebuild the groups with the gradient proposer.
+void apply_move_generator(Engine &engine, const RMCConfig &cfg);
+
 [[nodiscard]] mat3_t periodic_box_or_zero(const BoundaryConditions &bc);
+
+// Write a structure, picking the format from the output path's extension
+// (.vasp/.poscar → VASP, .lammps/.lmp/.data → LAMMPS, else PDB). `box` comes
+// from the active periodic cell (zero for infinite). Shared by the CLI's final
+// write and the GUI's end-of-run save.
+[[nodiscard]] Result<void> write_structure_by_ext(const AtomicStructure &s,
+                                                  const mat3_t &box,
+                                                  const std::string &path);
 
 class RMCRunner {
 public:

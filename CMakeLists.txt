@@ -3,8 +3,7 @@ if (POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif ()
 
-# C is needed by the GUI's vendored deps (glad loader, GLFW are C libraries).
-project(ReverseMonteCarlo VERSION 1.0.0 LANGUAGES C CXX)
+project(ReverseMonteCarlo VERSION 1.0.0 LANGUAGES CXX)
 
 option(ENABLE_LTO "Enable link-time optimization" ON)
 include(CheckIPOSupported)
@@ -223,8 +222,8 @@ if (RMC_COMPILER_CLANG)
     target_compile_options(RMC PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
 endif ()
 
-# RMC_run is now a thin CLI front-end: the driver (RMCRunner) and the shared
-# RMCConfig/build_engine API live in the RMC library, so RMC_gui can reuse them.
+# RMC_run is a thin CLI front-end: the driver (RMCRunner) and the shared
+# RMCConfig/build_engine API live in the RMC library.
 add_executable(RMC_run src/main.cpp)
 target_link_libraries(RMC_run PRIVATE RMC)
 
@@ -246,14 +245,6 @@ endif ()
 option(RMC_BUILD_EXAMPLES "Build fullrmc-equivalent C++ examples" ON)
 if (RMC_BUILD_EXAMPLES)
     add_subdirectory(examples)
-endif ()
-
-# Dear ImGui desktop GUI (separate RMC_gui executable linking RMC). ON by
-# default; the first configure fetches the GUI deps (ImGui/glad/ImPlot, and GLFW
-# if no system package). Turn OFF to skip the GUI and its dependency fetch.
-option(RMC_BUILD_GUI "Build the ImGui desktop GUI (RMC_gui)" ON)
-if (RMC_BUILD_GUI)
-    add_subdirectory(gui)
 endif ()
 
 include(CTest)

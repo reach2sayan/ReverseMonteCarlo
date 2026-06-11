@@ -20,6 +20,7 @@
 #include <boost/log/expressions.hpp>
 #include <boost/log/trivial.hpp>
 
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
@@ -228,6 +229,19 @@ Result<Engine> build_engine(const RMCConfig &cfg) {
   return build_engine(loaded, data, cfg);
 }
 
+void apply_move_generator(Engine &engine, const RMCConfig &cfg) {
+  switch (cfg.move_gen) {
+  case MoveGenKind::Langevin:
+    engine.build_langevin_groups(cfg.move_step, cfg.seed);
+    break;
+  case MoveGenKind::Leapfrog:
+    engine.build_leapfrog_groups(cfg.move_step, /*n_steps=*/10, cfg.seed);
+    break;
+  case MoveGenKind::Random:
+    break; // build_engine already created the random-walk groups
+  }
+}
+
 mat3_t periodic_box_or_zero(const BoundaryConditions &bc) {
   mat3_t out = mat3_t::Zero();
   if (const auto *p = std::get_if<PeriodicBC>(&bc)) {
@@ -239,19 +253,6 @@ mat3_t periodic_box_or_zero(const BoundaryConditions &bc) {
 // =====================================================================
 // Command-line driver (RMC_run).
 // =====================================================================
-
-namespace {
-
-// Split a whitespace-separated string into tokens of type T (e.g. the
-// "Zr Cu Ag" element legends and "50 50" count lists from the CLI).
-template <typename T> std::vector<T> parse_tokens(const std::string &text) {
-  std::vector<T> out;
-  std::istringstream is(text);
-  for (T v; is >> v;) {
-    out.push_back(std::move(v));
-  }
-  return out;
-}
 
 // Write a structure choosing the format from the output path: a VASP POSCAR for
 // .vasp/.poscar (or a POSCAR/CONTCAR name), a LAMMPS data file for
@@ -267,9 +268,38 @@ Result<void> write_structure_by_ext(const AtomicStructure &s, const mat3_t &box,
     return io::write_vasp(s, box, path);
   }
   if (ext == ".lammps" || ext == ".lmp" || ext == ".data") {
-    return io::write_lammps_data(s, box, path);
+    // The engine wraps atoms into [0,L), and PeriodicBC drops the box origin, so
+    // a structure read from a centered cell (xlo=-L/2) would otherwise be
+    // written with xlo=0 — the cell appears to jump. Re-center: write the box as
+    // [-L/2, L/2) and wrap atoms into it. (Orthogonal cells; any tilt is passed
+    // through unwrapped.)
+    AtomicStructure centered = s;
+    const vec3_t half(0.5 * box(0, 0), 0.5 * box(1, 1), 0.5 * box(2, 2));
+    for (Eigen::Index i = 0; i < centered.coordinates.rows(); ++i) {
+      for (int d = 0; d < 3; ++d) {
+        const double L = box(d, d);
+        if (L > 0.0) {
+          double &x = centered.coordinates(i, d);
+          x -= L * std::floor((x + half[d]) / L); // wrap into [-L/2, L/2)
+        }
+      }
+    }
+    return io::write_lammps_data(centered, box, path, -half);
   }
   return io::write_pdb(s, path);
+}
+
+namespace {
+
+// Split a whitespace-separated string into tokens of type T (e.g. the
+// "Zr Cu Ag" element legends and "50 50" count lists from the CLI).
+template <typename T> std::vector<T> parse_tokens(const std::string &text) {
+  std::vector<T> out;
+  std::istringstream is(text);
+  for (T v; is >> v;) {
+    out.push_back(std::move(v));
+  }
+  return out;
 }
 
 void configure_logging(bool verbose) {
@@ -280,10 +310,9 @@ void configure_logging(bool verbose) {
 }
 
 // Map the parsed command line onto the program_options-independent RMCConfig the
-// shared builder consumes. This is the only place the CLI's option names meet
-// the builder — RMC_gui builds the same struct from its widgets. Numeric knobs
-// not exposed by the CLI (group amps, log_every) keep their RMCConfig defaults,
-// preserving the historical behaviour.
+// builder consumes. This is the only place the CLI's option names meet the
+// builder. Numeric knobs not exposed by the CLI (group amps, log_every) keep
+// their RMCConfig defaults, preserving the historical behaviour.
 RMCConfig sim_config_from_vm(const po::variables_map &vm) {
   RMCConfig cfg;
   if (vm.count("pdb")) {
@@ -319,6 +348,11 @@ RMCConfig sim_config_from_vm(const po::variables_map &vm) {
   cfg.steps = vm["steps"].as<std::uint64_t>();
   cfg.seed = vm["seed"].as<std::uint32_t>();
   cfg.use_smart = vm["smart"].as<bool>();
+  const std::string mg = vm["move-gen"].as<std::string>();
+  cfg.move_gen = mg == "langevin"  ? MoveGenKind::Langevin
+                 : mg == "leapfrog" ? MoveGenKind::Leapfrog
+                                    : MoveGenKind::Random;
+  cfg.move_step = vm["step"].as<double>();
   cfg.out_path = vm["out"].as<std::string>();
   return cfg;
 }
@@ -421,15 +455,17 @@ void log_progress(std::uint64_t step, std::uint64_t acc, std::uint64_t tried,
 
 // Run the refinement: an ensemble of replicas (best chi2 wins) when
 // --ensemble > 1, otherwise a single run with checkpoint + progress callback.
-template <typename Factory>
+template <typename Factory, typename Prepare>
 Engine run_refinement(const po::variables_map &vm, Factory &&make_engine,
-                      std::size_t n_ensemble, std::uint64_t n_steps) {
+                      Prepare &&prepare, std::size_t n_ensemble,
+                      std::uint64_t n_steps) {
   if (n_ensemble > 1) {
     BOOST_LOG_TRIVIAL(info)
         << "Ensemble: running " << n_ensemble << " replicas in parallel";
-    return run_ensemble(make_engine, n_ensemble, n_steps);
+    return run_ensemble(make_engine, n_ensemble, n_steps, /*tbb=*/0, prepare);
   }
   Engine e = make_engine(0);
+  prepare(e); // bind gradient generators to e's final location, if requested
   if (vm.count("checkpoint")) {
     e.set_checkpoint(vm["checkpoint"].as<std::string>());
   }
@@ -465,10 +501,14 @@ Result<int> cmd_refine(RMCContext &ctx) {
     c.seed = cfg.seed + static_cast<std::uint32_t>(replica);
     return build_engine(*in, data, c);
   };
+  // Applied to each engine in its final location (gradient generators bind to
+  // engine.constraints(), which the build/ensemble moves would invalidate).
+  auto prepare = [&](Engine &e) { apply_move_generator(e, cfg); };
 
   const auto n_steps = cfg.steps;
   const auto n_ensemble = vm["ensemble"].as<std::size_t>();
-  Engine engine = run_refinement(vm, make_engine, n_ensemble, n_steps);
+  Engine engine =
+      run_refinement(vm, make_engine, prepare, n_ensemble, n_steps);
 
   const mat3_t out_box = periodic_box_or_zero(in->bc);
   BOOST_LEAF_CHECK(
@@ -528,6 +568,11 @@ po::options_description make_options_description() {
       "Box vectors: 'a b c' for orthogonal periodic or 'inf' for infinite")(
       "smart", po::bool_switch()->default_value(false),
       "Use smart adaptive selector")(
+      "move-gen", po::value<std::string>()->default_value("random"),
+      "Move proposer: 'random' (classic walk), 'langevin' (MALA) or 'leapfrog' "
+      "(HMC) — the gradient movers steer atoms along −∇χ² toward the target")(
+      "step", po::value<double>()->default_value(0.05),
+      "Gradient step ε (Å) for --move-gen langevin/leapfrog")(
       "gr", po::bool_switch()->default_value(false),
       "Compute g(r) (total + partials) from the input structure and exit; "
       "no MC is run")("gr-out",

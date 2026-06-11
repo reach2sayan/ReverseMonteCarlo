@@ -7,7 +7,6 @@
 #include <RMC/core/Group.hpp>
 #include <RMC/core/Structure.hpp>
 #include <RMC/generators/SpeciesSwap.hpp>
-#include <RMC/io/PdbReader.hpp>
 #include <RMC/sampling/AnnealingSampler.hpp>
 #include <RMC/sampling/GreedySampler.hpp>
 #include <RMC/sampling/MetropolisSampler.hpp>
@@ -40,86 +39,6 @@ namespace po = boost::program_options;
 namespace RMC {
 
 namespace {
-
-// Parse "Cu:+1.0,Au:-1.0" into a SpeciesMap.
-ClusterCorrelationConstraint::SpeciesMap parse_species(const std::string &s) {
-  ClusterCorrelationConstraint::SpeciesMap m;
-  std::istringstream ss(s);
-  std::string token;
-  while (std::getline(ss, token, ',')) {
-    const auto colon = token.find(':');
-    if (colon == std::string::npos) {
-      throw std::runtime_error("species: expected 'Elem:value', got: " + token);
-    }
-    const std::string elem = token.substr(0, colon);
-    const double val = std::stod(token.substr(colon + 1));
-    m[elem] = val;
-  }
-  return m;
-}
-
-// Parse a legacy cluster-orbit file into a vector of ClusterOrbit.
-//
-// One orbit per block, blank-line separated:
-//   First line:  <target_corr> <weight> <n_points>
-//   Subsequent:  space-separated 0-based site indices, one instance per line.
-// Lines starting with '#' (or blank) close the current block. Example, a 4-site
-// cell with two pair orbits:
-//   0.0 1.0 2
-//   0 1
-//   2 3
-//
-//   0.0 1.0 2
-//   0 2
-//   1 3
-std::vector<ClusterOrbit> load_clusters(const std::string &path) {
-  std::ifstream f(path);
-  if (!f) {
-    throw std::runtime_error("Cannot open cluster file: " + path);
-  }
-  std::vector<ClusterOrbit> orbits;
-  std::string line;
-  std::optional<ClusterOrbit> cur;
-
-  auto flush = [&] {
-    if (cur && cur->instance_count() != 0) {
-      orbits.push_back(std::move(*cur));
-    }
-    cur.reset();
-  };
-
-  while (std::getline(f, line)) {
-    if (line.empty() || line[0] == '#') {
-      flush();
-      continue;
-    }
-    std::istringstream ls(line);
-    // Try reading as header: <target> <weight> <n_points>
-    double target, weight;
-    int n_pts;
-    if (!cur && (ls >> target >> weight >> n_pts)) {
-      cur = ClusterOrbit{};
-      cur->target = target;
-      cur->weight = weight;
-      continue;
-    }
-    // Otherwise it's a cluster instance: space-separated site indices.
-    if (!cur) {
-      continue;
-    }
-    ls.clear();
-    ls.str(line);
-    std::vector<std::size_t> sites;
-    std::size_t idx;
-    while (ls >> idx) {
-      sites.push_back(idx);
-    }
-    if (!sites.empty())
-      cur->add_instance(sites);
-  }
-  flush();
-  return orbits;
-}
 
 // Build sublattice groups: one sublattice per distinct residue name. Falls back
 // to a single sublattice containing all sites when residues are absent.
@@ -236,91 +155,64 @@ Sampler make_sampler(const SamplerSettings &s) {
       .t0 = s.t0, .cooling = s.cooling, .interval = s.cool_interval}}};
 }
 
-// The resolved SQS problem: the supercell to refine, its sublattice grouping,
-// and the cluster-correlation constraint to enforce. Two provenance paths feed
-// it — the ATAT corrdump pipeline (--lattice, `enumerated` engaged) or the
-// legacy explicit inputs (--structure / --clusters / --species). The constraint
-// reads this object's own members, so add_constraint() keeps the backing data
-// local to a long-lived McsqsProblem.
+// The resolved SQS problem from the ATAT corrdump pipeline: the supercell to
+// refine, its sublattice grouping, and the enumerated cluster orbits. The
+// constraint reads this object's own members, so add_constraint() keeps the
+// backing data local to a long-lived McsqsProblem.
 struct McsqsProblem {
   AtomicStructure structure;
   std::vector<std::vector<std::size_t>> sublattices;
-
-  // ATAT pipeline (engaged ⇒ corrdump provenance; drives the bestcorr oracle).
-  std::optional<atat::EnumeratedSqs> enumerated;
+  atat::EnumeratedSqs enumerated;
   std::string lattice_path;
   std::filesystem::path clusters_out_path;
 
-  // Legacy explicit inputs.
-  ClusterCorrelationConstraint::SpeciesMap legacy_species;
-  std::vector<ClusterOrbit> legacy_orbits;
-
   // Register the cluster-correlation constraint on a freshly built engine.
   void add_constraint(Engine &eng) const {
-    if (enumerated) {
-      eng.add_constraint(Constraint{ClusterCorrelationConstraint{
-          eng.structure(), enumerated->occ_index, enumerated->table,
-          enumerated->orbits}});
-    } else {
-      eng.add_constraint(Constraint{ClusterCorrelationConstraint{
-          eng.structure(), legacy_species, legacy_orbits}});
-    }
+    eng.add_constraint(Constraint{ClusterCorrelationConstraint{
+        eng.structure(), enumerated.occ_index, enumerated.table,
+        enumerated.orbits}});
   }
 };
 
-// Resolve the CLI into an McsqsProblem. Throws std::runtime_error on bad input.
+// Resolve the CLI into an McsqsProblem via corrdump + symmetry enumeration.
+// Throws std::runtime_error on bad input.
 McsqsProblem resolve_problem(const po::variables_map &vm, std::uint32_t seed) {
   McsqsProblem prob;
 
-  if (vm.count("lattice")) {
-    prob.lattice_path = vm["lattice"].as<std::string>();
-    const double d2 = vm["d2"].as<double>();
-    if (d2 <= 0.0) {
-      throw std::runtime_error(
-          "--d2 (max pair diameter) is required with --lattice");
-    }
-    std::map<int, double> diam{{2, d2}};
-    if (vm["d3"].as<double>() > 0.0) {
-      diam[3] = vm["d3"].as<double>();
-    }
-    if (vm["d4"].as<double>() > 0.0) {
-      diam[4] = vm["d4"].as<double>();
-    }
-
-    const Eigen::Matrix3i sc =
-        build_sc_matrix(vm["supercell"].as<std::string>());
-    const auto lat = atat::parse_lattice(prob.lattice_path);
-    const auto workdir =
-        std::filesystem::temp_directory_path() / "mcsqs_rmc_clusters";
-    const auto cl = atat::corrdump_generate_clusters(
-        resolve_corrdump(vm), prob.lattice_path, diam, workdir);
-    prob.clusters_out_path = cl.clusters_out;
-    const auto sym = atat::parse_sym(cl.sym_out);
-    const auto raw = atat::parse_clusters(cl.clusters_out);
-    prob.enumerated = atat::enumerate(lat, sym, raw, sc, seed);
-    prob.structure = prob.enumerated->structure;
-    prob.sublattices = build_sublattices(prob.structure);
-    std::cout << "Lattice sites: " << lat.sites.size()
-              << "  Species: " << lat.labels.size()
-              << "  Supercell atoms: " << prob.structure.size()
-              << "  Orbits: " << prob.enumerated->orbits.size() << "\n";
-  } else {
-    if (vm.count("structure") == 0 || vm.count("clusters") == 0 ||
-        vm.count("species") == 0) {
-      throw std::runtime_error(
-          "provide --lattice (ATAT pipeline) OR --structure + --clusters + "
-          "--species (legacy)");
-    }
-    auto r = io::read_pdb(vm["structure"].as<std::string>());
-    if (!r) {
-      throw std::runtime_error("Failed to read PDB: " +
-                               vm["structure"].as<std::string>());
-    }
-    prob.structure = std::move(*r);
-    prob.legacy_species = parse_species(vm["species"].as<std::string>());
-    prob.legacy_orbits = load_clusters(vm["clusters"].as<std::string>());
-    prob.sublattices = build_sublattices(prob.structure);
+  if (vm.count("lattice") == 0) {
+    throw std::runtime_error("--lattice (rndstr.in primitive lattice) is "
+                             "required");
   }
+  prob.lattice_path = vm["lattice"].as<std::string>();
+  const double d2 = vm["d2"].as<double>();
+  if (d2 <= 0.0) {
+    throw std::runtime_error(
+        "--d2 (max pair diameter) is required with --lattice");
+  }
+  std::map<int, double> diam{{2, d2}};
+  if (vm["d3"].as<double>() > 0.0) {
+    diam[3] = vm["d3"].as<double>();
+  }
+  if (vm["d4"].as<double>() > 0.0) {
+    diam[4] = vm["d4"].as<double>();
+  }
+
+  const Eigen::Matrix3i sc = build_sc_matrix(vm["supercell"].as<std::string>());
+  const auto lat = atat::parse_lattice(prob.lattice_path);
+  const auto workdir =
+      std::filesystem::temp_directory_path() / "mcsqs_rmc_clusters";
+  const auto cl = atat::corrdump_generate_clusters(
+      resolve_corrdump(vm), prob.lattice_path, diam, workdir);
+  prob.clusters_out_path = cl.clusters_out;
+  const auto sym = atat::parse_sym(cl.sym_out);
+  const auto raw = atat::parse_clusters(cl.clusters_out);
+  prob.enumerated = atat::enumerate(lat, sym, raw, sc, seed);
+  prob.structure = prob.enumerated.structure;
+  prob.sublattices = build_sublattices(prob.structure);
+  std::cout << "Lattice sites: " << lat.sites.size()
+            << "  Species: " << lat.labels.size()
+            << "  Supercell atoms: " << prob.structure.size()
+            << "  Orbits: " << prob.enumerated.orbits.size() << "\n";
 
   return prob;
 }
@@ -347,8 +239,8 @@ void configure_engine(Engine &eng, const McsqsProblem &prob,
     eng.add_group(std::move(g));
   }
 
-  eng.set_selector(GroupSelector{
-      SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
+  eng.set_selector(
+      GroupSelector{SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
   eng.set_sampler(make_sampler(sampler), rseed);
   eng.set_track_best(true); // annealing's final state isn't the minimum
   eng.set_step_callback(
@@ -385,9 +277,8 @@ Engine run_search(const McsqsProblem &prob, const SamplerSettings &sampler,
   return eng;
 }
 
-// Write the best structure and, for the ATAT pipeline, also emit bestsqs.out
-// (str.out) and cross-check its corrdump-recomputed correlations against the
-// search — a direct oracle on the result.
+// Write the best structure and also emit bestsqs.out (str.out) plus cross-check
+// its corrdump-recomputed correlations against the search — a direct oracle.
 void report_result(const Engine &best_engine, const McsqsProblem &prob,
                    const po::variables_map &vm, const std::string &out_path) {
   const auto &best = best_engine.best_structure();
@@ -395,15 +286,11 @@ void report_result(const Engine &best_engine, const McsqsProblem &prob,
   std::cout << "Best SQS written to " << out_path
             << "  best error: " << best_engine.best_error() << "\n";
 
-  if (!prob.enumerated) {
-    return;
-  }
   try {
     const std::filesystem::path bestsqs =
         std::filesystem::path(out_path).replace_extension(".out");
-    atat::write_str_out(bestsqs, prob.enumerated->axes,
-                        prob.enumerated->supercell,
-                        prob.enumerated->frac_positions, best.elements);
+    atat::write_str_out(bestsqs, prob.enumerated.axes, prob.enumerated.supercell,
+                        prob.enumerated.frac_positions, best.elements);
     std::cout << "bestsqs (ATAT str.out): " << bestsqs << "\n";
     const auto bestcorr = atat::corrdump_correlations(
         resolve_corrdump(vm), prob.lattice_path, bestsqs,
@@ -433,12 +320,6 @@ po::options_description make_options_description() {
     ("d4", po::value<double>()->default_value(0.0), "max quadruplet diameter (-4)")
     ("corrdump", po::value<std::string>()->default_value(""),
        "Path to corrdump (default: the vendored build)")
-    ("structure,s", po::value<std::string>(),
-       "[legacy] Input structure PDB file (fixed lattice sites)")
-    ("clusters,c", po::value<std::string>(),
-       "[legacy] Cluster orbit file (see McsqsRunner.cpp for format)")
-    ("species,S", po::value<std::string>(),
-       "[legacy] Species occupation map, e.g. Cu:+1,Au:-1")
     ("steps,n", po::value<std::uint64_t>()->default_value(500000),
        "MC steps per replica")
     ("replicas,r", po::value<std::size_t>()->default_value(1),

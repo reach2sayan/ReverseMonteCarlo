@@ -35,6 +35,15 @@ public:
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
 
+  // Rebuild the per-atom move groups with gradient-driven proposals that steer
+  // each atom along −∇χ² of the attached constraints (Langevin/MALA, or HMC via
+  // leapfrog). Call AFTER add_constraint and AFTER the engine is in its final
+  // location: the generators hold a pointer to this engine's constraint
+  // collection, which moving the engine would invalidate.
+  void build_langevin_groups(double step_size, std::uint32_t seed = 42);
+  void build_leapfrog_groups(double step_size, int n_steps = 10,
+                             std::uint32_t seed = 42);
+
   // Add a move group whose proposal removes `indices` from the system. The
   // RemoveGenerator is bound to this engine's collector, so the staged removal
   // is the one settle() commits/rolls back and the constraints skip.

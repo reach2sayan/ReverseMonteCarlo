@@ -58,17 +58,34 @@ inline std::size_t tbb_budget(std::size_t n_replicas,
 //   0 = auto (uses SLURM_CPUS_PER_TASK / PBS_NUM_PPN / hardware_concurrency,
 //             divided by n_replicas).  Set explicitly when running inside a
 //             scheduler that does not export those variables.
-template <std::invocable<std::size_t> F>
+// prepare(engine) is invoked on each replica AFTER it lands in the internal
+// vector (its final, non-relocated address) and before it runs. Use it for
+// setup that must bind to the engine's final location — e.g. gradient move
+// generators that hold a pointer into engine.constraints(), which the move into
+// the vector would otherwise invalidate.
+// Default no-op for the prepare hook (a named type avoids a lambda in a default
+// template argument).
+struct NoPrepare {
+  void operator()(Engine &) const noexcept {}
+};
+
+template <std::invocable<std::size_t> F,
+          std::invocable<Engine &> Prepare = NoPrepare>
   requires std::same_as<std::invoke_result_t<F, std::size_t>, Engine>
 Engine run_ensemble(F make_engine, std::size_t n_replicas,
                     std::uint64_t n_steps,
-                    [[maybe_unused]] std::size_t tbb_threads_per_replica = 0) {
+                    [[maybe_unused]] std::size_t tbb_threads_per_replica = 0,
+                    Prepare prepare = {}) {
   std::vector<Engine> engines;
   engines.reserve(n_replicas);
 
   std::size_t i = 0;
   std::ranges::generate_n(std::back_inserter(engines), n_replicas,
                           [&] { return make_engine(i++); });
+
+  for (Engine &e : engines) {
+    prepare(e);
+  }
 
   auto run_fn = [&](std::size_t i) { engines[i].run(n_steps); };
 

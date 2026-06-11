@@ -1,4 +1,6 @@
 #include <RMC/Engine.hpp>
+#include <RMC/generators/LangevinTranslationGenerator.hpp>
+#include <RMC/generators/LeapfrogTranslationGenerator.hpp>
 #include <RMC/generators/Removes.hpp>
 #include <RMC/generators/Translations.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
@@ -21,6 +23,29 @@ void Engine::build_atomic_groups(double min_amp, double max_amp,
     groups_.emplace_back(Group{.name = "atom_" + std::to_string(i),
                                .indices = {i},
                                .generator = std::move(default_generator)});
+  }
+}
+
+void Engine::build_langevin_groups(double step_size, std::uint32_t seed) {
+  groups_.clear();
+  for (auto i : std::views::iota(std::size_t{0}, store_.primary().size())) {
+    LangevinTranslationGenerator gen(step_size, constraints_,
+                                     seed + static_cast<std::uint32_t>(i));
+    groups_.emplace_back(Group{.name = "atom_" + std::to_string(i),
+                               .indices = {i},
+                               .generator = std::move(gen)});
+  }
+}
+
+void Engine::build_leapfrog_groups(double step_size, int n_steps,
+                                   std::uint32_t seed) {
+  groups_.clear();
+  for (auto i : std::views::iota(std::size_t{0}, store_.primary().size())) {
+    LeapfrogTranslationGenerator gen(n_steps, step_size, constraints_,
+                                     seed + static_cast<std::uint32_t>(i));
+    groups_.emplace_back(Group{.name = "atom_" + std::to_string(i),
+                               .indices = {i},
+                               .generator = std::move(gen)});
   }
 }
 
