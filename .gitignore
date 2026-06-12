@@ -40,3 +40,8 @@ restart.pdb
 tools/cpp_*.xml
 tools/frmc_ncores.json
 tools/gr_scaling.png
+
+# CTest artifacts (created when `ctest` is run from the source tree)
+Testing/
+
+!RMC/Testing
