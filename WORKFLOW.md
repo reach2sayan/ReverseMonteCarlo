@@ -31,12 +31,12 @@ The default command. Perturb atoms until the computed g(r) matches experiment.
 
 ```bash
 ./build/RMC_run \
-    --pdb   start.pdb            \
-    --pdf   ZrCu.dat             \
-    --rho0  0.0556               \
-    --box   "30 30 30"           \
-    --steps 200000               \
-    --smart                      \
+    --pdb   start.pdb              \
+    --pdf   experimental_gr.dat    \
+    --rho0  0.0556                 \
+    --box   "30 30 30"             \
+    --steps 200000                 \
+    --smart                        \
     --out   refined.pdb
 ```
 
@@ -53,12 +53,12 @@ Any combination of `--pdf` / `--sq` / `--adf` is refined together.
 
 ```bash
 ./build/RMC_run \
-    --vasp  start.vasp           \
-    --pdf   ZrCu.dat             \
-    --adf   adf_target.dat       \
-    --adf-cutoff 3.4             \
-    --rho0  0.0556               \
-    --steps 500000               \
+    --vasp  start.vasp             \
+    --pdf   experimental_gr.dat    \
+    --adf   adf_target.dat         \
+    --adf-cutoff 3.4               \
+    --rho0  0.0556                 \
+    --steps 500000                 \
     --out   refined.vasp
 ```
 
@@ -72,11 +72,11 @@ default greedy quench.
 ```bash
 ./build/RMC_run \
     --lammps start.lammps --types "Zr Cu" \
-    --pdf    ZrCu_glass.dat               \
+    --pdf    experimental_gr.dat          \
     --rho0   0.0556                       \
     --move-gen langevin --step 0.05       \
     --steps  300000                       \
-    --out    refined_centered.lammps
+    --out    refined.lammps
 ```
 
 ## 4. Analysis only (no Monte Carlo)
@@ -113,13 +113,13 @@ uses `--seed + i`.
 
 ```bash
 ./build/RMC_run \
-    --pdb     start.pdb     \
-    --pdf     ZrCu.dat      \
-    --rho0    0.0556        \
-    --box     "30 30 30"    \
-    --steps   200000        \
-    --ensemble 4            \
-    --seed    42            \
+    --pdb     start.pdb            \
+    --pdf     experimental_gr.dat  \
+    --rho0    0.0556               \
+    --box     "30 30 30"           \
+    --steps   200000               \
+    --ensemble 4                   \
+    --seed    42                   \
     --out     refined.pdb
 ```
 
@@ -161,7 +161,7 @@ mcsqs_rmc --structure rndstr.pdb \
 flowchart LR
     A[gen-random<br/>start.pdb] --> B[refine --pdf<br/>refined.pdb]
     B --> C[--gr<br/>refined_gr.dat]
-    C --> D{matches<br/>ZrCu.dat?}
+    C --> D{matches<br/>target?}
     D -->|no| B
     D -->|yes| E([done])
 ```
@@ -172,7 +172,7 @@ flowchart LR
     --spacing 3.0 --out start.pdb
 
 # 2. refine against the measured PDF
-./build/RMC_run --pdb start.pdb --pdf ZrCu.dat --rho0 0.0556 \
+./build/RMC_run --pdb start.pdb --pdf experimental_gr.dat --rho0 0.0556 \
     --box "30 30 30" --steps 300000 --smart --out refined.pdb
 
 # 3. verify: recompute g(r) of the refined structure
@@ -180,4 +180,11 @@ flowchart LR
     --gr-out refined_gr.dat
 ```
 
-Compare `refined_gr.dat` against `ZrCu.dat` to judge the fit.
+Compare `refined_gr.dat` against `experimental_gr.dat` to judge the fit.
+
+## Performance
+
+For engine performance — including a head-to-head against the reference
+[fullrmc](https://github.com/bachiraoun/fullrmc) package on an identical
+260-atom THF system (this implementation runs ~23× faster with all constraints
+enabled) — see [BENCHMARKS.md](BENCHMARKS.md).

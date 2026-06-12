@@ -1,4 +1,4 @@
-// Catch2 benchmarks mirroring examples/benchmark/main.cpp (fullrmc benchmark).
+// Catch2 benchmarks mirroring examples/benchmark/main.cpp.
 // Loads data/system.pdb (20 THF molecules, 260 atoms) and
 // data/experimental.gr from the committed example data directory.
 //

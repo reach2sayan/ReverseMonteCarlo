@@ -1,0 +1,66 @@
+RMC — Reverse Monte Carlo structural refinement
+Copyright 2026 Sayan
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This software is an independent implementation of published scientific
+methods, written from the published literature. No source code from any other
+Reverse Monte Carlo, ADF, or SQS package was copied into this project.
+
+The design was informed by study of existing RMC software, in particular
+fullrmc (B. Aoun; licensed AGPL-3.0). fullrmc's published concepts and feature
+set served as conceptual inspiration only; no fullrmc source code was copied,
+translated, or incorporated.
+
+================================================================================
+Method citations
+================================================================================
+
+Reverse Monte Carlo:
+  R. L. McGreevy and L. Pusztai, "Reverse Monte Carlo Simulation: A New
+  Technique for the Determination of Disordered Structures,"
+  Mol. Simul. 1, 359-367 (1988). doi:10.1080/08927028808080958
+
+  R. L. McGreevy, "Reverse Monte Carlo modelling,"
+  J. Phys.: Condens. Matter 13, R877-R913 (2001).
+  doi:10.1088/0953-8984/13/46/201
+
+Special Glass Structures (ADF refinement and random amorphous generation):
+  S. Zhu, J. Schroers, S. Curtarolo, H. Eckert, and A. van de Walle,
+  "Special glass structures for first-principles studies of bulk metallic
+  glasses," Acta Materialia 262, 119456 (2024).
+  doi:10.1016/j.actamat.2023.119456
+
+Special Quasirandom Structures (mcsqs_rmc):
+  A. Zunger, S.-H. Wei, L. G. Ferreira, and J. E. Bernard, "Special
+  Quasirandom Structures," Phys. Rev. Lett. 65, 353-356 (1990).
+  doi:10.1103/PhysRevLett.65.353
+
+  A. van de Walle, P. Tiwary, M. de Jong, D. L. Olmsted, M. Asta, A. Dick,
+  D. Shin, Y. Wang, L.-Q. Chen, and Z.-K. Liu, "Efficient stochastic
+  generation of special quasirandom structures," Calphad 42, 13-18 (2013).
+  doi:10.1016/j.calphad.2013.06.006
+
+================================================================================
+Third-party components
+================================================================================
+
+ATAT — Alloy Theoretic Automated Toolkit
+  License: Creative Commons Attribution-NoDerivatives 4.0 International
+           (CC BY-ND 4.0), https://creativecommons.org/licenses/by-nd/4.0/
+  Author:  Axel van de Walle and contributors
+  Usage:   The mcsqs_rmc extension uses ATAT's `corrdump` tool. corrdump is
+           built as a separate executable and invoked over a process boundary;
+           no ATAT source is compiled or linked into this project's binaries.
+           ATAT is redistributed (under extern/atat) subject to its own
+           CC BY-ND 4.0 license; see extern/atat/LICENSE.
+
+The following are obtained at build time and are not redistributed in source
+form by this project; each is governed by its own license:
+
+  Boost            — Boost Software License 1.0
+  Eigen            — MPL 2.0
+  spdlog           — MIT
+  Catch2 (tests)   — BSL 1.0
+
+See each component's own distribution for its full license text.

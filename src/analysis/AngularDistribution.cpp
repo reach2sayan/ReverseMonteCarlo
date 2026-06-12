@@ -24,7 +24,7 @@ Result<AdfResult> compute_adf(const coords_t &coords,
                               const AdfParams &params) {
   const Eigen::Index N = coords.rows();
   // Shared precondition check (non-empty, matching labels, positive bins,
-  // periodic box); returns the cell volume MAST's normalisation needs.
+  // periodic box); returns the cell volume the normalisation needs.
   BOOST_LEAF_AUTO(V, detail::check_periodic_inputs("compute_adf", coords,
                                                    elements, params.n_bins, bc));
 
@@ -64,7 +64,7 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   accumulate_angle_histogram(hist, coords, &bc, elem_id, S, params.max_dis,
                              params.n_bins);
 
-  // Per-column MAST normalization: inc / (N_a·N_p·N_q),
+  // Per-column volume normalization: inc / (N_a·N_p·N_q),
   // inc = V · N / π · n_bins. Absent species → 0.
   const double inc = V * static_cast<double>(N) / std::numbers::pi *
                      static_cast<double>(params.n_bins);
@@ -90,7 +90,7 @@ Result<AdfResult> compute_adf(const coords_t &coords,
       Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
   // Per-column boxcar smoothing (shrinking window), 2 passes — matches the
-  // constraint and MAST's smooth(hist, 2, 2).
+  // constraint's smoothing.
   if (params.smooth_range > 0 && params.n_bins > 1) {
     const int range = params.smooth_range;
     vec_t scratch = hist;

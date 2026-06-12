@@ -17,9 +17,8 @@ namespace RMC {
 }
 
 // Packed index of the unordered leg pair (p, q) — caller passes p ≤ q — into
-// the upper-triangular range [0, adf_n_leg_pairs). Mirrors the packing MAST
-// uses for its angle triplet types (Angles::get_type), so column order is
-// deterministic.
+// the upper-triangular range [0, adf_n_leg_pairs), so the angle-triplet column
+// order is deterministic.
 [[nodiscard]] constexpr FORCE_INLINE int
 adf_leg_pair_index(int p, int q, int n_types) noexcept {
   return p * (2 * n_types - p + 1) / 2 + (q - p);
@@ -38,8 +37,8 @@ adf_leg_pair_index(int p, int q, int n_types) noexcept {
 // contiguous species id per atom (the same 0,1,2,… ids initialise() assigns),
 // `n_types` their count.
 //
-// This is a full O(N·⟨n⟩²) recompute, matching MAST's reference RMC (which
-// rebuilds the whole ADF every step). It targets the small DFT-ready cells the
+// This is a full O(N·⟨n⟩²) recompute that rebuilds the whole ADF every step. It
+// targets the small DFT-ready cells the
 // Special Glass Structure method produces; an incremental neighbour-delta path
 // (mirroring accumulate_moved_pairs) is the planned follow-up optimisation.
 void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
@@ -100,8 +99,8 @@ public:
   constexpr void set_cutoff(double max_dis) noexcept { max_dis_ = max_dis; }
   constexpr void set_smoothing(int range) noexcept { smooth_range_ = range; }
   // When true (default) the chi² is RMC's scale-invariant residual, matching
-  // the pair constraints. Set false for MAST-parity (unscaled L2 + full MAST
-  // volume normalization) when validating against the reference code.
+  // the pair constraints. Set false for an unscaled L2 residual with the full
+  // volume normalization applied.
   constexpr void set_scale_invariant(bool v) noexcept { scale_invariant_ = v; }
 
   // Force a full histogram + grid rebuild every `n` accepted moves to bound the
@@ -177,7 +176,7 @@ private:
   vec_t exp_data_;      // flattened target, length hist_len_
   double max_dis_{3.4}; // bond cutoff (Å)
   int n_bins_{0};       // angle bins over [0, π]
-  int smooth_range_{2}; // boxcar half-width (0 disables); 2 passes, MAST-style
+  int smooth_range_{2}; // boxcar half-width (0 disables); applied in 2 passes
   bool scale_invariant_{true};
   std::span<const std::string> elements_;
 

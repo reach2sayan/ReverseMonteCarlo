@@ -1,4 +1,4 @@
-// smart_selector — fullrmc equivalent
+// smart_selector
 // Compare RandomSelector vs SmartRandomSelector on 10 independent molecule
 // groups with an InterMolecularDistanceConstraint.
 // SmartRandomSelector adapts group weights based on move acceptance history.

@@ -240,7 +240,7 @@ if (RMC_BUILD_MCSQS)
     add_subdirectory(extensions/mcsqs)
 endif ()
 
-option(RMC_BUILD_EXAMPLES "Build fullrmc-equivalent C++ examples" ON)
+option(RMC_BUILD_EXAMPLES "Build the bundled C++ examples" ON)
 if (RMC_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif ()

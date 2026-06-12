@@ -1,4 +1,4 @@
-// molecular_co2 — fullrmc equivalent
+// molecular_co2
 // 8 CO2 molecules (24 atoms). InfiniteBC.
 // Constraints: BondConstraint C-O, AngleConstraint O-C-O, InterMolecular
 // distance. Two move layers: per-atom translation + per-molecule translation.

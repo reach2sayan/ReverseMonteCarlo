@@ -1,4 +1,4 @@
-// generator_collector — fullrmc equivalent
+// generator_collector
 // 6 THF-like rings loaded from data/thf.pdb (O,C1,C2,C3,C4 pentagon).
 // MoveGeneratorCollector randomly picks one generator per step (weighted):
 //   translation (w=3), rotation (w=2), angle agitation on O-C1-C2 (w=1).

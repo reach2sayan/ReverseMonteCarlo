@@ -12,6 +12,24 @@
 
 namespace RMC {
 
+// Reverse Monte Carlo (RMC) structural refinement.
+//
+// Method references:
+//   [1] R. L. McGreevy and L. Pusztai, "Reverse Monte Carlo Simulation: A New
+//       Technique for the Determination of Disordered Structures,"
+//       Mol. Simul. 1, 359-367 (1988). doi:10.1080/08927028808080958
+//   [2] R. L. McGreevy, "Reverse Monte Carlo modelling,"
+//       J. Phys.: Condens. Matter 13, R877-R913 (2001).
+//       doi:10.1088/0953-8984/13/46/201
+//
+// See also, as an independent reference implementation of the method:
+//   [3] B. Aoun, "Fullrmc, a Rigid Body Reverse Monte Carlo Modeling Package
+//       Enabled with Machine Learning and Artificial Intelligence,"
+//       J. Comput. Chem. 37, 1102-1111 (2016). doi:10.1002/jcc.24304
+//
+// This is an independent C++ implementation of the published RMC method [1,2];
+// it shares no source with any other RMC package.
+
 // The RMC refinement engine. One or more structural frames are refined against
 // the experimental data; with a single frame this is ordinary RMC, with N
 // frames they are refined simultaneously against the AVERAGED computed profile

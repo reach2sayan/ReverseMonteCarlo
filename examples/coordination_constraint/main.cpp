@@ -1,4 +1,4 @@
-// coordination_constraint — fullrmc equivalent
+// coordination_constraint
 // Al(0) surrounded by 4 Cl atoms; CoordinationConstraint requires exactly
 // 2 Cl neighbours in [1.5,2.5] Å shell. Engine repositions Cl atoms.
 #include <RMC/Engine.hpp>

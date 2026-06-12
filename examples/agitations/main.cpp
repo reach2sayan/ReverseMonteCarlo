@@ -1,4 +1,4 @@
-// agitations — fullrmc equivalent
+// agitations
 // 33 TIP water molecules loaded from data/waterBox.pdb (10×10×10 Å box).
 // Demonstrates DistanceAgitationGenerator (shiver O-H bond lengths) and
 // AngleAgitationGenerator (shiver H-O-H angles).

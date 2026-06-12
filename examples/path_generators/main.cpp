@@ -1,4 +1,4 @@
-// path_generators — fullrmc equivalent
+// path_generators
 // Single C atom loaded from data/atom.pdb; C4 tetrahedron from
 // data/tetrahedron.pdb. Demonstrates TranslationAlongAxisPath and
 // RotationAboutAxisPath: predefined move sequences applied cyclically.

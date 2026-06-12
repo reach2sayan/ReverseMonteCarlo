@@ -1,4 +1,4 @@
-// molecular_thf — fullrmc equivalent
+// molecular_thf
 // 6 THF-like ring molecules (5 heavy atoms each: O + 4 C), 30 atoms total.
 // Constraints: BondConstraint, AngleConstraint, InterMolecular distance.
 // Per-atom fine moves + per-molecule coarse translation & rotation.

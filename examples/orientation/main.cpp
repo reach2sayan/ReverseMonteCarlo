@@ -1,4 +1,4 @@
-// orientation — fullrmc equivalent
+// orientation
 // 6 CO2 molecules loaded from data/co2.pdb (O1-C-O2 along X, spaced along Y).
 // OrientationGenerator aligns the molecular axis toward Z.
 // BondConstraint keeps C-O bond lengths; AngleConstraint enforces linearity.

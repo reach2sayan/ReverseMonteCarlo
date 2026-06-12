@@ -1,4 +1,4 @@
-// dihedral_constraint — fullrmc equivalent
+// dihedral_constraint
 // Butane-like 4-carbon backbone; DihedralAngleConstraint steers the C1-C2-C3-C4
 // torsion angle into three different rotamer shells across phases.
 #include <RMC/Engine.hpp>

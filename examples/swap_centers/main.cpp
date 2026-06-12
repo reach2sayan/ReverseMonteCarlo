@@ -1,4 +1,4 @@
-// swap_centers — fullrmc equivalent
+// swap_centers
 // 8 C-N dimers loaded from data/dimers.pdb (2×4 grid, bond ~1.5 Å).
 // SwapCentersGenerator translates each molecule so its centroid coincides
 // with the centroid of a randomly chosen partner molecule.

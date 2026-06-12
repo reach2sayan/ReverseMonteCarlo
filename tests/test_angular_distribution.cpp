@@ -1,6 +1,5 @@
-// Tests for the MAST-derived additions: the angular distribution function (ADF)
-// analysis tool and constraint, the multi-column data reader, and VASP POSCAR
-// round-trip I/O.
+// Tests for the angular distribution function (ADF) analysis tool and
+// constraint, the multi-column data reader, and VASP POSCAR round-trip I/O.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
@@ -243,25 +242,22 @@ TEST_CASE("compute_adf bins a known 90-degree angle", "[analysis][adf]") {
 }
 
 // ============================================================
-// compute_adf - analytic ground truth (the "MAST oracle")
+// compute_adf - analytic ground truth (the absolute-value oracle)
 // ============================================================
-// Upstream MAST (siyazhu/MAST, src/angles.cpp) ships no test suite, so the
-// algorithm itself is the reference. The self-consistency tests below (chi2
-// vanishes, incremental == full recompute) cannot catch a bug baked into the
-// full-recompute path, so these cases assert *absolute* values hand-derived
-// from MAST's normalisation:
+// The self-consistency tests below (chi2 vanishes, incremental == full
+// recompute) cannot catch a bug baked into the full-recompute path, so these
+// cases assert *absolute* values hand-derived from the ADF normalisation:
 //
 //   partial[col][bin] = (count of that triplet's angles in that bin)
 //                       * inc / (N_a * N_p * N_q),   inc = V * N / pi * n_bins
 //
-// (V = cell volume, N = total atoms; see Angles::calculate_str). Smoothing is
-// disabled so each bin is an exact, independent count -> this pins down the
-// binning, angle counting, column layout, and the absolute scale at once.
+// (V = cell volume, N = total atoms). Smoothing is disabled so each bin is an
+// exact, independent count -> this pins down the binning, angle counting,
+// column layout, and the absolute scale at once.
 //
 // Each structure is an isolated cluster in a large box, so no periodic image is
-// ever within the cutoff: the geometry is unambiguous and MAST's incomplete
-// {-1,0}-shift min-image (a real upstream bug for fractional deltas in
-// (-1,-0.5)) cannot perturb the reference.
+// ever within the cutoff: the geometry is unambiguous, so no minimum-image
+// shift ambiguity can perturb the reference.
 
 namespace {
 
@@ -292,8 +288,8 @@ Cluster make_cluster(std::initializer_list<Atom> atoms) {
   return c;
 }
 
-// MAST per-angle scale numerator: inc = V * N / pi * n_bins (Angles::calculate_str).
-double mast_inc(double volume, int n_total, int n_bins) {
+// Per-angle scale numerator: inc = V * N / pi * n_bins.
+double adf_inc(double volume, int n_total, int n_bins) {
   return volume * static_cast<double>(n_total) / std::numbers::pi *
          static_cast<double>(n_bins);
 }
@@ -318,7 +314,7 @@ void require_adf_equals(const analysis::AdfResult &r, int n_bins,
 
 } // namespace
 
-TEST_CASE("compute_adf - exact MAST normalisation for one 90-degree angle",
+TEST_CASE("compute_adf - exact normalisation for one 90-degree angle",
           "[analysis][adf][groundtruth]") {
   // Cu apex with two Zr legs along x and y: a single Zr-Cu-Zr right angle.
   const double L = 20.0;
@@ -338,7 +334,7 @@ TEST_CASE("compute_adf - exact MAST normalisation for one 90-degree angle",
   REQUIRE(r->partials[2].label == "Cu-Zr-Zr");
 
   // One angle, column Cu-Zr-Zr (apex Cu, legs Zr,Zr), bin 9, / (N_Cu*N_Zr*N_Zr).
-  const double inc = mast_inc(L * L * L, /*N=*/3, ap.n_bins);
+  const double inc = adf_inc(L * L * L, /*N=*/3, ap.n_bins);
   const double expected = 1.0 * inc / (1.0 * 2.0 * 2.0);
   require_adf_equals(*r, ap.n_bins, {{{2, 9}, expected}});
 }
@@ -363,7 +359,7 @@ TEST_CASE("compute_adf - linear 180-degree angle clamps into the last bin",
   REQUIRE(r->partials[0].label == "Cu-Cu-Cu");
 
   // floor(pi * 18 / pi) = 18 -> clamped to the last bin 17. One angle, / N^3.
-  const double inc = mast_inc(L * L * L, 3, ap.n_bins);
+  const double inc = adf_inc(L * L * L, 3, ap.n_bins);
   const double expected = 1.0 * inc / (3.0 * 3.0 * 3.0);
   require_adf_equals(*r, ap.n_bins, {{{0, 17}, expected}});
 }
@@ -391,7 +387,7 @@ TEST_CASE("compute_adf - counts every angle at a square-planar apex",
   REQUIRE(r);
   REQUIRE(r->partials.size() == 1);
 
-  const double inc = mast_inc(L * L * L, 5, ap.n_bins);
+  const double inc = adf_inc(L * L * L, 5, ap.n_bins);
   const double unit = inc / (5.0 * 5.0 * 5.0); // single species -> / N^3
   require_adf_equals(*r, ap.n_bins,
                      {{{0, 9}, 4.0 * unit}, {{0, 17}, 2.0 * unit}});
@@ -420,7 +416,7 @@ TEST_CASE("compute_adf - bins a tetrahedral 109.47-degree angle",
   REQUIRE(r);
   REQUIRE(r->partials.size() == 1);
 
-  const double inc = mast_inc(L * L * L, 5, ap.n_bins);
+  const double inc = adf_inc(L * L * L, 5, ap.n_bins);
   const double expected = 6.0 * inc / (5.0 * 5.0 * 5.0);
   require_adf_equals(*r, ap.n_bins, {{{0, 10}, expected}});
 }
@@ -451,7 +447,7 @@ TEST_CASE("compute_adf - 60 and 120 degree angles land off bin boundaries",
     REQUIRE(r);
     REQUIRE(r->partials.size() == 1);
 
-    const double inc = mast_inc(L * L * L, 3, n_bins);
+    const double inc = adf_inc(L * L * L, 3, n_bins);
     const double expected = 3.0 * inc / (3.0 * 3.0 * 3.0);
     require_adf_equals(*r, n_bins, {{{0, 5}, expected}}); // 60 deg -> bin 5
   }
@@ -475,7 +471,7 @@ TEST_CASE("compute_adf - 60 and 120 degree angles land off bin boundaries",
     REQUIRE(r);
     REQUIRE(r->partials.size() == 1);
 
-    const double inc = mast_inc(L * L * L, 3, n_bins);
+    const double inc = adf_inc(L * L * L, 3, n_bins);
     const double expected = 1.0 * inc / (3.0 * 3.0 * 3.0);
     require_adf_equals(*r, n_bins, {{{0, 10}, expected}}); // 120 deg -> bin 10
   }

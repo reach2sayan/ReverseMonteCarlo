@@ -1,4 +1,4 @@
-// translations — fullrmc equivalent
+// translations
 // Demonstrates random, axis-aligned, and combined translations on a single
 // atom. No constraints: every proposed move is accepted.
 #include <RMC/Engine.hpp>

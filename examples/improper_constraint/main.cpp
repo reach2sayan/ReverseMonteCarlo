@@ -1,4 +1,4 @@
-// improper_constraint — fullrmc equivalent
+// improper_constraint
 // XeF4-like planar fragment; ImproperAngleConstraint enforces planarity.
 // Phase 1: tight ±2° — starts near planar.
 // Phase 2: ±30°      — loosened, more freedom.

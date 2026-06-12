@@ -1,4 +1,4 @@
-// Nine test fixtures mapped from the fullrmc small examples.
+// Nine test fixtures covering the small examples.
 // Each fixture is self-contained: structures built inline, no PDB I/O.
 
 #include <catch2/catch_test_macros.hpp>
@@ -83,7 +83,7 @@ double improper_angle(const coords_t &c, int i, int j, int k, int l) {
 } // namespace
 
 // ─── 1. translations
-// ────────────────────────────────────────────────────────── fullrmc example:
+// ────────────────────────────────────────────────────────── example:
 // whole-molecule random translation, no constraints.
 TEST_CASE("translations - molecule translates freely with 100% acceptance",
           "[example_translations]") {
@@ -108,7 +108,7 @@ TEST_CASE("translations - molecule translates freely with 100% acceptance",
 }
 
 // ─── 2. rotations
-// ───────────────────────────────────────────────────────────── fullrmc
+// ─────────────────────────────────────────────────────────────
 // example: whole-molecule rotation — all pairwise distances preserved.
 TEST_CASE("rotations - rigid-body rotation preserves all pairwise distances",
           "[example_rotations]") {
@@ -143,7 +143,7 @@ TEST_CASE("rotations - rigid-body rotation preserves all pairwise distances",
 }
 
 // ─── 3. agitations
-// ──────────────────────────────────────────────────────────── fullrmc example:
+// ──────────────────────────────────────────────────────────── example:
 // bond and angle constraints on a water-like molecule with per-atom move
 // groups.  Initial geometry already satisfies both; constraints prevent any
 // worsening move.
@@ -183,7 +183,7 @@ TEST_CASE(
 }
 
 // ─── 4. bondsConstraint
-// ─────────────────────────────────────────────────────── fullrmc example:
+// ─────────────────────────────────────────────────────── example:
 // BondConstraint holds structure near target bond lengths. Scenario A: normal
 // target — bonds stay in range from the start. Scenario B: distorted target —
 // engine moves atoms toward the new target.
@@ -228,7 +228,7 @@ TEST_CASE("bondsConstraint - distorted bond target produces accepted moves",
 }
 
 // ─── 5. anglesConstraint
-// ────────────────────────────────────────────────────── fullrmc example:
+// ────────────────────────────────────────────────────── example:
 // AngleConstraint steers the H-O-H angle.
 TEST_CASE("anglesConstraint - normal angle target holds H-O-H in 80–120 deg",
           "[example_angles_constraint]") {
@@ -274,7 +274,7 @@ TEST_CASE("anglesConstraint - squeezed angle target produces accepted moves",
 }
 
 // ─── 6. dihedralConstraint
-// ──────────────────────────────────────────────────── fullrmc example:
+// ──────────────────────────────────────────────────── example:
 // DihedralAngleConstraint drives a 4-atom chain between rotamer shells (like
 // butane C1-C2-C3-C4).
 TEST_CASE(
@@ -314,7 +314,7 @@ TEST_CASE("dihedralConstraint - targeted rotamer shell produces accepted moves",
 }
 
 // ─── 7. improperConstraint
-// ──────────────────────────────────────────────────── fullrmc example:
+// ──────────────────────────────────────────────────── example:
 // ImproperAngleConstraint enforces planarity of a molecular fragment
 // (XeF5-like).
 TEST_CASE("improperConstraint - tight planarity constraint holds near-planar "
@@ -358,7 +358,7 @@ TEST_CASE("improperConstraint - out-of-plane start drives toward planarity",
 }
 
 // ─── 8. coordNumConstraint
-// ──────────────────────────────────────────────────── fullrmc example:
+// ──────────────────────────────────────────────────── example:
 // AtomicCoordinationNumberConstraint locks the coordination number of a central
 // atom (Al) to exactly 2 Cl neighbours in a shell.
 TEST_CASE("coordNumConstraint - coordination number held at 2 after 2000 steps",
@@ -404,7 +404,7 @@ TEST_CASE("coordNumConstraint - coordination number held at 2 after 2000 steps",
 }
 
 // ─── 9. removes
-// ─────────────────────────────────────────────────────────────── fullrmc
+// ───────────────────────────────────────────────────────────────
 // example: AtomsRemoveGenerator stages atomic removals that the engine either
 // commits (accepted) or rolls back (rejected).
 TEST_CASE("removes - RemoveGenerator stages, commits, and rolls back correctly",

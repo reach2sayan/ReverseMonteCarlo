@@ -231,7 +231,7 @@ void AngularDistributionConstraint::initialise() {
     ++count[id];
   }
 
-  // Per-column 1/(N_a·N_p·N_q) weight (MAST's per-triplet divisor). A column with
+  // Per-column 1/(N_a·N_p·N_q) per-triplet divisor weight. A column with
   // an absent species gets 0 so it never contributes.
   col_inv_count_ = vec_t::Zero(n_cols_);
   for (int a = 0; a < n_types_; ++a) {
@@ -292,7 +292,7 @@ void AngularDistributionConstraint::normalise_and_smooth(
     const coords_t &coords) const {
   // Per-column triplet normalisation. Under the scale-invariant metric the
   // global `inc` cancels in the residual, so only the relative per-column weight
-  // matters; in MAST-parity mode the full volume normalisation is applied.
+  // matters; in non-scale-invariant mode the full volume normalisation is applied.
   const double Nat = static_cast<double>(coords.rows());
   const double inc =
       scale_invariant_
@@ -304,8 +304,8 @@ void AngularDistributionConstraint::normalise_and_smooth(
   // element-for-element with it.
   computed_.array() *= inc * col_inv_count_.replicate(n_bins_, 1).array();
 
-  // Per-column boxcar smoothing (shrinking window at the edges), 2 passes —
-  // matching MAST's smooth(hist, 2, 2). Never bleeds across column boundaries.
+  // Per-column boxcar smoothing (shrinking window at the edges), 2 passes.
+  // Never bleeds across column boundaries.
   if (smooth_range_ > 0 && n_bins_ > 1) {
     using RowMajMat =
         Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;

@@ -1,8 +1,7 @@
-// reduced_sq — fullrmc equivalent
+// reduced_sq
 // NiTi-like binary alloy loaded from data/system.pdb (32-atom 4×4×2 supercell).
 // ReducedStructureFactorConstraint fits F(Q) = Q·(S(Q)−1) data loaded
-// from data/experimental.fq at runtime — mirrors fullrmc's atomicNiTi example
-// which loads experimental.fq committed alongside the code.
+// from data/experimental.fq at runtime.
 // Three phases with decreasing step amplitude.
 #include <RMC/Engine.hpp>
 #include <RMC/constraints/ReducedStructureFactorConstraint.hpp>

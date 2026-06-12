@@ -1,4 +1,4 @@
-// atomic_niti — fullrmc equivalent
+// atomic_niti
 // NiTi-like binary alloy: 16 Ni + 16 Ti on a simple-cubic grid, PeriodicBC.
 // Phase 1: pure translation toward synthetic G(r).
 // Phase 2: species swap (Ni↔Ti) toward synthetic G(r).

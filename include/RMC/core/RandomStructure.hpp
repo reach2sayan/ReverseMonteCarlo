@@ -8,6 +8,15 @@
 
 namespace RMC {
 
+// Random amorphous structure generation for the Special Glass Structure
+// workflow (exposed as `--gen random`).
+//
+// If you use this code in your research, please cite:
+//   S. Zhu, J. Schroers, S. Curtarolo, H. Eckert, and A. van de Walle,
+//   "Special glass structures for first-principles studies of bulk metallic
+//   glasses," Acta Materialia 262, 119456 (2024).
+//   doi:10.1016/j.actamat.2023.119456
+
 // A generated random configuration plus its cubic periodic cell.
 struct RandomStructure {
   AtomicStructure structure;
@@ -17,7 +26,7 @@ struct RandomStructure {
 
 // Build a random amorphous starting configuration — the entry point for the
 // Special Glass Structure workflow (generate → RMC-refine against PDF/ADF →
-// export). Ports MAST's `randstr`: atoms are placed on a body-centred grid of
+// export). Atoms are placed on a body-centred grid of
 // `n = ceil((N/2)^(1/3))` cells per side in a cubic cell of side `n·spacing`,
 // and the exact per-element composition is assigned to those sites in random
 // order (so the species arrangement is fully shuffled). Coordinates are stored

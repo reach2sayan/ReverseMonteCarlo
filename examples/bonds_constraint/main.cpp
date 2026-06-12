@@ -1,4 +1,4 @@
-// bonds_constraint — fullrmc equivalent
+// bonds_constraint
 // Three water molecules; BondConstraint enforces O-H bond lengths.
 // Phase 1: normal target [0.8,1.1] — bonds already satisfied, engine idles.
 // Phase 2: distorted target [2.0,2.5] — engine must elongate bonds.

@@ -1,4 +1,4 @@
-// si_ox_nanosphere — fullrmc equivalent
+// si_ox_nanosphere
 // SiO2 nanoparticle: 20 Si + 40 O (60 atoms) in a 10 Å sphere.
 // Constraints: InterMolecular distance, CoordinationConstraint Si: 3-5 O
 // neighbours. SmartRandomSelector. Three phases with different step amplitudes.

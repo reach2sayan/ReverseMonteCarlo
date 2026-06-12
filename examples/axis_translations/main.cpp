@@ -1,4 +1,4 @@
-// axis_translations — fullrmc equivalent
+// axis_translations
 // Loads structures from data/atom.pdb (single C) and data/tetrahedron.pdb (C4).
 // Demonstrates:
 //   A) TranslationTowardsAxisGenerator  — single atom moves toward the Z-axis

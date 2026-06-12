@@ -1,4 +1,4 @@
-// angles_constraint — fullrmc equivalent
+// angles_constraint
 // Three water molecules; BondConstraint + AngleConstraint on H-O-H.
 // Phase 1: [80°,120°] — initial 90° is satisfied.
 // Phase 2: [30°,40°]  — engine must compress angle.

@@ -18,8 +18,6 @@ enum class RecursiveMode {
 //
 //   Explore: on rejection, lock onto that group for up to max_retries more
 //            attempts. First acceptance resets to normal delegation.
-//
-// This mirrors fullrmc's RecursiveGroupSelector concept.
 struct RecursiveGroupSelector : SelectorBase<RecursiveGroupSelector> {
   RecursiveMode mode{RecursiveMode::Refine};
   int max_retries{5};

@@ -1,4 +1,4 @@
-// rotations — fullrmc equivalent
+// rotations
 // Rigid-body rotation about various axes on a 4-atom tetrahedral molecule.
 // No constraints: all pairwise distances must be preserved (rigid body).
 #include <RMC/Engine.hpp>

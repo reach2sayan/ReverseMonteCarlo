@@ -1,4 +1,4 @@
-// benchmark — fullrmc equivalent
+// benchmark
 // 20 THF molecules (13 atoms each: O + C1..C4 + 8H, 260 atoms total) loaded
 // from data/system.pdb. G(r) experimental data from data/experimental.gr.
 //
@@ -7,8 +7,6 @@
 //      Measures time/step, tried, accepted. Saves 3 .dat files.
 //   B) benchmark_nsteps — all constraints, group size 13 (one molecule),
 //      step counts 5000‥100000. Saves 3 .dat files.
-//
-// Output mirrors fullrmc's benchmark/run.py.
 #include <RMC/Engine.hpp>
 #include <RMC/constraints/AngleConstraint.hpp>
 #include <RMC/constraints/BondConstraint.hpp>

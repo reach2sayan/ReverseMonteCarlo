@@ -44,7 +44,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 | `ENABLE_CCACHE` | `ON` | Use `ccache` as the compiler launcher when available. |
 | `ENABLE_PGO_GENERATE` / `ENABLE_PGO_USE` | `OFF` | Profile-guided optimisation generate/use passes (mutually exclusive). |
 | `RMC_BUILD_TESTS` | `ON` | Build the Catch2 test suite (`RMC_tests`). |
-| `RMC_BUILD_EXAMPLES` | `ON` | Build the fullrmc-equivalent C++ examples under `examples/`. |
+| `RMC_BUILD_EXAMPLES` | `ON` | Build the bundled C++ examples under `examples/`. |
 | `RMC_BUILD_MCSQS` | `ON` | Build the `mcsqs_rmc` SQS-search extension. |
 | `RMC_BUILD_ATAT` | `ON` | Vendor and build ATAT's `corrdump` (driven at runtime via `boost::process`, never linked). Requires the `extern/atat` submodule. |
 | `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer + UBSan on all targets. |
