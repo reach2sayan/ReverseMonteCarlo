@@ -220,17 +220,17 @@ To auto-create one group per atom with a `TranslationGenerator`:
 engine.build_atomic_groups(/*min*/ 0.0, /*max*/ 0.2, /*seed*/ 42);
 ```
 
-| Generator | Header |
-|---|---|
-| `TranslationGenerator` | `generators/Translations.hpp` |
-| `RotationGenerator` | `generators/Rotations.hpp` |
-| `SwapGenerator` | `generators/Swaps.hpp` |
-| `LangevinTranslationGenerator` | `generators/LangevinTranslationGenerator.hpp` |
-| `LeapfrogTranslationGenerator` | `generators/LeapfrogTranslationGenerator.hpp` |
-| `LangevinRotationGenerator` | `generators/LangevinRotationGenerator.hpp` |
-| `CombinedGenerator` | `generators/Combined.hpp` |
-| `RemoveGenerator` | `generators/Removes.hpp` |
-| `SpeciesSwapGenerator` | `generators/SpeciesSwap.hpp` |
+| Generator | Header | What it does |
+|---|---|---|
+| `TranslationGenerator` | `generators/Translations.hpp` | Displaces the whole group by one random vector; amplitude uniform in `[min, max]` Å, direction uniform on the sphere. The header also offers axis-constrained variants: `TranslationAlongAxisGenerator`, `TranslationTowardsCentreGenerator`, `TranslationTowardsAxisGenerator`. |
+| `RotationGenerator` | `generators/Rotations.hpp` | Rotates the group about a random axis through its centroid; angle uniform in `[min, max]` rad. Variants: `RotationAboutAxisGenerator` (fixed axis, e.g. a bond), `RotationAboutSymmetryAxisGenerator` (a Cartesian axis), `OrientationGenerator` (align the group's principal axis toward a target). |
+| `SwapGenerator` | `generators/Swaps.hpp` | Swaps the group's coordinates with a randomly chosen same-size candidate group (identity swap). `SwapCentersGenerator` instead translates the group onto another group's centroid. |
+| `LangevinTranslationGenerator` | `generators/LangevinTranslationGenerator.hpp` | MALA-style biased translation: `Δr = −(ε²/2)·∇χ² + ε·η`. Steers atoms downhill in χ² using a finite-difference gradient over the group (O(6k) constraint evals). |
+| `LeapfrogTranslationGenerator` | `generators/LeapfrogTranslationGenerator.hpp` | HMC translation via leapfrog dynamics over `L` steps with its own Metropolis accept/reject (Hamiltonian). Optional NUTS-style early U-turn termination. |
+| `LangevinRotationGenerator` | `generators/LangevinRotationGenerator.hpp` | MALA-style biased rotation: drifts the rotation angle along −∂χ²/∂θ about a freshly sampled random axis (only 2 gradient evals). |
+| `CombinedGenerator` | `generators/Combined.hpp` | `CombinedMoveGenerator` applies a fixed sequence of generators to the group every step; `MoveGeneratorCollector` picks **one** at random per step from a runtime pool. |
+| `RemoveGenerator` | `generators/Removes.hpp` | Stages removal of the group's atoms via the shared `AtomsCollector`; the engine commits or rolls back after constraint evaluation. Coordinates are untouched — constraints skip removed atoms. |
+| `SpeciesSwapGenerator` | `generators/SpeciesSwap.hpp` | Swaps the *species* of a site with another differently-typed site in the **same sublattice**; coordinates fixed. Used for SQS / alloy occupancy MC. |
 
 ### Constraints
 
@@ -268,20 +268,45 @@ pdf.initialise();
 engine.add_constraint(std::move(pdf));
 ```
 
-| Constraint | Header |
+| Constraint | Header | What it scores |
+|---|---|---|
+| `BondConstraint` | `constraints/BondConstraint.hpp` | Per-bond `[r_min, r_max]` length windows; penalises any pair outside its range. |
+| `AngleConstraint` | `constraints/AngleConstraint.hpp` | Per-triplet bond-angle `[min, max]` windows (radians) about a vertex atom. |
+| `DihedralAngleConstraint` | `constraints/DihedralAngleConstraint.hpp` | Per-quadruplet torsion-angle windows (radians). |
+| `ImproperAngleConstraint` | `constraints/ImproperAngleConstraint.hpp` | Per-quadruplet improper (out-of-plane) angle windows (radians). |
+| `IntraMolecularDistanceConstraint` | `constraints/DistanceConstraint.hpp` | Minimum-distance (hard-sphere) floor between atoms **within** a molecule. |
+| `InterMolecularDistanceConstraint` | `constraints/DistanceConstraint.hpp` | Minimum-distance floor between atoms in **different** molecules; per-element-pair thresholds. |
+| `CoordinationConstraint` | `constraints/CoordinationConstraint.hpp` | Target coordination number in a shell `[r_min, r_max]` around centre atoms, per neighbour element. |
+| `PairDistributionConstraint` | `constraints/PairDistributionConstraint.hpp` | χ² of computed vs experimental `G(r) = 4πrρ₀(g(r)−1)` (radial-weighted PDF). |
+| `PairCorrelationConstraint` | `constraints/PairCorrelationConstraint.hpp` | χ² of computed vs experimental `g(r)−1` (no radial prefactor). |
+| `StructureFactorConstraint` | `constraints/StructureFactorConstraint.hpp` | χ² in reciprocal space against experimental `S(Q)` (PDF Fourier-transformed via an internal Gr→SQ matrix). |
+| `ReducedStructureFactorConstraint` | `constraints/ReducedStructureFactorConstraint.hpp` | As above but against the reduced `F(Q) = Q(S(Q)−1)`. |
+| `ClusterCorrelationConstraint` | `constraints/ClusterCorrelationConstraint.hpp` | χ² of cluster correlation functions vs disordered targets (drives the SQS search). |
+
+#### Geometric & topological parameters
+
+Geometric constraints (`Bond`/`Angle`/`Dihedral`/`Improper`) are built by
+repeatedly calling `add_*(atom indices…, lo, hi)`; the window bounds are the only
+per-entry parameters. `CoordinationConstraint::add_shell(centre, nb_elem, r_min,
+r_max, target)` plus `set_elements(...)`. The distance constraints take
+`set_minimum_distance(el1, el2, d)` (and `set_structure(elements, molecule_ids)`
+to learn the molecular topology).
+
+#### Pair / structure-factor parameters
+
+These constraints share the same configuration surface:
+
+| Method | Purpose |
 |---|---|
-| `BondConstraint` | `constraints/BondConstraint.hpp` |
-| `AngleConstraint` | `constraints/AngleConstraint.hpp` |
-| `DihedralAngleConstraint` | `constraints/DihedralAngleConstraint.hpp` |
-| `ImproperAngleConstraint` | `constraints/ImproperAngleConstraint.hpp` |
-| `IntraMolecularDistanceConstraint` | `constraints/DistanceConstraint.hpp` |
-| `InterMolecularDistanceConstraint` | `constraints/DistanceConstraint.hpp` |
-| `CoordinationConstraint` | `constraints/CoordinationConstraint.hpp` |
-| `PairDistributionConstraint` | `constraints/PairDistributionConstraint.hpp` |
-| `PairCorrelationConstraint` | `constraints/PairCorrelationConstraint.hpp` |
-| `StructureFactorConstraint` | `constraints/StructureFactorConstraint.hpp` |
-| `ReducedStructureFactorConstraint` | `constraints/ReducedStructureFactorConstraint.hpp` |
-| `ClusterCorrelationConstraint` | `constraints/ClusterCorrelationConstraint.hpp` |
+| `set_experimental_data(mat)` | Two-column target — `[r, G(r)]` (PDF/PCF) or `[Q, S(Q)]` / `[Q, F(Q)]` (SQ). |
+| `set_elements(elements)` | Per-atom element labels, for partial-pair weighting. |
+| `set_number_density(rho0)` | Bulk number density ρ₀ (atoms/Å³) used in the normalisation. |
+| `set_weight(el1, el2, w)` | Override the Faber-Ziman weight for one element pair (defaults to concentration-weighted). |
+| `set_shape_function(fn)` | Multiply `f(r)` into the computed profile — nanoparticle envelope correction (PDF/PCF only). |
+| `set_exclude_intra(bool)` | Drop intramolecular pairs from the histogram (PDF/PCF). |
+| `initialise()` | Finalise after the setters above (builds the histogram / Gr↔SQ transform). Idempotent. |
+
+The `r`/`Q` range and bin count are taken from the experimental data grid.
 
 `PairDistributionConstraint` and `PairCorrelationConstraint` accept an optional shape function for nanoparticle PDF corrections:
 
@@ -295,7 +320,9 @@ pdf.set_shape_function(RMC::gaussian_shape_fn(/*sigma*/ 15.0));
 
 ### Selectors
 
-Controls which group is picked each step. Default is `RandomSelector`.
+A selector controls which group is picked each step, and receives accept/reject
+feedback so adaptive variants can steer subsequent picks. Default is
+`RandomSelector`.
 
 ```cpp
 #include <RMC/selectors/SmartRandomSelector.hpp>
@@ -307,7 +334,32 @@ engine.set_selector(RMC::SmartRandomSelector(/*bias_factor*/ 1.1, /*seed*/ 42));
 engine.set_selector(RMC::WeightedRandomSelector(weights, /*seed*/ 42));
 ```
 
-Available: `RandomSelector` · `OrderedSelector` · `WeightedRandomSelector` · `SmartRandomSelector` · `RecursiveGroupSelector` · `DirectionalOrderSelector`
+| Selector | Header | Behaviour |
+|---|---|---|
+| `RandomSelector` | `selectors/RandomSelector.hpp` | Uniform random pick (the default). Ignores feedback. |
+| `OrderedSelector` | `selectors/OrderedSelector.hpp` | Cycles deterministically through groups `0, 1, …, N-1, 0, …`. |
+| `WeightedRandomSelector` | `selectors/RandomSelector.hpp` | Fixed per-group probabilities from an explicit weight vector (falls back to uniform if the weight count doesn't match the group count). |
+| `SmartRandomSelector` | `selectors/SmartRandomSelector.hpp` | Adaptive: each accepted move multiplies a group's weight by `bias_factor`, each rejection divides it. Productive groups get picked more often. |
+| `RecursiveGroupSelector` | `selectors/RecursiveGroupSelector.hpp` | Wraps any selector and locks onto the last group for up to `max_retries` extra steps. `Refine` mode locks after an acceptance (exploit), `Explore` mode locks after a rejection (keep trying for a good move). |
+| `DirectionalOrderSelector` | `selectors/DirectionalOrderSelector.hpp` | Cycles through groups ordered by distance from a reference point (nearest- or farthest-first), e.g. for surface-inward refinement. Order is fixed at construction from the supplied centroids. |
+
+```cpp
+// Cycle deterministically through every group.
+engine.set_selector(RMC::OrderedSelector{});
+
+// Lock onto a productive group for up to 5 extra steps after each acceptance.
+engine.set_selector(RMC::RecursiveGroupSelector(
+    RMC::RandomSelector{/*seed*/ 42},
+    RMC::RecursiveMode::Refine, /*max_retries*/ 5));
+
+// Refine nearest-to-a-point groups first (one centroid per group, same order).
+std::vector<RMC::vec3_t> centroids;
+for (const auto &g : groups)
+    centroids.push_back(s.coordinates(g.indices, Eigen::all)
+                            .colwise().mean().transpose());
+engine.set_selector(RMC::DirectionalOrderSelector{
+    /*ref*/ origin, std::move(centroids), /*nearest_first*/ true});
+```
 
 ### Running
 
@@ -357,11 +409,22 @@ engine.set_sampler(RMC::GreedySampler{/*tolerance*/ 0.0});
 `seed` seeds the engine's dedicated acceptance RNG; give each ensemble replica a
 distinct seed for independent stochastic streams.
 
-| Sampler | Header |
-|---|---|
-| `GreedySampler` | `sampling/GreedySampler.hpp` |
-| `MetropolisSampler` | `sampling/MetropolisSampler.hpp` |
-| `AnnealingSampler` | `sampling/AnnealingSampler.hpp` |
+| Sampler | Header | Rule & parameters |
+|---|---|---|
+| `GreedySampler` | `sampling/GreedySampler.hpp` | Zero-temperature quench: accept iff `Δerror ≤ tolerance`. `tolerance` (default `0`) is the slack allowed per move — `0` is strict downhill, RMC's historical behaviour. |
+| `MetropolisSampler` | `sampling/MetropolisSampler.hpp` | Classical RMC: accept if `ΔE ≤ 0`, else with probability `exp(−ΔE/T)`. `T` is the fixed statistical temperature — fold σ into each χ² and use `T = 2` to recover the McGreevy–Pusztai `exp(−Δχ²/2)` rule. `T → 0` degenerates to greedy. |
+| `AnnealingSampler` | `sampling/AnnealingSampler.hpp` | Metropolis with a geometric cooling schedule `T(step) = max(t_min, t0·cooling^(step/interval))`. Accepts many uphill moves early, fewer as it cools. |
+
+#### Annealing schedule
+
+`AnnealingSampler::Schedule` parameters:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `t0` | `1.0` | Initial temperature. |
+| `cooling` | `0.9` | Geometric factor applied each interval; must be in `(0, 1)` to cool. |
+| `interval` | `10000` | Steps between successive cooling updates. |
+| `t_min` | `1e-6` | Temperature floor (avoids division by zero as T → 0). |
 
 With annealing the *final* MC state is deliberately not the minimum, so track the
 best-ever configuration:
@@ -520,9 +583,9 @@ Over ATAT's `mcsqs` it adds a pluggable acceptance policy (the default
 selection (`SmartRandomSelector`), and optional island-model ensemble
 parallelism.
 
-**ATAT pipeline** — start from an ATAT `rndstr.in` primitive lattice. `corrdump`
-(the vendored ATAT binary, driven via `boost::process`) enumerates the cluster
-orbits, which are then expanded over the requested supercell:
+**corrdump pipeline** — start from an ATAT `rndstr.in` primitive lattice.
+`corrdump` (the vendored ATAT binary, driven via `boost::process`) enumerates
+the cluster orbits, which are then expanded over the requested supercell:
 
 ```bash
 mcsqs_rmc --lattice rndstr.in --supercell "2 2 2" \
@@ -533,13 +596,22 @@ mcsqs_rmc --lattice rndstr.in --supercell "2 2 2" \
 This writes `bestsqs.pdb` plus an ATAT `bestsqs.out` (`str.out`) and prints the
 result's correlations recomputed by `corrdump` as an independent cross-check.
 
-**Legacy pipeline** — supply a fixed-site PDB, a cluster-orbit file, and a
-species map directly (no ATAT/`corrdump` needed):
+**Legacy pipeline** — when `corrdump` is unavailable (or the cluster orbits were
+enumerated elsewhere), supply a fixed-site PDB, a pre-enumerated cluster-orbit
+file, and a binary/linear species map directly. No ATAT/`corrdump` is invoked,
+so the `str.out` cross-check is skipped:
 
 ```bash
 mcsqs_rmc --structure rndstr.pdb --clusters clusters.out \
           --species Cu:+1,Au:-1 --replicas 8
 ```
+
+The cluster file lists one orbit per block: a header line `<target> <weight>
+<n_points>` followed by one line of space-separated supercell site indices per
+symmetry-equivalent instance, with blank lines or `#` comments between orbits.
+Sublattices are inferred from PDB residue names (one per distinct residue).
+
+`--lattice` and `--structure` are mutually exclusive; supply exactly one.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -547,8 +619,8 @@ mcsqs_rmc --structure rndstr.pdb --clusters clusters.out \
 | `--supercell` | `2 2 2` | Supercell for `--lattice`: `n` (cubic), `nx ny nz`, or nine ints |
 | `--d2` / `--d3` / `--d4` | `0` | Max pair / triplet / quadruplet cluster diameter (`--d2` required with `--lattice`) |
 | `--corrdump` | vendored | Path to a `corrdump` binary (overrides the vendored build) |
-| `--structure` / `-s` | — | [legacy] Fixed-site input PDB |
-| `--clusters` / `-c` | — | [legacy] Cluster-orbit file |
+| `--structure` / `-s` | — | [legacy] Fixed-site input PDB — enables the no-`corrdump` pipeline |
+| `--clusters` / `-c` | — | [legacy] Pre-enumerated cluster-orbit file |
 | `--species` / `-S` | — | [legacy] Species occupation map, e.g. `Cu:+1,Au:-1` |
 | `--steps` / `-n` | `500000` | MC steps per replica |
 | `--replicas` / `-r` | `1` | Island-model replicas (> 1 enables the ensemble) |

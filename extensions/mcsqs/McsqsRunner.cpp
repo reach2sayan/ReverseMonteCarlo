@@ -7,6 +7,7 @@
 #include <RMC/core/Group.hpp>
 #include <RMC/core/Structure.hpp>
 #include <RMC/generators/SpeciesSwap.hpp>
+#include <RMC/io/PdbReader.hpp>
 #include <RMC/sampling/AnnealingSampler.hpp>
 #include <RMC/sampling/GreedySampler.hpp>
 #include <RMC/sampling/MetropolisSampler.hpp>
@@ -28,10 +29,12 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace po = boost::program_options;
@@ -55,6 +58,79 @@ build_sublattices(const AtomicStructure &str) {
                          [](auto &kv) { return std::move(kv.second); });
 
   return result;
+}
+
+// Parse "Cu:+1.0,Au:-1.0" into an element → σ map.
+ClusterCorrelationConstraint::SpeciesMap parse_species(const std::string &s) {
+  ClusterCorrelationConstraint::SpeciesMap m;
+  std::istringstream ss(s);
+  std::string token;
+  while (std::getline(ss, token, ',')) {
+    const auto colon = token.find(':');
+    if (colon == std::string::npos) {
+      throw std::runtime_error("--species: expected 'Elem:value', got: " +
+                               token);
+    }
+    m[token.substr(0, colon)] = std::stod(token.substr(colon + 1));
+  }
+  if (m.empty()) {
+    throw std::runtime_error("--species: empty map");
+  }
+  return m;
+}
+
+// Parse a cluster-orbit file. Each orbit is a header line
+// "<target> <weight> <n_points>" then one line of space-separated site indices
+// per instance; blank lines or '#' comments separate orbits.
+std::vector<ClusterOrbit> load_clusters(const std::string &path) {
+  std::ifstream f(path);
+  if (!f) {
+    throw std::runtime_error("Cannot open cluster file: " + path);
+  }
+
+  std::vector<ClusterOrbit> orbits;
+  std::optional<ClusterOrbit> cur;
+  auto flush = [&] {
+    if (cur && cur->instance_count() > 0) {
+      orbits.push_back(std::move(*cur));
+    }
+    cur.reset();
+  };
+
+  std::string line;
+  while (std::getline(f, line)) {
+    if (line.empty() || line[0] == '#') {
+      flush();
+      continue;
+    }
+    std::istringstream ls(line);
+    double target = 0.0, weight = 0.0;
+    int n_pts = 0;
+    if (!cur && (ls >> target >> weight >> n_pts)) {
+      cur = ClusterOrbit{};
+      cur->target = target;
+      cur->weight = weight;
+      continue;
+    }
+    if (!cur) {
+      continue;
+    }
+    ls.clear();
+    ls.str(line);
+    std::vector<std::size_t> sites;
+    std::size_t idx = 0;
+    while (ls >> idx) {
+      sites.push_back(idx);
+    }
+    if (!sites.empty()) {
+      cur->add_instance(sites);
+    }
+  }
+  flush();
+  if (orbits.empty()) {
+    throw std::runtime_error("no cluster orbits parsed from: " + path);
+  }
+  return orbits;
 }
 
 // Write a minimal PDB with the current element / coords.
@@ -155,34 +231,54 @@ Sampler make_sampler(const SamplerSettings &s) {
       .t0 = s.t0, .cooling = s.cooling, .interval = s.cool_interval}}};
 }
 
-// The resolved SQS problem from the ATAT corrdump pipeline: the supercell to
-// refine, its sublattice grouping, and the enumerated cluster orbits. The
-// constraint reads this object's own members, so add_constraint() keeps the
-// backing data local to a long-lived McsqsProblem.
+// Cluster-correlation inputs shared by both pipelines.
+struct ClusterBasis {
+  std::unordered_map<std::string, int> occ_index;
+  CorrFuncTable table;
+  std::vector<ClusterOrbit> orbits;
+};
+
+// Expand a species map into the (occ_index, table) pair: one site_type, one
+// func, table[0][0][i] = σ_i.
+std::pair<std::unordered_map<std::string, int>, CorrFuncTable>
+make_linear_basis(const ClusterCorrelationConstraint::SpeciesMap &species_map) {
+  std::unordered_map<std::string, int> occ_index;
+  CorrFuncTable table;
+  table.t.resize(1);
+  table.t[0].resize(1);
+  table.t[0][0].resize(species_map.size(), 0.0);
+  for (const auto [i, kv] : std::views::enumerate(species_map)) {
+    occ_index[kv.first] = static_cast<int>(i);
+    table.t[0][0][static_cast<std::size_t>(i)] = kv.second;
+  }
+  return {std::move(occ_index), std::move(table)};
+}
+
+// The resolved SQS problem, held alive for the constraint's references.
 struct McsqsProblem {
   AtomicStructure structure;
   std::vector<std::vector<std::size_t>> sublattices;
-  atat::EnumeratedSqs enumerated;
+  ClusterBasis basis;
+
+  // Oracle cross-check outputs, populated only when corrdump is available.
+  bool has_oracle = false;
   std::string lattice_path;
   std::filesystem::path clusters_out_path;
+  mat3_t axes{mat3_t::Identity()};
+  mat3_t supercell{mat3_t::Identity()};
+  std::vector<vec3_t> frac_positions;
 
-  // Register the cluster-correlation constraint on a freshly built engine.
   void add_constraint(Engine &eng) const {
     eng.add_constraint(Constraint{ClusterCorrelationConstraint{
-        eng.structure(), enumerated.occ_index, enumerated.table,
-        enumerated.orbits}});
+        eng.structure(), basis.occ_index, basis.table, basis.orbits}});
   }
 };
 
-// Resolve the CLI into an McsqsProblem via corrdump + symmetry enumeration.
-// Throws std::runtime_error on bad input.
-McsqsProblem resolve_problem(const po::variables_map &vm, std::uint32_t seed) {
+// Resolve --lattice via corrdump + symmetry enumeration.
+McsqsProblem resolve_problem_corrdump(const po::variables_map &vm,
+                                      std::uint32_t seed) {
   McsqsProblem prob;
-
-  if (vm.count("lattice") == 0) {
-    throw std::runtime_error("--lattice (rndstr.in primitive lattice) is "
-                             "required");
-  }
+  prob.has_oracle = true;
   prob.lattice_path = vm["lattice"].as<std::string>();
   const double d2 = vm["d2"].as<double>();
   if (d2 <= 0.0) {
@@ -206,24 +302,74 @@ McsqsProblem resolve_problem(const po::variables_map &vm, std::uint32_t seed) {
   prob.clusters_out_path = cl.clusters_out;
   const auto sym = atat::parse_sym(cl.sym_out);
   const auto raw = atat::parse_clusters(cl.clusters_out);
-  prob.enumerated = atat::enumerate(lat, sym, raw, sc, seed);
-  prob.structure = prob.enumerated.structure;
+
+  atat::EnumeratedSqs enumerated = atat::enumerate(lat, sym, raw, sc, seed);
+  prob.structure = std::move(enumerated.structure);
+  prob.basis.orbits = std::move(enumerated.orbits);
+  prob.basis.occ_index = std::move(enumerated.occ_index);
+  prob.basis.table = std::move(enumerated.table);
+  prob.axes = enumerated.axes;
+  prob.supercell = enumerated.supercell;
+  prob.frac_positions = std::move(enumerated.frac_positions);
   prob.sublattices = build_sublattices(prob.structure);
   std::cout << "Lattice sites: " << lat.sites.size()
             << "  Species: " << lat.labels.size()
             << "  Supercell atoms: " << prob.structure.size()
-            << "  Orbits: " << prob.enumerated.orbits.size() << "\n";
+            << "  Orbits: " << prob.basis.orbits.size() << "\n";
 
   return prob;
+}
+
+// Resolve --structure/--clusters/--species directly, without corrdump.
+McsqsProblem resolve_problem_legacy(const po::variables_map &vm) {
+  if (vm.count("clusters") == 0 || vm.count("species") == 0) {
+    throw std::runtime_error(
+        "--structure requires --clusters and --species (legacy pipeline)");
+  }
+  McsqsProblem prob;
+  auto r = io::read_pdb(vm["structure"].as<std::string>());
+  if (!r) {
+    throw std::runtime_error("Failed to read PDB: " +
+                             vm["structure"].as<std::string>());
+  }
+  prob.structure = std::move(*r);
+  auto [occ_index, table] =
+      make_linear_basis(parse_species(vm["species"].as<std::string>()));
+  prob.basis.occ_index = std::move(occ_index);
+  prob.basis.table = std::move(table);
+  prob.basis.orbits = load_clusters(vm["clusters"].as<std::string>());
+  prob.sublattices = build_sublattices(prob.structure);
+  std::cout << "Sites: " << prob.structure.size()
+            << "  Species: " << prob.basis.occ_index.size()
+            << "  Orbits: " << prob.basis.orbits.size() << "\n";
+
+  return prob;
+}
+
+McsqsProblem resolve_problem(const po::variables_map &vm, std::uint32_t seed) {
+  const bool has_lattice = vm.count("lattice") > 0;
+  const bool has_structure = vm.count("structure") > 0;
+  if (has_lattice && has_structure) {
+    throw std::runtime_error(
+        "--lattice (corrdump) and --structure (legacy) are mutually exclusive");
+  }
+  if (has_structure) {
+    return resolve_problem_legacy(vm);
+  }
+  if (!has_lattice) {
+    throw std::runtime_error(
+        "supply --lattice (corrdump pipeline) or --structure "
+        "(legacy: pre-enumerated --clusters + --species)");
+  }
+  return resolve_problem_corrdump(vm, seed);
 }
 
 // ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------
 
-// Configure an engine IN PLACE. The cluster constraint and SpeciesSwap
-// generator hold references into eng.structure(), so the engine must NOT be
-// moved afterwards — see run_search's heap-stability note.
+// Configure an engine in place. Its constraint and generator hold references
+// into eng.structure(), which stays heap-stable across the later move.
 void configure_engine(Engine &eng, const McsqsProblem &prob,
                       const SamplerSettings &sampler, std::uint32_t rseed,
                       std::uint64_t log_every) {
@@ -286,11 +432,15 @@ void report_result(const Engine &best_engine, const McsqsProblem &prob,
   std::cout << "Best SQS written to " << out_path
             << "  best error: " << best_engine.best_error() << "\n";
 
+  if (!prob.has_oracle) {
+    return; // legacy pipeline: no corrdump, so no str.out / oracle cross-check
+  }
+
   try {
     const std::filesystem::path bestsqs =
         std::filesystem::path(out_path).replace_extension(".out");
-    atat::write_str_out(bestsqs, prob.enumerated.axes, prob.enumerated.supercell,
-                        prob.enumerated.frac_positions, best.elements);
+    atat::write_str_out(bestsqs, prob.axes, prob.supercell,
+                        prob.frac_positions, best.elements);
     std::cout << "bestsqs (ATAT str.out): " << bestsqs << "\n";
     const auto bestcorr = atat::corrdump_correlations(
         resolve_corrdump(vm), prob.lattice_path, bestsqs,
@@ -320,6 +470,13 @@ po::options_description make_options_description() {
     ("d4", po::value<double>()->default_value(0.0), "max quadruplet diameter (-4)")
     ("corrdump", po::value<std::string>()->default_value(""),
        "Path to corrdump (default: the vendored build)")
+    ("structure,s", po::value<std::string>(),
+       "[legacy] fixed-site input PDB — enables the no-corrdump pipeline "
+       "(pair with --clusters and --species)")
+    ("clusters,c", po::value<std::string>(),
+       "[legacy] pre-enumerated cluster-orbit file")
+    ("species,S", po::value<std::string>(),
+       "[legacy] species occupation map, e.g. Cu:+1,Au:-1")
     ("steps,n", po::value<std::uint64_t>()->default_value(500000),
        "MC steps per replica")
     ("replicas,r", po::value<std::size_t>()->default_value(1),
