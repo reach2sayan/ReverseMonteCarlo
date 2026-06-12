@@ -1,5 +1,6 @@
 #pragma once
 #include <RMC/core/Types.hpp>
+#include <boost/assert.hpp>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -84,12 +85,13 @@ struct IncrementalHistogram {
     if (incremental_ready_ && !moved.empty()) {
       // Slot is engaged here: incremental_ready_ is only set after a before-move
       // pass, which always builds the slot.
+      BOOST_ASSERT_MSG(slot.has_value(), "Slot is Disengaged");
       after_move(moved);
       scratch_delta_.setZero();
       accum_moved(scratch_delta_, moved);
       vec_t new_frame_hist =
           saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
-      sum_hist_ += new_frame_hist - *slot;
+      sum_hist_ += new_frame_hist - slot.value();
       slot = std::move(new_frame_hist);
       incremental_ready_ = false;
     } else {
@@ -102,7 +104,7 @@ struct IncrementalHistogram {
         sum_hist_ += tmp;
         return std::optional<vec_t>{std::move(tmp)};
       });
-      saved_frame_hist_ = *slot;
+      saved_frame_hist_ = slot.value();
       if (!moved.empty()) {
         before_move(moved);
         saved_moved_delta_.setZero();
