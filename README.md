@@ -6,7 +6,7 @@ C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(
 
 **Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · vendored ATAT `corrdump` for the SQS extension (`RMC_BUILD_ATAT=ON`, default; pulled in as a git submodule)
 
-For the architecture — the engine pipeline, the constraint / generator / sampler / selector contracts, and how to add your own — see [DESIGN.md](DESIGN.md).
+For the architecture — the engine pipeline, the constraint / generator / sampler / selector contracts, and how to add your own — see [DESIGN.md](DESIGN.md). For copy-paste example runs end to end, see [WORKFLOW.md](WORKFLOW.md).
 
 ## Build
 

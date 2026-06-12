@@ -66,6 +66,22 @@ The stages are chained monadically (`std::optional::and_then`): if `select()`
 returns no group (nothing eligible), the chain short-circuits and the step is a
 no-op.
 
+```mermaid
+flowchart TD
+    A([step]) --> B[select<br/>pick frame + group]
+    B -->|no eligible group| Z[no-op]
+    B -->|TrialCtx| C[snapshot_and_score_before<br/>save state · χ²_before]
+    C --> D[propose_move<br/>generator.generate · wrap into box]
+    D --> E[score_after<br/>χ²_after for affected constraints]
+    E --> F[settle<br/>decide accept / reject]
+    F -->|accept| G[commit: after → before]
+    F -->|reject| H[restore snapshot · reset constraints]
+    G --> L[log every log_every steps]
+    H --> L
+    Z --> L
+    L --> A
+```
+
 ### Three-tier acceptance
 
 `settle()` calls `decide_rejection()`, which resolves the move in priority
@@ -80,6 +96,17 @@ order (`EngineBase::decide_rejection`):
 3. **Sampler soft gate.** Otherwise the `Sampler` decides from the change in the
    **total soft error** (sum over non-rigid constraints), using one uniform draw
    from the engine's dedicated acceptance RNG.
+
+```mermaid
+flowchart TD
+    A([decide_rejection]) --> B{generator owns<br/>accept / reject?}
+    B -->|yes| BV[use rejection_override verdict]
+    B -->|no| C{any rigid<br/>constraint worse?}
+    C -->|yes| CR[reject — hard gate]
+    C -->|no| D{Sampler.accept<br/>Δ soft error · u01}
+    D -->|true| DA[accept]
+    D -->|false| DR[reject]
+```
 
 On accept, every constraint's cached `after` error becomes its new `before`; on
 reject, the structure snapshot is restored and constraints reset. This is why
@@ -222,6 +249,19 @@ The ATAT pipeline reads a `rndstr.in` primitive lattice, drives the vendored
 `corrdump` (via `boost::process`) to enumerate cluster orbits, expands them over
 the supercell, and runs the search. See the README's *SQS search* section for
 the CLI.
+
+```mermaid
+flowchart TD
+    L[rndstr.in lattice] --> CD[corrdump<br/>enumerate cluster orbits]
+    CD --> EX[expand over supercell<br/>+ build cluster basis]
+    EX --> EN[engine: SpeciesSwap moves<br/>vs ClusterCorrelation targets]
+    EN --> OUT[bestsqs.pdb + str.out]
+    OUT --> CK[corrdump cross-check]
+```
+
+The legacy pipeline replaces the lattice + `corrdump` stages with a fixed-site
+structure and a pre-enumerated cluster-orbit file, feeding the same engine stage
+(no cross-check). Both build the same cluster basis the engine consumes.
 
 ## Extending RMC
 
