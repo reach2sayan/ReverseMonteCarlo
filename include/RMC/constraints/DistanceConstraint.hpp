@@ -73,11 +73,7 @@ public:
       return it->second;
     };
     // Resolve the boundary condition ONCE here instead of dispatching
-    // bc_min_image() through std::visit on every pair. Each branch builds a
-    // concrete squared-distance functor the compiler fully inlines — for
-    // InfiniteBC the identity min-image vanishes, leaving a bare squaredNorm.
-    // (Squared distance: PairCache compares against threshold² and only takes
-    // the sqrt for the few pairs actually in violation.)
+    // bc_min_image() through std::visit on every pair.
     if (bc_ == nullptr) {
       return cache_.compute(
           N, threshold,

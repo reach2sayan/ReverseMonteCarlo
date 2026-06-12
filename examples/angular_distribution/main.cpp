@@ -47,7 +47,7 @@ int main() {
   mat_t adf(n_bins, 1 + n_part);
   adf.col(0) = target->theta;
   for (int j = 0; j < n_part; ++j)
-    adf.col(1 + j) = target->partials[static_cast<std::size_t>(j)];
+    adf.col(1 + j) = target->partials[static_cast<std::size_t>(j)].values;
   std::cout << "ADF target: " << n_part << " triplets, " << n_bins << " bins\n";
 
   // 2. A different random cell of the same composition.

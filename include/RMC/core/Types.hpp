@@ -7,6 +7,7 @@
 #include <ranges>
 #include <span>
 #include <string>
+#include <thread>
 
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline
@@ -60,4 +61,22 @@ constexpr auto upper_triangle_pairs(auto &&N) {
          }) |
          std::views::join;
 }
+
+// Returns the number of CPUs allocated to this process, in priority order:
+//   1. SLURM_CPUS_PER_TASK  (SLURM scheduler)
+//   2. PBS_NUM_PPN           (PBS/Torque scheduler)
+//   3. LSB_DJOB_NUMPROC      (LSF scheduler)
+//   4. std::thread::hardware_concurrency() (local fallback)
+inline std::size_t allocated_cpus() noexcept {
+  for (const char *var :
+       {"SLURM_CPUS_PER_TASK", "PBS_NUM_PPN", "LSB_DJOB_NUMPROC"}) {
+    if (const char *val = std::getenv(var); val && *val) {
+      if (const int n = std::atoi(val); n > 0) {
+        return static_cast<std::size_t>(n);
+      }
+    }
+       }
+  return std::max(1u, std::thread::hardware_concurrency());
+}
+
 } // namespace RMC

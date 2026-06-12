@@ -12,7 +12,7 @@
 namespace RMC::parallel {
 
 inline int default_concurrency() noexcept {
-  const unsigned hw = std::thread::hardware_concurrency();
+  const unsigned hw = allocated_cpus();
   return hw > 0 ? static_cast<int>(hw) : 1;
 }
 

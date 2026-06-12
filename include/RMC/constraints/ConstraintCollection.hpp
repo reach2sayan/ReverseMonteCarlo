@@ -17,8 +17,6 @@ public:
   // (bonds, angles) run before expensive O(N²) ones (PDF, S(Q)).
   void add(Constraint c);
   void set_boundary_conditions(const BoundaryConditions &bc) noexcept;
-  // Hand every constraint the engine's AtomsCollector (or null when the
-  // collector feature is off) so term loops can skip removed atoms.
   void set_collector(const AtomsCollector *c) noexcept;
   void compute_before_move(const coords_t &coords,
                            std::span<const std::size_t> moved);
@@ -47,16 +45,9 @@ public:
   // Paired with total_error() to form the ΔE handed to the Sampler.
   [[nodiscard]] double total_error_before() const noexcept;
 
-  // Per-constraint {name, standard_error()} in evaluation (cost-sorted) order.
-  // Read-only view for diagnostics/UI; the GUI uses it for the convergence
-  // breakdown since standard_error() is otherwise passkey-gated. Rigid
-  // constraints report 0 (they contribute only as a hard gate).
   [[nodiscard]] std::vector<std::pair<std::string_view, double>>
   error_breakdown() const;
 
-  // Safety net: run each constraint's one-time initialise() (no-op for those
-  // without one; idempotent for pair constraints). Lets the engine self-heal a
-  // forgotten client-side pdc.initialise().
   void initialise_all();
 
   void set_n_frames(std::size_t n) noexcept;

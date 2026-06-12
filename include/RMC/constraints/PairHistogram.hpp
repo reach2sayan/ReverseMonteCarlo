@@ -24,13 +24,7 @@ struct PairElemKey {
   auto operator<=>(const PairElemKey &) const = default;
 };
 
-// Dense element-pair weight table for O(1) hot-path lookup. Element ids are the
-// small contiguous integers assigned in initialise() (0,1,2,…), so the weights
-// live in a flat n_types×n_types row-major matrix indexed directly by id — a
-// single load, no search. Replaces the flat_map<PairIdKey,double> whose
-// per-pair binary search showed up in the profile. The matrix is symmetric and
-// defaults to 1.0; `weighted == false` means every weight is 1, so callers skip
-// the lookup entirely.
+// Dense element-pair weight table for O(1) hot-path lookup.
 struct PairWeightMatrix {
   int n_types{0};
   bool weighted{false};
@@ -40,10 +34,7 @@ struct PairWeightMatrix {
              static_cast<std::size_t>(b)];
   }
 
-  // Hot-path weight for the pair (elem_id[i], elem_id[j]). Returns 1.0 without
-  // touching `elem_id` at all when the table is unweighted — callers neither
-  // branch nor index, so an empty/short elem_id (the unweighted case, where no
-  // elements were registered) is never dereferenced.
+  // Hot-path weight for the pair (elem_id[i], elem_id[j]).
   [[nodiscard]] constexpr double weight_of(const std::vector<uint8_t> &elem_id,
                                            std::size_t i,
                                            std::size_t j) const noexcept {
@@ -129,14 +120,11 @@ public:
   }
   constexpr void set_exclude_intra(bool v) noexcept { exclude_intra_ = v; }
 
-  // Shape function: f(r) multiplied into the computed G(r) before chi²
-  // evaluation. Use spherical_shape_fn() or gaussian_shape_fn() as factories.
+  // Shape function: f(r) multiplied into the computed G(r) before chi² eval
   void set_shape_function(std::function<double(double)> fn) {
     shape_fn_ = std::move(fn);
   }
 
-  // Multi-frame: allocate per-frame histograms. Must be called after
-  // set_experimental_data() so that n_bins_ is known.
   void set_n_frames(std::size_t n);
   void set_active_frame_idx(std::size_t k) noexcept {
     active_frame_ = k;

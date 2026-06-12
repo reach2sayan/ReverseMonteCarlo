@@ -24,13 +24,6 @@ namespace RMC {
 
 namespace detail {
 
-// Returns the number of CPUs allocated to this process, in priority order:
-//   1. SLURM_CPUS_PER_TASK  (SLURM scheduler)
-//   2. PBS_NUM_PPN           (PBS/Torque scheduler)
-//   3. LSB_DJOB_NUMPROC      (LSF scheduler)
-//   4. std::thread::hardware_concurrency() (local fallback)
-std::size_t allocated_cpus() noexcept;
-
 #if defined(RMC_USE_TBB)
 // Compute per-replica TBB thread budget: explicit override > env heuristic.
 // tbb_threads_per_replica == 0  →  auto (allocated_cpus / n_replicas, ≥ 1)

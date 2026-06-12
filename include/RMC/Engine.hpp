@@ -12,21 +12,9 @@
 
 namespace RMC {
 
-// Single-frame RMC refinement: the N=1 specialisation of the shared engine
-// pipeline (EngineBase), with the species-snapshot, adaptive-feedback,
-// pending-removal, best-ever-tracking and checkpoint feature policies switched
-// ON. The pipeline itself lives in EngineBase; this class supplies only the
-// frame storage, selector, policy members and the per-engine customization
-// points the base reaches through CRTP.
 class Engine : public EngineBase<Engine> {
 public:
   explicit Engine(AtomicStructure structure, BoundaryConditions bc);
-
-  // Move-only. The structure lives on the heap at a STABLE address, so moving an
-  // Engine (e.g. into the ensemble's vector) leaves any references held by its
-  // constraints / move generators — e.g. SQS's ClusterCorrelationConstraint and
-  // SpeciesSwapGenerator — pointing at the same live structure. Copying would
-  // alias the source's structure, so it is deleted.
   Engine(const Engine &) = delete;
   Engine &operator=(const Engine &) = delete;
   Engine(Engine &&) = default;

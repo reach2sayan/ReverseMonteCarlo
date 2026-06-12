@@ -62,9 +62,9 @@ concept CConstraint =
       (1, std::string_view, name, (), 0, (), const, noexcept, NO_TOKEN))(      \
       (1, double, computation_cost, (), 0, (), const, noexcept, WITH_TOKEN))(  \
       (0, void, set_boundary_conditions, (const BoundaryConditions &bc), 1,    \
-       (bc), , , WITH_TOKEN))(                                                 \
-      (0, void, set_collector, (const AtomsCollector *col), 1, (col), , ,      \
-       WITH_TOKEN))(                                                           \
+       (bc), , , WITH_TOKEN))((0, void, set_collector,                         \
+                               (const AtomsCollector *col), 1, (col), , ,      \
+                               WITH_TOKEN))(                                   \
       (1, bool, is_rigid, (), 0, (), const, noexcept, WITH_TOKEN))(            \
       (1, bool, is_singular, (), 0, (), const, noexcept, WITH_TOKEN))(         \
       (0, void, set_n_frames, (std::size_t n), 1, (n), , noexcept,             \

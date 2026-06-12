@@ -212,8 +212,6 @@ void attach_constraints(Engine &engine, const ExperimentalData &data,
 
 Engine build_engine(const LoadedStructure &loaded, const ExperimentalData &data,
                     const RMCConfig &cfg) {
-  // Engine's ctor takes the structure by value, so this copy gives each replica
-  // its own independent structure (the shared `loaded` stays reusable).
   Engine engine(loaded.structure, loaded.bc);
   engine.build_atomic_groups(cfg.group_min_amp, cfg.group_max_amp, cfg.seed);
   if (cfg.use_smart) {

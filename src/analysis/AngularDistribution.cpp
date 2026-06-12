@@ -81,6 +81,7 @@ Result<AdfResult> compute_adf(const coords_t &coords,
             static_cast<double>(counts[static_cast<std::size_t>(q)]);
         col_scale(col) = denom > 0.0 ? inc / denom : 0.0;
       }
+
   // Per-column scaling: `hist` is a row-major (bin × column) matrix flattened
   // into a vector, so a column-tiled copy of col_scale aligns element-for-
   // element with it (entry b·n_cols+c ↦ col_scale(c)).

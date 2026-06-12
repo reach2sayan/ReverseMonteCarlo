@@ -143,6 +143,7 @@ void accumulate_moved_pairs(
     return;
   }
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
+
   // #2: inline binning — write straight into `hist`, no boost::histogram
   // allocation and no per-insert variant dispatch.
   const double inv_dr = static_cast<double>(n_bins) / (r_max - r_min);
@@ -156,7 +157,7 @@ void accumulate_moved_pairs(
   if (moved_pos.size() < static_cast<std::size_t>(N)) {
     moved_pos.assign(static_cast<std::size_t>(N), kSentinel);
   }
-  for (const auto [mk, k] : std::views::enumerate(moved)) {
+  for (const auto [mk, k] : moved | std::views::enumerate) {
     moved_pos[k] = static_cast<std::size_t>(mk);
   }
 
@@ -171,7 +172,7 @@ void accumulate_moved_pairs(
   thread_local Eigen::Matrix3Xd delta_scratch, frac_scratch;
   const PeriodicBC *pbc = bc ? std::get_if<PeriodicBC>(bc) : nullptr;
 
-  for (const auto [mk, k] : std::views::enumerate(moved)) {
+  for (const auto [mk, k] : moved | std::views::enumerate) {
     const auto kk = static_cast<std::size_t>(k);
     if (collector && collector->absent(kk)) {
       continue; // moved atom is removed: every pair (k, ·) is gone
