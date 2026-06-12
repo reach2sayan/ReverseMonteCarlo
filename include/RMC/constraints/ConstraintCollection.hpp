@@ -29,11 +29,6 @@ public:
   void compute_after_move(const coords_t &coords,
                           std::span<const std::size_t> moved);
 
-  // Legacy per-constraint veto (any constraint worsened). Retained for tests
-  // and callers that want the strict gate; the engine now uses
-  // rigid_should_reject() plus the Sampler instead.
-  [[nodiscard]] bool should_reject() const noexcept;
-
   // Hard gate for the engine: any RIGID constraint that worsened. Soft
   // constraints are deferred to the Sampler via total_error[_before]().
   [[nodiscard]] bool rigid_should_reject() const noexcept;

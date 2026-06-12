@@ -26,9 +26,10 @@ using StepCallback = std::function<void(std::uint64_t, std::uint64_t,
                                         std::uint64_t, double,
                                         const AtomicStructure &)>;
 
-// CRTP base for Engine and MultiFrameEngine.
+// CRTP base for the refinement engine (Engine is its sole instantiation; the
+// CRTP seam is kept so the pipeline stays decoupled from the policy wiring).
 //
-// Owns the shared MC pipeline so the two engines duplicate nothing: step(),
+// MC : step() - 4 stage : choose / perturb / score / sample
 // the four pipeline stages, the three-tier acceptance (decide_rejection) and
 // settle() all live here and reach the per-engine specifics through CRTP
 // customization points the Derived class supplies:
@@ -39,10 +40,6 @@ using StepCallback = std::function<void(std::uint64_t, std::uint64_t,
 //   group_sel_for_feedback()-> the selector that receives adaptive feedback
 //   do_initialise()         -> one-time frame/constraint priming
 // Derived must `friend class EngineBase<Derived>;` to expose these.
-//
-// Shared state: bc_, groups_, constraints_, sampler_, RNG, stats. Helpers:
-//   stage()        — lifts void(T&) into optional<T>(T) for and_then chaining
-//   apply_pbc_to() — wraps atom coordinates of a structure into the unit cell
 template <typename Derived> class EngineBase {
 public:
   // Ephemeral per-step context threaded through the and_then pipeline. The
@@ -153,18 +150,16 @@ protected:
     constraints_.compute_after_move(c.frame->coordinates, c.group->span());
   }
 
-  // Three-tier acceptance:
-  //   1. gradient-based generators (HMC/leapfrog) own their accept/reject;
-  //   2. otherwise any worsened RIGID constraint is a hard rejection;
-  //   3. otherwise the Sampler decides from the soft total error — greedy
-  //      (strict downhill) by default, Metropolis/annealing when configured.
   [[nodiscard]] bool decide_rejection(TrialCtx &c) {
+    //gradient-based generators (HMC/leapfrog) own their accept/reject
     if (auto override_rej = c.group->generator->rejection_override()) {
       return *override_rej;
     }
     if (constraints_.rigid_should_reject()) {
+      //otherwise any  RIGID constraint is a hard rejection
       return true;
     }
+    //otherwise the Sampler decides
     return !sampler_.accept(constraints_.total_error_before(),
                             constraints_.total_error(), n_steps_total_,
                             accept_rng_.uniform());
@@ -185,17 +180,10 @@ protected:
                                       !rejected);
   }
 
-  // One-time setup, run lazily on the first run()/run_until() so clients never
-  // call an engine-level initialise(). Sweeps the constraints first (safety net
-  // for a forgotten per-constraint initialise()), then the engine-specific
-  // frame priming. Order matters: priming calls compute_error, which consumes
-  // the per-constraint state initialise_all() fills.
   void ensure_initialised() {
     if (initialised_) {
       return;
     }
-    // Give constraints the engine's collector before any compute_error runs
-    // (do_initialise primes frames by computing errors).
     constraints_.set_collector(self().collector_policy().collector_ptr());
     constraints_.initialise_all();
     self().do_initialise();

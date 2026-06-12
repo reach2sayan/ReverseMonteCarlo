@@ -56,11 +56,6 @@ void ConstraintCollection::compute_after_move(
   }
 }
 
-bool ConstraintCollection::should_reject() const noexcept {
-  return std::ranges::any_of(
-      constraints_, [](const Constraint &c) { return c.should_reject(); });
-}
-
 bool ConstraintCollection::rigid_should_reject() const noexcept {
   return std::ranges::any_of(constraints_, [](const Constraint &c) {
     return c.is_rigid() && c.should_reject();

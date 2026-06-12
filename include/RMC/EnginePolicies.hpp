@@ -15,11 +15,11 @@
 
 namespace RMC {
 
-// Orthogonal, compile-time engine features. Each axis has an "on" type carrying
-// any needed state and a stateless "off" type whose methods are no-ops. The
-// engines hold these as [[no_unique_address]] members, so the "off" variants add
-// zero size and the calls inline away. The shared pipeline in EngineBase invokes
-// them at fixed hook points.
+// Orthogonal, compile-time engine features. Each axis carries any needed state;
+// the engine holds these as [[no_unique_address]] members and the shared
+// pipeline in EngineBase invokes them at fixed hook points. (These were once
+// paired with stateless No* off-variants for a feature-stripped second engine;
+// with a single unified engine every axis is always on.)
 
 // --- Species snapshots (atom-swap moves) -----------------------------------
 struct WithSpecies {
@@ -32,25 +32,15 @@ struct WithSpecies {
     f.restore_species_snapshot(); // no-op if save was never called
   }
 };
-struct NoSpecies {
-  static constexpr void save_before(AtomicStructure &, Group &) noexcept {}
-  static constexpr void restore_on_reject(AtomicStructure &) noexcept {}
-};
 
 struct WithFeedback {
   static void feedback(GroupSelector &sel, std::size_t gi, bool accepted) {
     sel.feedback(gi, accepted);
   }
 };
-struct NoFeedback {
-  static constexpr void feedback(GroupSelector &, std::size_t, bool) noexcept {}
-};
 
 // --- Pending atom removal (RemoveGenerator) --------------------------------
 struct WithCollector {
-  // Heap-owned so a RemoveGenerator and the constraints share the SAME collector
-  // the engine commits/rolls back, and so the address stays stable when the
-  // Engine is moved (e.g. into an ensemble vector).
   std::shared_ptr<AtomsCollector> collector_{
       std::make_shared<AtomsCollector>()};
   void commit_or_rollback(bool accepted) {
@@ -69,14 +59,6 @@ struct WithCollector {
   // Pointer the engine hands to the constraints so they can skip removed atoms.
   [[nodiscard]] const AtomsCollector *collector_ptr() const noexcept {
     return collector_.get();
-  }
-};
-struct NoCollector {
-  constexpr void commit_or_rollback(bool) noexcept {}
-  // No collector: constraints get a null pointer and skip nothing.
-  [[nodiscard]] static constexpr const AtomsCollector *
-  collector_ptr() noexcept {
-    return nullptr;
   }
 };
 
@@ -106,9 +88,6 @@ struct WithBestTracking {
     return best_structure_ ? *best_structure_ : cur;
   }
 };
-struct NoBestTracking {
-  void update(const AtomicStructure &, double) noexcept {}
-};
 
 // --- Periodic checkpointing ------------------------------------------------
 struct WithCheckpoint {
@@ -127,10 +106,6 @@ struct WithCheckpoint {
       }
     }
   }
-};
-struct NoCheckpoint {
-  void maybe(const AtomicStructure &, const io::EngineStats &,
-             std::uint64_t) noexcept {}
 };
 
 } // namespace RMC

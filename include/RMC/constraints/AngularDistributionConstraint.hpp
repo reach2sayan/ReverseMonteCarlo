@@ -1,5 +1,6 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
+#include <RMC/constraints/IncrementalHistogram.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/NeighborGrid.hpp>
 #include <RMC/core/Types.hpp>
@@ -133,10 +134,7 @@ public:
   // active frame, so a before-move on a switched-to frame must not be mistaken
   // for an after-move.
   void set_n_frames(std::size_t n);
-  void set_active_frame_idx(std::size_t k) noexcept {
-    active_frame_ = k;
-    incremental_ready_ = false;
-  }
+  void set_active_frame_idx(std::size_t k) noexcept { hist_.set_active_frame(k); }
   // Restore the active frame's histogram + grid after a rejected move; commit
   // drops the rollback snapshot (and drives the optional drift resync).
   void rollback_frame() noexcept;
@@ -167,9 +165,10 @@ public:
 private:
   void normalise_and_smooth(const coords_t &coords) const;
 
-  // The neighbour grid backing the active frame (grid_ in single-frame mode).
+  // The neighbour grid backing the active frame. Single-frame is just
+  // n_frames_ == 1 (one entry), so there is no separate single-frame grid.
   [[nodiscard]] NeighborGrid &active_grid() const noexcept {
-    return n_frames_ > 1 ? frame_grids_[active_frame_] : grid_;
+    return frame_grids_[hist_.active_frame_];
   }
 
   // ---- Configuration ----
@@ -191,28 +190,17 @@ private:
 
   // ---- Histogram state ----
   mutable vec_t computed_;       // normalised, smoothed (length hist_len_)
-  mutable vec_t single_hist_;    // raw counts, single-frame path
-  mutable bool single_hist_current_{false}; // false ⇒ next call full-rebuilds
   mutable vec_t smooth_scratch_; // reused smoothing buffer
 
-  // ---- Multi-frame state (mutable: modified inside const compute_error) ----
-  std::size_t n_frames_{1};
-  std::size_t active_frame_{0};
-  mutable std::vector<vec_t> frame_hists_;       // raw counts, per frame
-  mutable std::vector<bool> frame_hist_current_; // per-frame one-time-build gate
-  mutable vec_t sum_hist_;                        // running Σ over frames
-  mutable vec_t saved_frame_hist_;                // pre-move snapshot for rollback
+  // Single-/multi-frame incremental histogram engine (shared with the pair
+  // constraints). Holds all running raw-count buffers and the moved-vertex
+  // angle delta scratch; the constraint supplies the angle kernels and the
+  // neighbour-grid relocation hooks below.
+  mutable IncrementalHistogram hist_;
 
-  // ---- Incremental neighbour-delta state ----
-  // The before-move call records the moved-vertex angle contribution at the old
-  // coords into saved_moved_delta_; the after-move call recomputes it at the new
-  // coords into scratch_delta_ and patches saved_frame_hist_ ± deltas, exactly
-  // as PairConstraintBase does with accumulate_moved_pairs.
-  mutable vec_t saved_moved_delta_;
-  mutable vec_t scratch_delta_;
-  mutable bool incremental_ready_{false}; // set by before-move, cleared after
-  mutable NeighborGrid grid_;             // single-frame neighbour grid
-  mutable std::vector<NeighborGrid> frame_grids_; // per-frame neighbour grids
+  // ---- Neighbour grids (constraint-owned; driven via the update() hooks) ----
+  // One grid per frame; single-frame runs hold exactly one.
+  mutable std::vector<NeighborGrid> frame_grids_;
 
   // ---- Optional drift-resync guard ----
   unsigned resync_every_{0};            // 0 = off; full rebuild every N accepts

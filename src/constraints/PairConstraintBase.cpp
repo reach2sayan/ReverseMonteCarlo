@@ -212,25 +212,11 @@ void accumulate_moved_pairs(
 void PairConstraintBase::set_n_frames(std::size_t n) {
   BOOST_ASSERT_MSG(n_bins_ > 0,
                    "call set_experimental_data before set_n_frames");
-  n_frames_ = n;
-  frame_hists_.assign(n, vec_t::Zero(n_bins_));
-  frame_hist_current_.assign(n, false);
-  sum_hist_ = vec_t::Zero(n_bins_);
-  saved_frame_hist_.resize(n_bins_);
-  incremental_ready_ = false;
+  hist_.set_n_frames(n);
 }
 
 void PairConstraintBase::rollback_frame() noexcept {
-  if (n_frames_ > 1) {
-    sum_hist_ -= frame_hists_[active_frame_];
-    frame_hists_[active_frame_] = saved_frame_hist_;
-    sum_hist_ += saved_frame_hist_;
-    frame_hist_current_[active_frame_] = true;
-  } else {
-    single_hist_ = saved_frame_hist_;
-    single_hist_current_ = true;
-  }
-  incremental_ready_ = false;
+  hist_.rollback([] {}); // no auxiliary undo for the pair path
 }
 
 void PairConstraintBase::set_experimental_data(const mat_t &data) {
@@ -243,10 +229,12 @@ void PairConstraintBase::set_experimental_data(const mat_t &data) {
   bin_width_ = (N > 1) ? (exp_r_(1) - exp_r_(0)) : 0.1;
   n_bins_ = static_cast<int>(N);
   computed_.resize(N);
-  // Pre-size the reused per-step delta buffers so the hot path can setZero()
-  // in place instead of allocating a fresh vec_t::Zero(n_bins_) each step.
-  saved_moved_delta_.resize(N);
-  scratch_delta_.resize(N);
+  // Pre-size the engine's reused per-step delta buffers so the hot path can
+  // setZero() in place instead of allocating a fresh vec_t each step, and
+  // default to a single frame so a constraint used standalone (outside the
+  // engine) is ready to compute; the engine's set_n_frames(N) overrides this.
+  hist_.set_length(static_cast<int>(N));
+  hist_.set_n_frames(1);
 }
 
 void PairConstraintBase::initialise() {

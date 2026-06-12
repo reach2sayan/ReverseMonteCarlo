@@ -4,15 +4,40 @@
 #include <RMC/generators/Removes.hpp>
 #include <RMC/generators/Translations.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
+#include <boost/assert.hpp>
 #include <boost/log/trivial.hpp>
+#include <numeric>
 #include <ranges>
 #include <utility>
+#include <vector>
 
 namespace RMC {
 
-Engine::Engine(AtomicStructure structure, BoundaryConditions bc)
-    : EngineBase<Engine>(std::move(bc)), store_(std::move(structure)),
-      selector_(RandomSelector{}) {}
+Engine::Engine(AtomicStructure structure, BoundaryConditions bc,
+               std::uint32_t frame_rng_seed)
+    : EngineBase<Engine>(std::move(bc)), selector_(RandomSelector{}),
+      frame_selector_(RandomSelector{frame_rng_seed}) {
+  store_.add(std::move(structure)); // frame 0
+}
+
+void Engine::do_initialise() {
+  BOOST_ASSERT_MSG(store_.size() > 0, "Engine: no frames");
+  const std::size_t n_frames = store_.size();
+  constraints_.set_n_frames(n_frames);
+
+  // Prime each frame's histogram (one full compute_before_move pass per frame)
+  // so the averaged sum is correct from the first step. For a single frame this
+  // is one eager full build; multi-frame primes all N.
+  const std::size_t n_atoms = store_[0].size();
+  std::vector<std::size_t> all_idx(n_atoms);
+  std::iota(all_idx.begin(), all_idx.end(), std::size_t{0});
+
+  for (const auto k : std::views::iota(std::size_t{0}, n_frames)) {
+    constraints_.set_active_frame(k);
+    constraints_.compute_before_move(store_[k].coordinates, all_idx);
+  }
+  constraints_.set_active_frame(0); // arbitrary; reset per step
+}
 
 void Engine::build_atomic_groups(double min_amp, double max_amp,
                                  std::uint32_t seed) {

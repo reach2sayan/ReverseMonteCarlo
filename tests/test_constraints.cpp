@@ -1,4 +1,4 @@
-#include <RMC/MultiFrameEngine.hpp>
+#include <RMC/Engine.hpp>
 #include <RMC/constraints/AngleConstraint.hpp>
 #include <RMC/constraints/BondConstraint.hpp>
 #include <RMC/constraints/ConstraintCollection.hpp>
@@ -283,43 +283,12 @@ TEST_CASE("ConstraintCollection - short-circuit skips expensive constraint "
 
   // Collection should reject and PDF's standard_error() equals its before-error
   // (set via reject() resetting err_after_ = err_before_).
-  REQUIRE(col.should_reject());
+  REQUIRE(col.rigid_should_reject());
   const double pdf_before = col[1].standard_error();
   col.reject();
   // After reject, PDF error must equal what it was before (no stale
   // after-value).
   REQUIRE_THAT(col[1].standard_error(), WithinAbs(pdf_before, EPS));
-}
-
-// ---- ConstraintCollection ----
-TEST_CASE("ConstraintCollection - rejects when any constraint rejects",
-          "[constraints]") {
-  ConstraintCollection col;
-  BondConstraint b;
-  b.add_bond(0, 1, 1.0, 2.0);
-  col.add(std::move(b));
-
-  coords_t good = make2(0.0, 1.5);
-  coords_t bad = make2(0.0, 0.3);
-  std::vector<index_t> all = {0, 1};
-  col.compute_before_move(good, all);
-  col.compute_after_move(bad, all);
-  REQUIRE(col.should_reject());
-}
-
-TEST_CASE("ConstraintCollection - accepts when all constraints pass",
-          "[constraints]") {
-  ConstraintCollection col;
-  BondConstraint b;
-  b.add_bond(0, 1, 1.0, 2.0);
-  col.add(std::move(b));
-
-  coords_t c1 = make2(0.0, 1.2);
-  coords_t c2 = make2(0.0, 1.8);
-  std::vector<index_t> all = {0, 1};
-  col.compute_before_move(c1, all);
-  col.compute_after_move(c2, all);
-  REQUIRE_FALSE(col.should_reject());
 }
 
 // ---- RigidConstraintBase ----
@@ -578,7 +547,7 @@ TEST_CASE("ShapeFunction - shape function zeros high-r bins",
   }
 }
 
-// ---- MultiFrameEngine ----
+// ---- Multi-frame Engine (Engine with add_frame) ----
 
 static AtomicStructure make_mono_structure(int N, double spacing = 3.0) {
   AtomicStructure s;
@@ -589,7 +558,7 @@ static AtomicStructure make_mono_structure(int N, double spacing = 3.0) {
   return s;
 }
 
-TEST_CASE("MultiFrameEngine - initialise populates frame histograms",
+TEST_CASE("Multi-frame Engine - initialise populates frame histograms",
           "[multiframe]") {
   const int N = 6;
   const int n_frames = 3;
@@ -607,8 +576,8 @@ TEST_CASE("MultiFrameEngine - initialise populates frame histograms",
   pdf.set_elements(els);
   pdf.initialise();
 
-  MultiFrameEngine eng(InfiniteBC{});
-  for (int f = 0; f < n_frames; ++f)
+  Engine eng(make_mono_structure(N), InfiniteBC{});
+  for (int f = 1; f < n_frames; ++f)
     eng.add_frame(make_mono_structure(N));
 
   Group g;
@@ -627,7 +596,7 @@ TEST_CASE("MultiFrameEngine - initialise populates frame histograms",
   REQUIRE(err0 >= 0.0);
 }
 
-TEST_CASE("MultiFrameEngine - run accepts some moves", "[multiframe]") {
+TEST_CASE("Multi-frame Engine - run accepts some moves", "[multiframe]") {
   const int N = 6;
   const int n_frames = 2;
 
@@ -643,8 +612,8 @@ TEST_CASE("MultiFrameEngine - run accepts some moves", "[multiframe]") {
   pdf.set_elements(els);
   pdf.initialise();
 
-  MultiFrameEngine eng(InfiniteBC{});
-  for (int f = 0; f < n_frames; ++f)
+  Engine eng(make_mono_structure(N, 2.0), InfiniteBC{});
+  for (int f = 1; f < n_frames; ++f)
     eng.add_frame(make_mono_structure(N, 2.0 + 0.1 * f));
 
   Group g;

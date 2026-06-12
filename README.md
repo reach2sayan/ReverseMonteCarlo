@@ -371,19 +371,22 @@ RMC::run_ensemble_cooperative(make_engine, 4, 0.05, 1000, 0,
                               /*tbb_threads_per_replica*/ 8);
 ```
 
-### Multi-frame engine
+### Multi-frame refinement
 
-`MultiFrameEngine` refines N structural frames simultaneously against a single
-experimental dataset. The chi² is evaluated on the *average* computed profile
-across all frames, helping prevent over-fitting to a single configuration.
+`Engine` refines one or more structural frames against a single experimental
+dataset. With a single frame this is ordinary RMC; add extra frames with
+`add_frame()` and the chi² is evaluated on the *average* computed profile across
+all frames, helping prevent over-fitting to a single configuration. (The
+averaging lives inside the pair/angle constraints; single-frame is just the
+N = 1 case.)
 
 ```cpp
-#include <RMC/MultiFrameEngine.hpp>
+#include <RMC/Engine.hpp>
 
-RMC::MultiFrameEngine eng(bc);
+RMC::Engine eng(trajectory[0], bc);   // frame 0
 
-// Add frames (typically loaded from an MD trajectory)
-for (auto &frame : trajectory)
+// Add the remaining frames (typically from an MD trajectory)
+for (auto &frame : trajectory | std::views::drop(1))
     eng.add_frame(frame);
 
 // Groups and constraints are shared across all frames

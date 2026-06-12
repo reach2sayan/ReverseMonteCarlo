@@ -181,7 +181,6 @@ add_library(RMC SHARED
         src/analysis/AngularDistribution.cpp
         src/core/RandomStructure.cpp
         src/Engine.cpp
-        src/MultiFrameEngine.cpp
         src/Ensemble.cpp
         src/RMCRunner.cpp
 )

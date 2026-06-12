@@ -12,13 +12,24 @@
 
 namespace RMC {
 
+// The RMC refinement engine. One or more structural frames are refined against
+// the experimental data; with a single frame this is ordinary RMC, with N
+// frames they are refined simultaneously against the AVERAGED computed profile
+// (the averaging lives inside the pair/angle constraints). Add extra frames with
+// add_frame(); each step selects one frame, then one group within it.
 class Engine : public EngineBase<Engine> {
 public:
-  explicit Engine(AtomicStructure structure, BoundaryConditions bc);
+  explicit Engine(AtomicStructure structure, BoundaryConditions bc,
+                  std::uint32_t frame_rng_seed = 1729);
   Engine(const Engine &) = delete;
   Engine &operator=(const Engine &) = delete;
   Engine(Engine &&) = default;
   Engine &operator=(Engine &&) = default;
+
+  // Add an additional structural frame (frame 0 is the ctor structure). All
+  // frames are refined against the averaged computed profile.
+  void add_frame(AtomicStructure s) { store_.add(std::move(s)); }
+  void set_frame_selector(GroupSelector s) { frame_selector_ = std::move(s); }
 
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
                            std::uint32_t seed = 42);
@@ -73,18 +84,24 @@ private:
 
   // CRTP customization points called by EngineBase.
   std::optional<TrialCtx> select() {
+    // Single-frame: skip the frame draw and fix fi = 0 so the group RNG stream
+    // (and thus single-frame behaviour) is identical to the pre-multi-frame
+    // engine.
+    const std::size_t fi =
+        store_.size() == 1 ? std::size_t{0} : frame_selector_.select(store_.size());
     const std::size_t gi = selector_.select(groups_.size());
     Group &g = groups_[gi];
     if (!g.refine || g.empty() || !g.generator) {
       return std::nullopt;
     }
-    return TrialCtx{0, gi, &store_.primary(), &g};
+    return TrialCtx{fi, gi, &store_[fi], &g};
   }
-  // Single-frame pair constraints self-prime their histogram on the first
-  // compute_before_move, so no per-frame priming is needed here.
-  constexpr void do_initialise() noexcept {}
+  // Inform the constraints of the frame count and prime each frame's histogram
+  // so the averaged profile is correct from the first step. Run once via
+  // EngineBase::ensure_initialised(); defined in Engine.cpp.
+  void do_initialise();
 
-  [[nodiscard]] constexpr SingleFrameStore &store() noexcept { return store_; }
+  [[nodiscard]] constexpr FrameStore &store() noexcept { return store_; }
   [[nodiscard]] constexpr WithSpecies &species_policy() noexcept { return sp_; }
   [[nodiscard]] constexpr WithFeedback &feedback_policy() noexcept {
     return fb_;
@@ -102,8 +119,9 @@ private:
     return selector_;
   }
 
-  SingleFrameStore store_;
+  FrameStore store_;
   GroupSelector selector_;
+  GroupSelector frame_selector_;
   [[no_unique_address]] WithSpecies sp_;
   [[no_unique_address]] WithFeedback fb_;
   [[no_unique_address]] WithCollector col_;

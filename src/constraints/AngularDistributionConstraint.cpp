@@ -258,41 +258,25 @@ void AngularDistributionConstraint::initialise() {
                            Eigen::RowMajor>>(exp_data_.data(), n_bins_,
                                              n_cols_) = exp_values_;
 
-  // Single-frame buffers (multi-frame ones are allocated in set_n_frames()).
-  single_hist_ = vec_t::Zero(hist_len_);
-  single_hist_current_ = false;
-  saved_frame_hist_ = vec_t::Zero(hist_len_);
-  saved_moved_delta_ = vec_t::Zero(hist_len_);
-  scratch_delta_ = vec_t::Zero(hist_len_);
-  incremental_ready_ = false;
+  // Pre-size the engine's reused per-step delta buffers and default to a single
+  // frame so a constraint used standalone (outside the engine) is ready to
+  // compute; the engine's later set_n_frames(N) overrides this.
+  hist_.set_length(hist_len_);
+  hist_.set_n_frames(1);
+  frame_grids_.assign(1, NeighborGrid{});
   computed_.resize(hist_len_);
   smooth_scratch_.resize(hist_len_);
 }
 
 void AngularDistributionConstraint::set_n_frames(std::size_t n) {
   BOOST_ASSERT_MSG(hist_len_ > 0, "call initialise() before set_n_frames");
-  n_frames_ = n;
-  frame_hists_.assign(n, vec_t::Zero(hist_len_));
-  frame_hist_current_.assign(n, false);
+  hist_.set_n_frames(n);
   frame_grids_.assign(n, NeighborGrid{});
-  sum_hist_ = vec_t::Zero(hist_len_);
-  saved_frame_hist_ = vec_t::Zero(hist_len_);
-  incremental_ready_ = false;
 }
 
 void AngularDistributionConstraint::rollback_frame() noexcept {
-  if (n_frames_ > 1) {
-    sum_hist_ -= frame_hists_[active_frame_];
-    frame_hists_[active_frame_] = saved_frame_hist_;
-    sum_hist_ += saved_frame_hist_;
-    frame_hist_current_[active_frame_] = true;
-  } else {
-    single_hist_ = saved_frame_hist_;
-    single_hist_current_ = true;
-  }
-  incremental_ready_ = false;
   // Undo any cell relocation/removal applied by the (rejected) after-move.
-  active_grid().restore_cells();
+  hist_.rollback([this] { active_grid().restore_cells(); });
 }
 
 void AngularDistributionConstraint::commit_frame() noexcept {
@@ -300,11 +284,7 @@ void AngularDistributionConstraint::commit_frame() noexcept {
   active_grid().clear_saved();
   if (resync_every_ > 0 && ++accepts_since_resync_ >= resync_every_) {
     accepts_since_resync_ = 0;
-    if (n_frames_ > 1) {
-      frame_hist_current_[active_frame_] = false; // force a full rebuild
-    } else {
-      single_hist_current_ = false;
-    }
+    hist_.invalidate_active(); // force a full rebuild on next compute
   }
 }
 
@@ -348,89 +328,34 @@ void AngularDistributionConstraint::normalise_and_smooth(
 
 double AngularDistributionConstraint::compute_error(
     const coords_t &coords, std::span<const std::size_t> moved) const {
-  // The before-move call (incremental_ready_ == false) snapshots the histogram
-  // and stages the moved-vertex angle delta at the OLD coords; the after-move
-  // call (incremental_ready_ == true) recomputes that delta at the NEW coords
-  // and patches new_hist = saved − D_old + D_new. A full-evaluation call (empty
-  // `moved`) always takes the before path and rebuilds on demand. Mirrors
-  // PairFunctionConstraint::compute_error.
-  if (n_frames_ > 1) {
-    NeighborGrid &grid = frame_grids_[active_frame_];
-    if (incremental_ready_ && !moved.empty()) {
-      // After-move: sync the grid to the new coords, then patch with the delta.
-      for (const std::size_t m : moved) {
-        if (collector_ && collector_->absent(m)) {
-          grid.remove(m);
-        } else {
-          grid.relocate(m, coords);
+  // The before-move call snapshots the histogram and stages the moved-vertex
+  // angle delta at the OLD coords; the after-move call recomputes that delta at
+  // the NEW coords and patches new = saved − D_old + D_new. The state machine is
+  // shared (IncrementalHistogram); the hooks below carry the angle-specific
+  // accumulation and the neighbour-grid relocation that the pair path lacks.
+  hist_.update(
+      computed_, moved,
+      [&](vec_t &h) {
+        accumulate_angle_histogram(h, coords, bc_, elem_id_, n_types_, max_dis_,
+                                   n_bins_, collector_);
+        active_grid().build(coords, bc_, max_dis_, collector_);
+      },
+      [&](vec_t &delta, std::span<const std::size_t> mv) {
+        accumulate_moved_angles(delta, coords, bc_, elem_id_, n_types_, max_dis_,
+                                n_bins_, mv, active_grid(), collector_);
+      },
+      [&](std::span<const std::size_t> mv) { active_grid().save_cells(mv); },
+      [&](std::span<const std::size_t> mv) {
+        // After-move: sync the grid to the new coords before recomputing.
+        NeighborGrid &grid = active_grid();
+        for (const std::size_t m : mv) {
+          if (collector_ && collector_->absent(m)) {
+            grid.remove(m);
+          } else {
+            grid.relocate(m, coords);
+          }
         }
-      }
-      scratch_delta_.setZero();
-      accumulate_moved_angles(scratch_delta_, coords, bc_, elem_id_, n_types_,
-                              max_dis_, n_bins_, moved, grid, collector_);
-      vec_t new_frame_hist =
-          saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
-      sum_hist_ += new_frame_hist - frame_hists_[active_frame_];
-      frame_hists_[active_frame_] = std::move(new_frame_hist);
-      incremental_ready_ = false;
-    } else {
-      // Before-move (or full evaluation).
-      saved_frame_hist_ = frame_hists_[active_frame_];
-      if (!frame_hist_current_[active_frame_]) {
-        vec_t tmp = vec_t::Zero(hist_len_);
-        accumulate_angle_histogram(tmp, coords, bc_, elem_id_, n_types_,
-                                   max_dis_, n_bins_, collector_);
-        grid.build(coords, bc_, max_dis_, collector_);
-        sum_hist_ += tmp - saved_frame_hist_;
-        frame_hists_[active_frame_] = tmp;
-        saved_frame_hist_ = std::move(tmp);
-        frame_hist_current_[active_frame_] = true;
-      }
-      if (!moved.empty()) {
-        grid.save_cells(moved);
-        saved_moved_delta_.setZero();
-        accumulate_moved_angles(saved_moved_delta_, coords, bc_, elem_id_,
-                                n_types_, max_dis_, n_bins_, moved, grid,
-                                collector_);
-        incremental_ready_ = true;
-      }
-    }
-    computed_ = sum_hist_ / static_cast<double>(n_frames_);
-  } else {
-    if (incremental_ready_ && !moved.empty()) {
-      for (const std::size_t m : moved) {
-        if (collector_ && collector_->absent(m)) {
-          grid_.remove(m);
-        } else {
-          grid_.relocate(m, coords);
-        }
-      }
-      scratch_delta_.setZero();
-      accumulate_moved_angles(scratch_delta_, coords, bc_, elem_id_, n_types_,
-                              max_dis_, n_bins_, moved, grid_, collector_);
-      single_hist_ = saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
-      incremental_ready_ = false;
-    } else {
-      saved_frame_hist_ = single_hist_;
-      if (!single_hist_current_) {
-        single_hist_ = vec_t::Zero(hist_len_);
-        accumulate_angle_histogram(single_hist_, coords, bc_, elem_id_,
-                                   n_types_, max_dis_, n_bins_, collector_);
-        grid_.build(coords, bc_, max_dis_, collector_);
-        saved_frame_hist_ = single_hist_;
-        single_hist_current_ = true;
-      }
-      if (!moved.empty()) {
-        grid_.save_cells(moved);
-        saved_moved_delta_.setZero();
-        accumulate_moved_angles(saved_moved_delta_, coords, bc_, elem_id_,
-                                n_types_, max_dis_, n_bins_, moved, grid_,
-                                collector_);
-        incremental_ready_ = true;
-      }
-    }
-    computed_ = single_hist_;
-  }
+      });
 
   normalise_and_smooth(coords);
 

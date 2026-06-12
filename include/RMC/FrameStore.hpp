@@ -7,16 +7,15 @@
 
 namespace RMC {
 
-// Frame storage for the engines. Both stores present a uniform indexed
-// interface (size(), operator[], primary()) so the shared step pipeline in
-// EngineBase addresses frames the same way regardless of arity — frame 0 is
-// always "primary".
+// Frame storage for the engine. The store presents a uniform indexed interface
+// (size(), operator[], primary()) so the shared step pipeline in EngineBase
+// addresses frames the same way regardless of arity — frame 0 is always
+// "primary". Single-frame runs simply hold one frame.
 
-// Single-frame storage. The structure lives on the heap at a STABLE address: a
-// moved engine steals the unique_ptr, so any references held by its constraints
-// / move generators (e.g. SQS's ClusterCorrelationConstraint, SpeciesSwap-
-// Generator) keep pointing at the same live structure. This is the reason
-// single-frame is NOT collapsed to a vector of size 1.
+// A single frame on the heap at a STABLE address: a moved engine steals the
+// unique_ptr, so any references held by its constraints / move generators (e.g.
+// SQS's ClusterCorrelationConstraint, SpeciesSwapGenerator) keep pointing at the
+// same live structure. This is the per-frame unit FrameStore is built from.
 struct SingleFrameStore {
   std::unique_ptr<AtomicStructure> s_;
 
@@ -38,13 +37,14 @@ struct SingleFrameStore {
   }
 };
 
-// Multi-frame storage, built on SingleFrameStore so every frame inherits the
-// stable-heap-address guarantee: each frame's AtomicStructure lives behind a
+// The engine's frame storage, built on SingleFrameStore so every frame inherits
+// the stable-heap-address guarantee: each frame's AtomicStructure lives behind a
 // unique_ptr, so a vector reallocation during add() merely moves the pointers
 // (cheap) while the structures stay put. References bound by constraints / move
 // generators therefore survive both engine moves AND add() growth, so frames
-// need NOT all be added before generator/constraint construction.
-struct MultiFrameStore {
+// need NOT all be added before generator/constraint construction. Single-frame
+// runs hold exactly one frame; there is no separate single-frame store.
+struct FrameStore {
   std::vector<SingleFrameStore> v_;
 
   void add(AtomicStructure s) { v_.emplace_back(std::move(s)); }
