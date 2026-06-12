@@ -16,9 +16,9 @@ namespace RMC {
 //       Calphad 42, 13-18 (2013). doi:10.1016/j.calphad.2013.06.006
 //
 // The mcsqs algorithm [2] is implemented in the ATAT package; the cluster basis
-// here is built using ATAT's corrdump (see extern/atat). ATAT is distributed
-// under CC BY-ND 4.0 — used here as an external tool, with attribution, and not
-// modified or redistributed as a derivative.
+// here is built using ATAT's corrdump, which is run as a separate external tool
+// (installed separately, not bundled with this project). ATAT is licensed
+// CC BY-ND 4.0.
 
 // Application driver for the mcsqs_rmc executable — an advanced Special
 // Quasi-random Structure (SQS) search built on the RMC engine. It replaces

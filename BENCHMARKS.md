@@ -54,28 +54,28 @@ benchmarks (`tests/bench_thf.cpp`).
 | bond                    |  200.3 |  0.85 | **236×** |
 | angle                   |  611.4 |  2.54 | **241×** |
 | improper                |  128.1 |  0.84 | **152×** |
-| **all constraints**     | **~1250** | **48.1** | **~26×** |
+| **all constraints**     | **1490.0** | **48.07** | **31×** |
 
 The C++ all-constraints figure (48 µs/step ≈ 21 000 steps/s) is stable across
-5 k–50 k-step runs; fullrmc holds ~1.25 ms/step (≈ 800 steps/s).
+5 k–50 k-step runs; fullrmc holds ~1.49 ms/step (≈ 670 steps/s).
 
 ### How to read it
 
-- **All-constraints is the realistic case: ~26× faster.** This is the number
+- **All-constraints is the realistic case: ~31× faster.** This is the number
   that matters for production refinement.
 - The **PDF** and **inter-molecular-distance** constraints dominate runtime in
-  *both* engines and show the *smallest* speed-ups (14–16×) — that's where
+  *both* engines and show the *smallest* speed-ups (16–17×) — that's where
   fullrmc's Cython kernels are genuinely competitive, and where the C++
   all-constraints time is anchored.
 - The cheap geometric constraints (bond / angle / improper) and the bare move
-  loop show 140–216× — fullrmc's per-step Python orchestration overhead dwarfs
+  loop show 150–240× — fullrmc's per-step Python orchestration overhead dwarfs
   the actual arithmetic there; the C++ engine does each in well under a
   microsecond.
 
 ### Fairness caveats
 
-- **Single core both sides.** fullrmc supports multi-core histogram kernels
-  (`ncores=`); that was not exercised. The C++ engine's TBB path was also off.
+- **Single core both sides.** Neither engine's multicore path was exercised;
+  the numbers above are the single-core comparison.
 - Per-molecule angle definitions differ trivially (22 vs. 25 angles) —
   immaterial, since PDF/vdw dominate.
 - fullrmc coordinates were not reset between sub-runs (4.1 disallows resetting

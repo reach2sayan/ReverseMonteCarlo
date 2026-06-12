@@ -232,11 +232,11 @@ elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
 endif ()
 
 option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
-option(RMC_BUILD_ATAT "Vendor & build ATAT's corrdump (run via boost::process, not linked)" ON)
 if (RMC_BUILD_MCSQS)
-    if (RMC_BUILD_ATAT)
-        include(${CMAKE_SOURCE_DIR}/cmake/Atat.cmake)
-    endif ()
+    # Resolves corrdump (external tool, run via boost::process — never linked,
+    # ATAT not vendored). Provider is selected with RMC_ATAT_PROVIDER; see
+    # cmake/Atat.cmake. Default SYSTEM uses an installed corrdump / --corrdump.
+    include(${CMAKE_SOURCE_DIR}/cmake/Atat.cmake)
     add_subdirectory(extensions/mcsqs)
 endif ()
 

@@ -1,4 +1,5 @@
 #include <RMC/constraints/AngularDistributionConstraint.hpp>
+#include <RMC/core/Parallel.hpp>
 
 #include <boost/assert.hpp>
 
@@ -7,6 +8,7 @@
 #include <cstdint>
 #include <map>
 #include <numbers>
+#include <numeric>
 #include <ranges>
 #include <span>
 #include <utility>
@@ -14,10 +16,25 @@
 
 namespace RMC {
 
+std::vector<AdfColumn> adf_columns(int n_types) {
+  std::vector<AdfColumn> cols;
+  cols.reserve(static_cast<std::size_t>(adf_n_cols(n_types)));
+  const int n_leg_pairs = adf_n_leg_pairs(n_types);
+  for (int a = 0; a < n_types; ++a) {
+    for (int p = 0; p < n_types; ++p) {
+      for (int q = p; q < n_types; ++q) {
+        cols.push_back(
+            {a, p, q, a * n_leg_pairs + adf_leg_pair_index(p, q, n_types)});
+      }
+    }
+  }
+  return cols;
+}
+
 void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
                                 const BoundaryConditions *bc,
-                                const std::vector<uint8_t> &elem_id, int n_types,
-                                double max_dis, int n_bins,
+                                const std::vector<uint8_t> &elem_id,
+                                int n_types, double max_dis, int n_bins,
                                 const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
   const int n_leg_pairs = adf_n_leg_pairs(n_types);
@@ -32,6 +49,86 @@ void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
   // Neighbour adjacency within the cutoff (brute force, minimum image). O(N²);
   // see the header note on the planned cell-list / incremental optimisation.
   std::vector<std::vector<std::uint32_t>> adj(static_cast<std::size_t>(N));
+
+#if defined(RMC_USE_TBB)
+  // Row indices, reused by both parallel passes (mirrors
+  // accumulate_pair_histogram).
+  std::vector<Eigen::Index> rows(static_cast<std::size_t>(N));
+  std::ranges::iota(rows, Eigen::Index{0});
+
+  // Phase A: per-row adjacency. Each row scans ALL other atoms and pushes only
+  // into its own adj[i] — a full N² scan (vs the serial upper-triangular half),
+  // trading redundant distance work for a private write target (no race). The
+  // ascending inner loop keeps each adj[i] in index order, matching the serial
+  // build so Phase B's (j < k) pairing is identical.
+  parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
+    if (collector && collector->absent(static_cast<std::size_t>(i))) {
+      return; // a removed atom joins no neighbour list, so forms no angle
+    }
+    auto &nbi = adj[static_cast<std::size_t>(i)];
+    for (Eigen::Index j = 0; j < N; ++j) {
+      if (j == i) {
+        continue;
+      }
+      if (collector && collector->absent(static_cast<std::size_t>(j))) {
+        continue;
+      }
+      vec3_t d = (coords.row(j) - coords.row(i)).transpose();
+      if (bc) {
+        d = bc_min_image(*bc, d);
+      }
+      if (d.squaredNorm() <= max2) {
+        nbi.push_back(static_cast<std::uint32_t>(j));
+      }
+    }
+  });
+
+  // Phase B: every angle j–i–k for apex i's neighbour pairs, binned into a
+  // private per-row histogram; summed into `hist` after the fan-out.
+  std::vector<vec_t> partial(
+      static_cast<std::size_t>(N),
+      vec_t::Zero(static_cast<Eigen::Index>(n_bins) * n_cols));
+  parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
+    const auto &nb = adj[static_cast<std::size_t>(i)];
+    const std::size_t deg = nb.size();
+    if (deg < 2) {
+      return;
+    }
+    vec_t &local = partial[static_cast<std::size_t>(i)];
+    const int a = elem_id[static_cast<std::size_t>(i)];
+    for (std::size_t aa = 0; aa + 1 < deg; ++aa) {
+      const std::uint32_t j = nb[aa];
+      vec3_t v1 = (coords.row(j) - coords.row(i)).transpose();
+      if (bc) {
+        v1 = bc_min_image(*bc, v1);
+      }
+      const double n1 = v1.norm();
+      for (std::size_t bb = aa + 1; bb < deg; ++bb) {
+        const std::uint32_t k = nb[bb];
+        vec3_t v2 = (coords.row(k) - coords.row(i)).transpose();
+        if (bc) {
+          v2 = bc_min_image(*bc, v2);
+        }
+        const double cos_a = v1.dot(v2) / (n1 * v2.norm() + 1e-30);
+        const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
+        int bin = static_cast<int>(angle * inv_bw);
+        bin =
+            std::clamp(bin, 0, n_bins - 1); // angle == π lands in the last bin
+        int p = elem_id[j];
+        int q = elem_id[k];
+        if (p > q) {
+          std::swap(p, q);
+        }
+        const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, n_types);
+        local(static_cast<Eigen::Index>(bin) * n_cols + col) += 1.0;
+      }
+    }
+  });
+  for (const vec_t &p : partial) {
+    hist += p;
+  }
+
+#else
   for (Eigen::Index i = 0; i < N; ++i) {
     if (collector && collector->absent(static_cast<std::size_t>(i))) {
       continue; // a removed atom joins no neighbour list, so forms no angle
@@ -74,7 +171,8 @@ void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
         const double cos_a = v1.dot(v2) / (n1 * v2.norm() + 1e-30);
         const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
         int bin = static_cast<int>(angle * inv_bw);
-        bin = std::clamp(bin, 0, n_bins - 1); // angle == π lands in the last bin
+        bin =
+            std::clamp(bin, 0, n_bins - 1); // angle == π lands in the last bin
         int p = elem_id[j];
         int q = elem_id[k];
         if (p > q) {
@@ -85,6 +183,7 @@ void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
       }
     }
   }
+#endif
 }
 
 void accumulate_moved_angles(vec_t &hist, const coords_t &coords,
@@ -203,8 +302,8 @@ void AngularDistributionConstraint::initialise() {
   }
   initialised_ = true;
 
-  // Species ids by *sorted* symbol — canonical and independent of atom order, so
-  // a target written by --adf-compute lines up column-for-column here.
+  // Species ids by *sorted* symbol — canonical and independent of atom order,
+  // so a target written by --adf-compute lines up column-for-column here.
   std::map<std::string, std::uint8_t> id_of;
   for (const auto &e : elements_) {
     id_of.emplace(e, 0);
@@ -234,16 +333,12 @@ void AngularDistributionConstraint::initialise() {
   // Per-column 1/(N_a·N_p·N_q) per-triplet divisor weight. A column with
   // an absent species gets 0 so it never contributes.
   col_inv_count_ = vec_t::Zero(n_cols_);
-  for (int a = 0; a < n_types_; ++a) {
-    for (int p = 0; p < n_types_; ++p) {
-      for (int q = p; q < n_types_; ++q) {
-        const int col = a * n_leg_pairs_ + adf_leg_pair_index(p, q, n_types_);
-        const double denom = static_cast<double>(count[static_cast<std::size_t>(a)]) *
-                             static_cast<double>(count[static_cast<std::size_t>(p)]) *
-                             static_cast<double>(count[static_cast<std::size_t>(q)]);
-        col_inv_count_(col) = denom > 0.0 ? 1.0 / denom : 0.0;
-      }
-    }
+  for (const auto &[a, p, q, col] : adf_columns(n_types_)) {
+    const double denom =
+        static_cast<double>(count[static_cast<std::size_t>(a)]) *
+        static_cast<double>(count[static_cast<std::size_t>(p)]) *
+        static_cast<double>(count[static_cast<std::size_t>(q)]);
+    col_inv_count_(col) = denom > 0.0 ? 1.0 / denom : 0.0;
   }
 
   // Flatten + validate the experimental target.
@@ -254,9 +349,9 @@ void AngularDistributionConstraint::initialise() {
   // Row-major flatten of the (n_bins_ × n_cols_) target into the flat layout
   // the histogram uses (entry b·n_cols_+c ↦ exp_values_(b, c)).
   exp_data_.resize(hist_len_);
-  Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-                           Eigen::RowMajor>>(exp_data_.data(), n_bins_,
-                                             n_cols_) = exp_values_;
+  Eigen::Map<
+      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+      exp_data_.data(), n_bins_, n_cols_) = exp_values_;
 
   // Pre-size the engine's reused per-step delta buffers and default to a single
   // frame so a constraint used standalone (outside the engine) is ready to
@@ -291,14 +386,14 @@ void AngularDistributionConstraint::commit_frame() noexcept {
 void AngularDistributionConstraint::normalise_and_smooth(
     const coords_t &coords) const {
   // Per-column triplet normalisation. Under the scale-invariant metric the
-  // global `inc` cancels in the residual, so only the relative per-column weight
-  // matters; in non-scale-invariant mode the full volume normalisation is applied.
+  // global `inc` cancels in the residual, so only the relative per-column
+  // weight matters; in non-scale-invariant mode the full volume normalisation
+  // is applied.
   const double Nat = static_cast<double>(coords.rows());
-  const double inc =
-      scale_invariant_
-          ? 1.0
-          : (bc_ ? bc_volume(*bc_) : 1.0) * Nat / std::numbers::pi *
-                static_cast<double>(n_bins_);
+  const double inc = scale_invariant_
+                         ? 1.0
+                         : (bc_ ? bc_volume(*bc_) : 1.0) * Nat /
+                               std::numbers::pi * static_cast<double>(n_bins_);
   // Per-column scaling: `computed_` is a row-major (bin × column) matrix in a
   // flat vector, so a column-tiled copy of the per-column weight aligns
   // element-for-element with it.
@@ -330,8 +425,8 @@ double AngularDistributionConstraint::compute_error(
     const coords_t &coords, std::span<const std::size_t> moved) const {
   // The before-move call snapshots the histogram and stages the moved-vertex
   // angle delta at the OLD coords; the after-move call recomputes that delta at
-  // the NEW coords and patches new = saved − D_old + D_new. The state machine is
-  // shared (IncrementalHistogram); the hooks below carry the angle-specific
+  // the NEW coords and patches new = saved − D_old + D_new. The state machine
+  // is shared (IncrementalHistogram); the hooks below carry the angle-specific
   // accumulation and the neighbour-grid relocation that the pair path lacks.
   hist_.update(
       computed_, moved,
@@ -341,8 +436,9 @@ double AngularDistributionConstraint::compute_error(
         active_grid().build(coords, bc_, max_dis_, collector_);
       },
       [&](vec_t &delta, std::span<const std::size_t> mv) {
-        accumulate_moved_angles(delta, coords, bc_, elem_id_, n_types_, max_dis_,
-                                n_bins_, mv, active_grid(), collector_);
+        accumulate_moved_angles(delta, coords, bc_, elem_id_, n_types_,
+                                max_dis_, n_bins_, mv, active_grid(),
+                                collector_);
       },
       [&](std::span<const std::size_t> mv) { active_grid().save_cells(mv); },
       [&](std::span<const std::size_t> mv) {

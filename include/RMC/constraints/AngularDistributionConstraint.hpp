@@ -29,6 +29,21 @@ adf_leg_pair_index(int p, int q, int n_types) noexcept {
   return n_types * adf_n_leg_pairs(n_types);
 }
 
+// One triplet column in the canonical ADF layout: central species `central`,
+// unordered leg pair (`leg_p` ≤ `leg_q`), at flat column `col` (central-id outer,
+// leg-pair inner — matches adf_leg_pair_index).
+struct AdfColumn {
+  int central;
+  int leg_p;
+  int leg_q;
+  int col;
+};
+
+// The canonical column layout for `n_types` species, in column order. Iterating
+// this is the single source of truth for the (a, p, q) → col mapping that the
+// histogram split, per-column scaling and target divisor all share.
+[[nodiscard]] std::vector<AdfColumn> adf_columns(int n_types);
+
 // Accumulate a raw bond-angle histogram into `hist` (length n_bins ·
 // adf_n_cols). For every central atom i, every unordered pair (j, k) of its
 // neighbours within `max_dis` contributes 1 to the bin of the angle j–i–k

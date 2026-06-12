@@ -49,11 +49,11 @@ ATAT — Alloy Theoretic Automated Toolkit
   License: Creative Commons Attribution-NoDerivatives 4.0 International
            (CC BY-ND 4.0), https://creativecommons.org/licenses/by-nd/4.0/
   Author:  Axel van de Walle and contributors
-  Usage:   The mcsqs_rmc extension uses ATAT's `corrdump` tool. corrdump is
-           built as a separate executable and invoked over a process boundary;
-           no ATAT source is compiled or linked into this project's binaries.
-           ATAT is redistributed (under extern/atat) subject to its own
-           CC BY-ND 4.0 license; see extern/atat/LICENSE.
+  Usage:   The mcsqs_rmc extension uses ATAT's `corrdump` tool as a separate
+           executable, invoked over a process boundary. No ATAT source is
+           compiled or linked into this project's binaries. ATAT is installed
+           separately by the user (https://axelvdw.github.io/atat/) rather than
+           bundled with this project.
 
 The following are obtained at build time and are not redistributed in source
 form by this project; each is governed by its own license:

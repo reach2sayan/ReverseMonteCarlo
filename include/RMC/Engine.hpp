@@ -27,8 +27,7 @@ namespace RMC {
 //       Enabled with Machine Learning and Artificial Intelligence,"
 //       J. Comput. Chem. 37, 1102-1111 (2016). doi:10.1002/jcc.24304
 //
-// This is an independent C++ implementation of the published RMC method [1,2];
-// it shares no source with any other RMC package.
+// This is an independent C++ implementation of the published RMC method [1,2].
 
 // The RMC refinement engine. One or more structural frames are refined against
 // the experimental data; with a single frame this is ordinary RMC, with N

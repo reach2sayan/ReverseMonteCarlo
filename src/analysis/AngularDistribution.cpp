@@ -25,14 +25,14 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   const Eigen::Index N = coords.rows();
   // Shared precondition check (non-empty, matching labels, positive bins,
   // periodic box); returns the cell volume the normalisation needs.
-  BOOST_LEAF_AUTO(V, detail::check_periodic_inputs("compute_adf", coords,
-                                                   elements, params.n_bins, bc));
+  BOOST_LEAF_AUTO(V, detail::check_periodic_inputs(
+                         "compute_adf", coords, elements, params.n_bins, bc));
 
   // Sorted species ids — identical convention to AngularDistributionConstraint.
   std::set<std::string> unique(elements.begin(), elements.end());
   std::map<std::string, std::uint8_t> id_of;
   std::uint8_t next = 0;
-  for (const auto& e : unique) {
+  for (const auto &e : unique) {
     id_of.emplace(e, next++);
   }
   const int S = static_cast<int>(id_of.size());
@@ -69,16 +69,13 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   const double inc = V * static_cast<double>(N) / std::numbers::pi *
                      static_cast<double>(params.n_bins);
   vec_t col_scale = vec_t::Zero(n_cols);
-  for (int a = 0; a < S; ++a)
-    for (int p = 0; p < S; ++p)
-      for (int q = p; q < S; ++q) {
-        const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, S);
-        const double denom =
-            static_cast<double>(counts[static_cast<std::size_t>(a)]) *
-            static_cast<double>(counts[static_cast<std::size_t>(p)]) *
-            static_cast<double>(counts[static_cast<std::size_t>(q)]);
-        col_scale(col) = denom > 0.0 ? inc / denom : 0.0;
-      }
+  for (const auto &[a, p, q, col] : adf_columns(S)) {
+    const double denom =
+        static_cast<double>(counts[static_cast<std::size_t>(a)]) *
+        static_cast<double>(counts[static_cast<std::size_t>(p)]) *
+        static_cast<double>(counts[static_cast<std::size_t>(q)]);
+    col_scale(col) = denom > 0.0 ? inc / denom : 0.0;
+  }
 
   // Per-column scaling: `hist` is a row-major (bin × column) matrix flattened
   // into a vector, so a column-tiled copy of col_scale aligns element-for-
@@ -119,16 +116,13 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   // Split into partials (canonical column order) and accumulate the total.
   out.total = vec_t::Zero(params.n_bins);
   Eigen::Map<const RowMajMat> H(hist.data(), params.n_bins, n_cols);
-  for (int a = 0; a < S; ++a)
-    for (int p = 0; p < S; ++p)
-      for (int q = p; q < S; ++q) {
-        const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, S);
-        vec_t partial = H.col(col);
-        out.total += partial;
-        out.partials.push_back(
-            {std::format("{}-{}-{}", sym_of_id[a], sym_of_id[p], sym_of_id[q]),
-             std::move(partial)});
-      }
+  for (const auto &[a, p, q, col] : adf_columns(S)) {
+    vec_t partial = H.col(col);
+    out.total += partial;
+    out.partials.push_back(
+        {std::format("{}-{}-{}", sym_of_id[a], sym_of_id[p], sym_of_id[q]),
+         std::move(partial)});
+  }
 
   return out;
 }

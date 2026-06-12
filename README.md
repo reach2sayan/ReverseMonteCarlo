@@ -4,18 +4,11 @@ C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(
 
 **Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 13, Clang ≥ 17) · Eigen ≥ 3.4 · Boost ≥ 1.83 · Intel oneAPI TBB ≥ 2021 (on by default) · Catch2 ≥ 3 (tests only)
 
-**Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · vendored ATAT `corrdump` for the SQS extension (`RMC_BUILD_ATAT=ON`, default; pulled in as a git submodule)
+**Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · ATAT `corrdump` for the SQS extension (external tool, see [corrdump (ATAT)](#corrdump-atat) below — installed separately, not vendored)
 
 For the architecture — the engine pipeline, the constraint / generator / sampler / selector contracts, and how to add your own — see [DESIGN.md](DESIGN.md). For copy-paste example runs end to end, see [WORKFLOW.md](WORKFLOW.md).
 
 ## Build
-
-The ATAT submodule backs the SQS extension — clone recursively (or fetch it after the fact):
-
-```bash
-git clone --recursive <repo-url>
-# already cloned? →  git submodule update --init --recursive
-```
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -26,7 +19,10 @@ ctest --test-dir build --output-on-failure
 If Boost is not on the default path: `-DBOOST_ROOT=/opt/boost`  
 To enable AddressSanitizer + UBSan: `-DENABLE_SANITIZERS=ON`
 
-A minimal build (library + CLI only, no extension, examples or ATAT):
+The SQS extension (`mcsqs_rmc`) drives ATAT's `corrdump` as an external tool —
+see [corrdump (ATAT)](#corrdump-atat) for how to provide it.
+
+A minimal build (library + CLI only, no extension or examples):
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
@@ -46,7 +42,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 | `RMC_BUILD_TESTS` | `ON` | Build the Catch2 test suite (`RMC_tests`). |
 | `RMC_BUILD_EXAMPLES` | `ON` | Build the bundled C++ examples under `examples/`. |
 | `RMC_BUILD_MCSQS` | `ON` | Build the `mcsqs_rmc` SQS-search extension. |
-| `RMC_BUILD_ATAT` | `ON` | Vendor and build ATAT's `corrdump` (driven at runtime via `boost::process`, never linked). Requires the `extern/atat` submodule. |
+| `RMC_ATAT_PROVIDER` | `SYSTEM` | How `corrdump` is provided to the SQS extension: `SYSTEM` (use an installed corrdump), `FETCH` (download + build at configure time), or `SOURCE` (build from `RMC_ATAT_SOURCE_DIR`). See [corrdump (ATAT)](#corrdump-atat). |
 | `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer + UBSan on all targets. |
 
 Example — release build with the kernels run serially:
@@ -54,6 +50,37 @@ Example — release build with the kernels run serially:
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DRMC_USE_TBB=OFF
 cmake --build build -j$(nproc)
+```
+
+### corrdump (ATAT)
+
+The SQS extension (`mcsqs_rmc`) uses ATAT's `corrdump` to generate the cluster
+basis. corrdump is run as a **separate executable over a process boundary** — it
+is never linked into RMC, and ATAT is installed separately rather than bundled
+with this project. ATAT is licensed [CC BY-ND 4.0](https://creativecommons.org/licenses/by-nd/4.0/)
+(see [NOTICE](NOTICE)). You provide corrdump yourself; `RMC_ATAT_PROVIDER`
+selects how:
+
+| `RMC_ATAT_PROVIDER` | What it does |
+|---|---|
+| `SYSTEM` *(default)* | Use a `corrdump` already installed on your system. Nothing is downloaded or built. Install ATAT separately: <https://axelvdw.github.io/atat/>. |
+| `FETCH` | Clone ATAT at configure time into the build tree (not committed) and build only `corrdump`. Source via `RMC_ATAT_GIT_REPOSITORY` / `RMC_ATAT_GIT_TAG`. |
+| `SOURCE` | Build `corrdump` from an existing ATAT checkout: `-DRMC_ATAT_SOURCE_DIR=<path>`. |
+
+In `SYSTEM` mode the build looks for `corrdump` on your `PATH`; if found, that
+path is baked in. If it isn't found, `mcsqs_rmc` still builds — supply corrdump
+at runtime with `--corrdump <path>`. Resolution order at runtime is
+`--corrdump` → the path baked in at build time → `corrdump` on `PATH`.
+
+```bash
+# Use an installed corrdump (on PATH) — the default
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# Build corrdump from a local ATAT checkout
+cmake -B build -DRMC_ATAT_PROVIDER=SOURCE -DRMC_ATAT_SOURCE_DIR=$HOME/atat
+
+# …or at runtime, point mcsqs_rmc at any corrdump
+mcsqs_rmc --corrdump $HOME/bin/corrdump  ...
 ```
 
 ## CLI
