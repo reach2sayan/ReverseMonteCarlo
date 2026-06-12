@@ -48,20 +48,20 @@ benchmarks (`tests/bench_thf.cpp`).
 
 | Constraint | fullrmc 4.1 (µs/step) | C++ RMC (µs/step) | Speed-up |
 |---|--:|--:|--:|
-| none (move only)        |   97.0 |  0.55 | **175×** |
-| PDF g(r)                |  383.1 | 24.36 |  **16×** |
-| inter-molecular distance|  450.9 | 32.43 |  **14×** |
-| bond                    |  200.3 |  0.94 | **214×** |
-| angle                   |  611.4 |  2.84 | **216×** |
-| improper                |  128.1 |  0.92 | **140×** |
-| **all constraints**     | **~1250** | **55.3** | **~23×** |
+| none (move only)        |   97.0 |  0.47 | **209×** |
+| PDF g(r)                |  383.1 | 24.35 |  **16×** |
+| inter-molecular distance|  450.9 | 27.05 |  **17×** |
+| bond                    |  200.3 |  0.85 | **236×** |
+| angle                   |  611.4 |  2.54 | **241×** |
+| improper                |  128.1 |  0.84 | **152×** |
+| **all constraints**     | **~1250** | **48.1** | **~26×** |
 
-The C++ all-constraints figure (55 µs/step ≈ 18 000 steps/s) is stable across
+The C++ all-constraints figure (48 µs/step ≈ 21 000 steps/s) is stable across
 5 k–50 k-step runs; fullrmc holds ~1.25 ms/step (≈ 800 steps/s).
 
 ### How to read it
 
-- **All-constraints is the realistic case: ~23× faster.** This is the number
+- **All-constraints is the realistic case: ~26× faster.** This is the number
   that matters for production refinement.
 - The **PDF** and **inter-molecular-distance** constraints dominate runtime in
   *both* engines and show the *smallest* speed-ups (14–16×) — that's where
@@ -76,8 +76,6 @@ The C++ all-constraints figure (55 µs/step ≈ 18 000 steps/s) is stable across
 
 - **Single core both sides.** fullrmc supports multi-core histogram kernels
   (`ncores=`); that was not exercised. The C++ engine's TBB path was also off.
-- The C++ binary measured is **RelWithDebInfo** (`-O2 -g`); a pure `Release`
-  build is marginally faster still.
 - Per-molecule angle definitions differ trivially (22 vs. 25 angles) —
   immaterial, since PDF/vdw dominate.
 - fullrmc coordinates were not reset between sub-runs (4.1 disallows resetting
@@ -107,14 +105,15 @@ Then, from a directory holding `system.pdb` + `experimental.gr` (copy them from
 # fullrmc: subsets at 2000 steps, all-constraints scaling at 1k/2k/5k
 python3 tools/frmc_thf_bench.py 2000 "1000,2000,5000"   # -> frmc_results.json
 
-# C++: the matching THF benchmarks (any optimized build)
-./cmake-build-relwithdebinfo/RMC_tests "bench: THF constraint subsets*" \
+# C++: the matching THF benchmarks (Release build)
+./cmake-build-release/RMC_tests "bench: THF constraint subsets*" \
     --reporter XML --benchmark-samples 20 > cpp_subsets.xml
-./cmake-build-relwithdebinfo/RMC_tests "bench: THF step-count scaling*" \
+./cmake-build-release/RMC_tests "bench: THF step-count scaling*" \
     --reporter XML --benchmark-samples 10 > cpp_steps.xml
 
 # combine -> table + fullrmc_comparison.png
 python3 tools/frmc_compare.py
 ```
 
-_Measured on a 16-core Linux box, single-threaded, fullrmc 4.1.0._
+_Measured on a 16-core Linux box, single-threaded, `Release` build
+(`-O3 -DNDEBUG`, LTO + `-march=native`), fullrmc 4.1.0._
