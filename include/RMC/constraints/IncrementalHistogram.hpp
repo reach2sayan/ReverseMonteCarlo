@@ -1,6 +1,7 @@
 #pragma once
 #include <RMC/core/Types.hpp>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <utility>
 #include <vector>
@@ -26,11 +27,12 @@ struct IncrementalHistogram {
   std::size_t n_frames_{1};
   std::size_t active_frame_{0};
 
-  // Per-frame running counts and per-frame one-time-build gate. Single-frame is
-  // simply n_frames_ == 1 (one entry); there is no separate fast path.
-  mutable std::vector<vec_t> frame_hists_;
-  mutable std::vector<bool> frame_hist_current_;
-  mutable vec_t sum_hist_;        // running Σ over frames
+  // Per-frame running counts: one slot per frame, engaged once that frame's full
+  // histogram has been built. A disengaged slot means "full rebuild pending" and
+  // contributes nothing to sum_hist_. Single-frame is simply n_frames_ == 1 (one
+  // slot); there is no separate fast path.
+  mutable std::vector<std::optional<vec_t>> frame_hists_;
+  mutable vec_t sum_hist_;        // running Σ over the engaged frame slots
   mutable vec_t saved_frame_hist_; // pre-move snapshot for rollback
 
   // Incremental neighbour-delta scratch (pre-sized by set_length()).
@@ -48,8 +50,7 @@ struct IncrementalHistogram {
 
   void set_n_frames(std::size_t n) {
     n_frames_ = n;
-    frame_hists_.assign(n, vec_t::Zero(len_));
-    frame_hist_current_.assign(n, false);
+    frame_hists_.assign(n, std::nullopt); // all pending full rebuild
     sum_hist_ = vec_t::Zero(len_);
     saved_frame_hist_.resize(len_);
     incremental_ready_ = false;
@@ -61,8 +62,12 @@ struct IncrementalHistogram {
   }
 
   // Force the active frame to full-rebuild on its next compute (drift resync).
+  // Drop its contribution from the running sum so the slot can be rebuilt clean.
   void invalidate_active() noexcept {
-    frame_hist_current_[active_frame_] = false;
+    if (auto &slot = frame_hists_[active_frame_]; slot) {
+      sum_hist_ -= *slot;
+      slot.reset();
+    }
   }
 
   // Run one MC-step update and write the frame-averaged (Σ frames / N) counts
@@ -75,25 +80,29 @@ struct IncrementalHistogram {
   void update(vec_t &out, std::span<const std::size_t> moved,
               BuildFull &&build_full, AccumMoved &&accum_moved,
               BeforeMove &&before_move, AfterMove &&after_move) const {
+    auto &slot = frame_hists_[active_frame_];
     if (incremental_ready_ && !moved.empty()) {
+      // Slot is engaged here: incremental_ready_ is only set after a before-move
+      // pass, which always builds the slot.
       after_move(moved);
       scratch_delta_.setZero();
       accum_moved(scratch_delta_, moved);
       vec_t new_frame_hist =
           saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
-      sum_hist_ += new_frame_hist - frame_hists_[active_frame_];
-      frame_hists_[active_frame_] = std::move(new_frame_hist);
+      sum_hist_ += new_frame_hist - *slot;
+      slot = std::move(new_frame_hist);
       incremental_ready_ = false;
     } else {
-      saved_frame_hist_ = frame_hists_[active_frame_];
-      if (!frame_hist_current_[active_frame_]) {
+      // Lazily full-build a pending slot, monadically: keep the engaged value,
+      // otherwise build one and fold it into the running sum (the or_else body
+      // runs only on a disengaged slot, so the sum is credited exactly once).
+      slot = std::move(slot).or_else([&] {
         vec_t tmp = vec_t::Zero(len_);
         build_full(tmp);
-        sum_hist_ += tmp - saved_frame_hist_;
-        frame_hists_[active_frame_] = tmp;
-        saved_frame_hist_ = std::move(tmp);
-        frame_hist_current_[active_frame_] = true;
-      }
+        sum_hist_ += tmp;
+        return std::optional<vec_t>{std::move(tmp)};
+      });
+      saved_frame_hist_ = *slot;
       if (!moved.empty()) {
         before_move(moved);
         saved_moved_delta_.setZero();
@@ -108,10 +117,11 @@ struct IncrementalHistogram {
   // `on_rollback` runs any auxiliary undo (e.g. grid cell restore).
   template <class OnRollback>
   void rollback(OnRollback &&on_rollback) const noexcept {
-    sum_hist_ -= frame_hists_[active_frame_];
-    frame_hists_[active_frame_] = saved_frame_hist_;
-    sum_hist_ += saved_frame_hist_;
-    frame_hist_current_[active_frame_] = true;
+    // The active slot is engaged here (a compute always builds it before a
+    // reject); swap its sum contribution back to the pre-move snapshot.
+    auto &slot = frame_hists_[active_frame_];
+    sum_hist_ += saved_frame_hist_ - *slot;
+    slot = saved_frame_hist_;
     incremental_ready_ = false;
     on_rollback();
   }
