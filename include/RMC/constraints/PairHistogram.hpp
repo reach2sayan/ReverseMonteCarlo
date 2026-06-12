@@ -43,11 +43,8 @@ struct PairWeightMatrix {
   }
 };
 
-// Shape-function factory helpers for nanoparticle PDF corrections.
-// Apply via PairConstraintBase::set_shape_function().
-
 // Spherical envelope for a particle of given diameter:
-//   f(r) = 1 - (3/2)(r/d) + (1/2)(r/d)³   for r < d, else 0
+// f(r) = 1 - (3/2)(r/d) + (1/2)(r/d)³   for r < d, else 0
 FORCE_INLINE auto spherical_shape_fn(double diameter) {
   return [d = diameter](double r) -> double {
     if (r >= d) {
@@ -108,7 +105,6 @@ protected:
 
 public:
   void set_experimental_data(const mat_t &data);
-
   void set_weight(const std::string &el1, const std::string &el2, double w) {
     weights_.insert_or_assign(PairElemKey{el1, el2}, w); // = w;
   }
@@ -127,10 +123,10 @@ public:
   }
 
   void set_n_frames(std::size_t n);
-  void set_active_frame_idx(std::size_t k) noexcept { hist_.set_active_frame(k); }
+  void set_active_frame_idx(std::size_t k) noexcept {
+    hist_.set_active_frame(k);
+  }
 
-  // Roll back the active frame's histogram to the state saved during the last
-  // compute_error() call (used by PairFunctionConstraint::reject()).
   void rollback_frame() noexcept;
 
   [[nodiscard]] constexpr const vec_t &computed_G() const noexcept {
@@ -252,7 +248,8 @@ double PairFunctionConstraint<Mode>::compute_error(
   if (shape_fn_) {
     const auto &fn = *shape_fn_;
     assert(computed_.size() == n_bins_);
-    for (auto&& [i, computed_val] : computed_ | std::views::enumerate) {//int i = 0; i < n_bins_; ++i) {
+    for (auto &&[i, computed_val] :
+         computed_ | std::views::enumerate) { // int i = 0; i < n_bins_; ++i) {
       computed_val *= std::invoke(fn, r_min_ + (i + 0.5) * bin_width_);
     }
   }

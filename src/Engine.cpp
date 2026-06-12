@@ -5,7 +5,6 @@
 #include <RMC/generators/Translations.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
 #include <boost/assert.hpp>
-#include <boost/log/trivial.hpp>
 #include <numeric>
 #include <ranges>
 #include <utility>

@@ -40,9 +40,10 @@ if (NOT TARGET RMC)
 
     find_package(Eigen3 3.4 REQUIRED NO_MODULE)
     find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
-            log log_setup serialization
+            serialization
             container context program_options
             process filesystem)
+    find_package(spdlog REQUIRED)
     find_package(Threads REQUIRED)
 
     add_library(_rmc_imported SHARED IMPORTED)
@@ -50,8 +51,8 @@ if (NOT TARGET RMC)
             IMPORTED_LOCATION "${RMC_LIB}"
             INTERFACE_INCLUDE_DIRECTORIES "${RMC_SOURCE_DIR}/include"
             INTERFACE_LINK_LIBRARIES
-            "Eigen3::Eigen;\
-Boost::log;Boost::log_setup;Boost::serialization;\
+            "Eigen3::Eigen;spdlog::spdlog;\
+Boost::serialization;\
 Boost::container;Boost::context;\
 Threads::Threads")
 

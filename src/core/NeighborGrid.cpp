@@ -1,7 +1,10 @@
 #include <RMC/core/NeighborGrid.hpp>
 
 #include <algorithm>
+#include <array>
 #include <iterator>
+#include <ranges>
+#include <span>
 
 namespace RMC {
 
@@ -11,7 +14,8 @@ Eigen::Vector3i NeighborGrid::cell_coords(const vec3_t &r) const noexcept {
   }
   Eigen::Array3d frac = (inv_box_ * r).array();
   frac -= frac.floor(); // wrap into [0, 1)
-  const Eigen::Array3i c = (frac * n_.cast<double>().array()).floor().cast<int>();
+  const Eigen::Array3i c =
+      (frac * n_.cast<double>().array()).floor().cast<int>();
   // Guard the frac == 1-ε case that rounds up to n_ back into [0, n_).
   return c.max(0).min(n_.array() - 1).matrix();
 }
@@ -111,44 +115,40 @@ void NeighborGrid::neighbors_of(std::size_t i, const coords_t &coords,
 
   // Per-axis list of cell indices to visit. For >=3 cells the +/-1 stencil with
   // wrap gives three distinct cells; for 1 or 2 cells we scan every cell along
-  // that axis (a +/-1 stencil would alias and double-visit the same cell).
-  Eigen::Matrix3i visit;  // row a = axis a, columns 0..nvisit(a)-1
-  Eigen::Vector3i nvisit;
-  for (int a = 0; a < 3; ++a) {
+  // that axis (a +/-1 stencil would alias and double-visit the same cell). Each
+  // axis visits at most 3 cells, so a stack buffer + span avoids any
+  // allocation.
+  std::array<std::array<int, 3>, 3> visit;
+  std::array<std::span<const int>, 3> axes;
+  for (auto &&[a, vis] :
+       visit | std::views::enumerate) { // int a = 0; a < 3; ++a) {
+    int k = 0;
     if (n_(a) >= 3) {
-      visit(a, 0) = (ci(a) - 1 + n_(a)) % n_(a);
-      visit(a, 1) = ci(a);
-      visit(a, 2) = (ci(a) + 1) % n_(a);
-      nvisit(a) = 3;
+      vis = {(ci(a) - 1 + n_(a)) % n_(a), ci(a), (ci(a) + 1) % n_(a)};
+      k = 3;
     } else {
       for (int c = 0; c < n_(a); ++c) {
-        visit(a, c) = c;
+        vis[k++] = c;
       }
-      nvisit(a) = n_(a);
     }
+    axes[a] = std::span{vis.data(), static_cast<std::size_t>(k)};
   }
 
-  for (int ax = 0; ax < nvisit(0); ++ax) {
-    for (int ay = 0; ay < nvisit(1); ++ay) {
-      for (int az = 0; az < nvisit(2); ++az) {
-        const Eigen::Vector3i cell{visit(0, ax), visit(1, ay), visit(2, az)};
-        const std::size_t flat = static_cast<std::size_t>(cell.dot(strd));
-        for (const std::uint32_t j : cell_atoms_[flat]) {
-          if (static_cast<std::size_t>(j) == i) {
-            continue;
-          }
-          if (collector && collector->absent(static_cast<std::size_t>(j))) {
-            continue;
-          }
-          vec3_t d =
-              (coords.row(static_cast<Eigen::Index>(j)).transpose() - ri);
-          if (bc) {
-            d = bc_min_image(*bc, d);
-          }
-          if (d.squaredNorm() <= cut2) {
-            out.push_back(j);
-          }
-        }
+  const auto present = [&](std::uint32_t j) {
+    return static_cast<std::size_t>(j) != i &&
+           !(collector && collector->absent(static_cast<std::size_t>(j)));
+  };
+  for (const auto [cx, cy, cz] :
+       std::views::cartesian_product(axes[0], axes[1], axes[2])) {
+    const std::size_t flat =
+        static_cast<std::size_t>(Eigen::Vector3i{cx, cy, cz}.dot(strd));
+    for (const std::uint32_t j : cell_atoms_[flat] | std::views::filter(present)) {
+      vec3_t d = coords.row(static_cast<Eigen::Index>(j)).transpose() - ri;
+      if (bc) {
+        d = bc_min_image(*bc, d);
+      }
+      if (d.squaredNorm() <= cut2) {
+        out.push_back(j);
       }
     }
   }

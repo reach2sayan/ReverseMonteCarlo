@@ -97,23 +97,22 @@ if (RMC_COMPILER_CLANG)
     endif ()
 endif ()
 
-# Boost.Log pulls in libboost_filesystem (and others) as a *transitive* .so
-# dependency we never link directly. The linker default DT_RUNPATH is not
-# searched when the loader resolves a dependency's own indirect deps, so emit
-# the older DT_RPATH instead — it is inherited transitively and lets the loader
-# find Boost's private .so deps in ${BOOST_ROOT}/lib at runtime.
+# Boost components pull in private .so dependencies (e.g. libboost_filesystem
+# behind Boost::serialization) that we never link directly. The linker default
+# DT_RUNPATH is not searched when the loader resolves a dependency's own indirect
+# deps, so emit the older DT_RPATH instead — it is inherited transitively and
+# lets the loader find Boost's private .so deps in ${BOOST_ROOT}/lib at runtime.
 if (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     add_link_options(-Wl,--disable-new-dtags)
 endif ()
 
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
-        log
-        log_setup
         program_options
         serialization
         container
 )
+find_package(spdlog REQUIRED)
 
 add_library(eigen_backend INTERFACE)
 if (ENABLE_MKL)
@@ -192,8 +191,7 @@ target_link_libraries(RMC PUBLIC
         Eigen3::Eigen
         eigen_backend
         Boost::headers
-        Boost::log
-        Boost::log_setup
+        spdlog::spdlog
         Boost::program_options
         Boost::serialization
         Boost::container

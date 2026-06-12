@@ -1,6 +1,6 @@
 #include <RMC/callbacks/HistogramCallback.hpp>
 
-#include <boost/log/trivial.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <format>
@@ -26,7 +26,7 @@ void HistogramCallback::operator()(std::uint64_t step, std::uint64_t /*acc*/,
   auto path = dir / std::format("hist_{:010d}.csv", step);
   std::ofstream f(path);
   if (!f) {
-    BOOST_LOG_TRIVIAL(warning) << "HistogramCallback: could not open " << path;
+    spdlog::warn("HistogramCallback: could not open {}", path.string());
     return;
   }
   f << "axis,computed,experimental\n";

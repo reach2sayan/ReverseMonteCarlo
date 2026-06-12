@@ -1,8 +1,6 @@
 #pragma once
 #include <RMC/Engine.hpp>
 
-#include <boost/log/trivial.hpp>
-
 #include <atomic>
 #include <barrier>
 #include <concepts>

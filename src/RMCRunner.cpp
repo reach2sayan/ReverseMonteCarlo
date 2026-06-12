@@ -16,15 +16,16 @@
 #include <boost/hof/lift.hpp>
 #include <boost/hof/match.hpp>
 #include <boost/leaf.hpp>
-#include <boost/log/core.hpp>
-#include <boost/log/expressions.hpp>
-#include <boost/log/trivial.hpp>
+
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 #include <cmath>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -80,7 +81,7 @@ Result<LoadedStructure> load_pdb(const PdbInput &in) {
   BOOST_LEAF_AUTO(ps, io::read_pdb(in.path));
   LoadedStructure out;
   out.structure = std::move(ps);
-  BOOST_LOG_TRIVIAL(info) << "Loaded " << out.structure.size() << " atoms";
+  spdlog::info("Loaded {} atoms", out.structure.size());
   return out;
 }
 
@@ -90,9 +91,9 @@ Result<LoadedStructure> load_lammps(const LammpsInput &in) {
   out.structure = std::move(data.structure);
   // A LAMMPS data file carries its own cell; --box may override.
   out.bc = data.periodic_bc();
-  BOOST_LOG_TRIVIAL(info) << "Loaded " << out.structure.size()
-                          << " atoms from LAMMPS data; box " << data.box(0, 0)
-                          << " x " << data.box(1, 1) << " x " << data.box(2, 2);
+  spdlog::info("Loaded {} atoms from LAMMPS data; box {} x {} x {}",
+               out.structure.size(), data.box(0, 0), data.box(1, 1),
+               data.box(2, 2));
   return out;
 }
 
@@ -102,9 +103,9 @@ Result<LoadedStructure> load_vasp(const VaspInput &in) {
   out.structure = std::move(data.structure);
   // A POSCAR carries its own cell; --box may override.
   out.bc = data.periodic_bc();
-  BOOST_LOG_TRIVIAL(info) << "Loaded " << out.structure.size()
-                          << " atoms from VASP POSCAR; box " << data.box(0, 0)
-                          << " x " << data.box(1, 1) << " x " << data.box(2, 2);
+  spdlog::info("Loaded {} atoms from VASP POSCAR; box {} x {} x {}",
+               out.structure.size(), data.box(0, 0), data.box(1, 1),
+               data.box(2, 2));
   return out;
 }
 
@@ -115,7 +116,7 @@ void apply_box_override(const RMCConfig &cfg, BoundaryConditions &bc) {
   }
   if (*cfg.box_override == "inf") {
     bc = InfiniteBC(1.0);
-    BOOST_LOG_TRIVIAL(info) << "Box: infinite (non-periodic)";
+    spdlog::info("Box: infinite (non-periodic)");
     return;
   }
   std::istringstream ss(*cfg.box_override);
@@ -123,7 +124,7 @@ void apply_box_override(const RMCConfig &cfg, BoundaryConditions &bc) {
   ss >> a >> b >> c;
   mat3_t box = vec3_t(a, b, c).asDiagonal();
   bc = PeriodicBC(box);
-  BOOST_LOG_TRIVIAL(info) << "Periodic box: " << a << " x " << b << " x " << c;
+  spdlog::info("Periodic box: {} x {} x {}", a, b, c);
 }
 
 // One experimental target: a human label, the RMCConfig field naming its file,
@@ -186,7 +187,7 @@ Result<ExperimentalData> load_experimental_data(const RMCConfig &cfg) {
     }
     BOOST_LEAF_AUTO(x, t.read(*path));
     (d.*t.field) = std::move(x);
-    BOOST_LOG_TRIVIAL(info) << "Loaded " << t.label << " data";
+    spdlog::info("Loaded {} data", t.label);
   }
   return d;
 }
@@ -301,10 +302,17 @@ template <typename T> std::vector<T> parse_tokens(const std::string &text) {
 }
 
 void configure_logging(bool verbose) {
-  if (!verbose) {
-    boost::log::core::get()->set_filter(boost::log::trivial::severity >=
-                                        boost::log::trivial::info);
-  }
+  // A single thread-safe (_mt) colour sink, shared as the default logger so the
+  // ensemble's parallel replicas can all log without racing on the sink. The
+  // static guard keeps the named logger registered exactly once even if this is
+  // called more than once.
+  static const std::shared_ptr<spdlog::logger> logger = [] {
+    auto l = spdlog::stdout_color_mt("rmc");
+    spdlog::set_default_logger(l);
+    spdlog::set_pattern("[%^%l%$] %v");
+    return l;
+  }();
+  spdlog::set_level(verbose ? spdlog::level::debug : spdlog::level::info);
 }
 
 // Map the parsed command line onto the program_options-independent RMCConfig the
@@ -401,8 +409,7 @@ Result<int> cmd_gen_random(RMCContext &ctx) {
                                         vm["seed"].as<std::uint32_t>()));
   const std::string out = vm["out"].as<std::string>();
   BOOST_LEAF_CHECK(write_structure_by_ext(gen.structure, gen.box, out));
-  BOOST_LOG_TRIVIAL(info) << "Generated " << gen.structure.size()
-                          << " atoms; wrote " << out;
+  spdlog::info("Generated {} atoms; wrote {}", gen.structure.size(), out);
   return 0;
 }
 
@@ -418,8 +425,8 @@ Result<int> cmd_compute_gr(RMCContext &ctx) {
   gp.n_bins = static_cast<int>(vm["nbins"].as<std::size_t>());
   BOOST_LEAF_AUTO(g, analysis::compute_gr(s.coordinates, bc, s.elements, gp));
   BOOST_LEAF_CHECK(analysis::write_gr(g, vm["gr-out"].as<std::string>()));
-  BOOST_LOG_TRIVIAL(info) << "Wrote g(r) (" << g.partials.size()
-                          << " partials) to " << vm["gr-out"].as<std::string>();
+  spdlog::info("Wrote g(r) ({} partials) to {}", g.partials.size(),
+               vm["gr-out"].as<std::string>());
   return 0;
 }
 
@@ -435,8 +442,8 @@ Result<int> cmd_compute_adf(RMCContext &ctx) {
   ap.smooth_range = vm["adf-smooth"].as<int>();
   BOOST_LEAF_AUTO(a, analysis::compute_adf(s.coordinates, bc, s.elements, ap));
   BOOST_LEAF_CHECK(analysis::write_adf(a, vm["adf-out"].as<std::string>()));
-  BOOST_LOG_TRIVIAL(info) << "Wrote ADF (" << a.partials.size()
-                          << " triplets) to " << vm["adf-out"].as<std::string>();
+  spdlog::info("Wrote ADF ({} triplets) to {}", a.partials.size(),
+               vm["adf-out"].as<std::string>());
   return 0;
 }
 
@@ -446,9 +453,7 @@ void log_progress(std::uint64_t step, std::uint64_t acc, std::uint64_t tried,
   double rate =
       tried > 0 ? 100.0 * static_cast<double>(acc) / static_cast<double>(tried)
                 : 0.0;
-  BOOST_LOG_TRIVIAL(info) << "Step " << step << "  acceptance=" << std::fixed
-                          << std::setprecision(1) << rate << "%"
-                          << "  chi2=" << chi2;
+  spdlog::info("Step {}  acceptance={:.1f}%  chi2={}", step, rate, chi2);
 }
 
 // Run the refinement: an ensemble of replicas (best chi2 wins) when
@@ -458,8 +463,7 @@ Engine run_refinement(const po::variables_map &vm, Factory &&make_engine,
                       Prepare &&prepare, std::size_t n_ensemble,
                       std::uint64_t n_steps) {
   if (n_ensemble > 1) {
-    BOOST_LOG_TRIVIAL(info)
-        << "Ensemble: running " << n_ensemble << " replicas in parallel";
+    spdlog::info("Ensemble: running {} replicas in parallel", n_ensemble);
     return run_ensemble(make_engine, n_ensemble, n_steps, /*tbb=*/0, prepare);
   }
   Engine e = make_engine(0);
@@ -468,7 +472,7 @@ Engine run_refinement(const po::variables_map &vm, Factory &&make_engine,
     e.set_checkpoint(vm["checkpoint"].as<std::string>());
   }
   e.set_step_callback(log_progress, 1000);
-  BOOST_LOG_TRIVIAL(info) << "Starting " << n_steps << " steps";
+  spdlog::info("Starting {} steps", n_steps);
   e.run(n_steps);
   return e;
 }
@@ -511,7 +515,7 @@ Result<int> cmd_refine(RMCContext &ctx) {
   const mat3_t out_box = periodic_box_or_zero(in->bc);
   BOOST_LEAF_CHECK(
       write_structure_by_ext(engine.structure(), out_box, cfg.out_path));
-  BOOST_LOG_TRIVIAL(info) << "Wrote refined structure to " << cfg.out_path;
+  spdlog::info("Wrote refined structure to {}", cfg.out_path);
 
   print_summary(engine);
   return 0;
@@ -533,7 +537,7 @@ Result<int> dispatch(const po::variables_map &vm) {
   RMCContext ctx(vm);
   for (const RMCCommand &cmd : build_commands()) {
     if (cmd.selected(vm)) {
-      BOOST_LOG_TRIVIAL(debug) << "Running command '" << cmd.name << "'";
+      spdlog::debug("Running command '{}'", cmd.name);
       return cmd.run(ctx);
     }
   }

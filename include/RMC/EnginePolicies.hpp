@@ -5,7 +5,7 @@
 #include <RMC/io/Checkpoint.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
 
-#include <boost/log/trivial.hpp>
+#include <spdlog/spdlog.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -102,7 +102,7 @@ struct WithCheckpoint {
              std::uint64_t n_accepted) {
     if (path_ && n_accepted > 0 && n_accepted % every_ == 0) {
       if (auto r = io::save_checkpoint(s, stats, *path_); !r) {
-        BOOST_LOG_TRIVIAL(warning) << "Checkpoint save failed";
+        spdlog::warn("Checkpoint save failed");
       }
     }
   }

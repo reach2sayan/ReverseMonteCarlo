@@ -229,10 +229,6 @@ void PairConstraintBase::set_experimental_data(const mat_t &data) {
   bin_width_ = (N > 1) ? (exp_r_(1) - exp_r_(0)) : 0.1;
   n_bins_ = static_cast<int>(N);
   computed_.resize(N);
-  // Pre-size the engine's reused per-step delta buffers so the hot path can
-  // setZero() in place instead of allocating a fresh vec_t each step, and
-  // default to a single frame so a constraint used standalone (outside the
-  // engine) is ready to compute; the engine's set_n_frames(N) overrides this.
   hist_.set_length(static_cast<int>(N));
   hist_.set_n_frames(1);
 }
