@@ -1,5 +1,6 @@
 #include <RMC/io/AtomicNumbers.hpp>
 #include <RMC/io/PdbReader.hpp>
+#include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <boost/leaf/result.hpp>
 #include <cctype>
@@ -112,11 +113,11 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
         element = trim(sv.substr(ELEMENT_START, ELEMENT_LEN));
       if (element.empty() && !atom_name.empty()) {
         // Strip leading digits (e.g. "1HB" → "H").
-        for (char c : atom_name) {
-          if (std::isalpha(c)) {
-            element = std::string(1, c);
-            break;
-          }
+        const auto it = std::ranges::find_if(atom_name, [](unsigned char c) {
+          return std::isalpha(c);
+        });
+        if (it != atom_name.end()) {
+          element = std::string(1, *it);
         }
       }
       // Capitalize first letter, lowercase rest.

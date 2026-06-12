@@ -175,6 +175,7 @@ add_library(RMC SHARED
         src/io/DataReader.cpp
         src/io/LammpsReader.cpp
         src/io/VaspReader.cpp
+        src/io/StructFormat.cpp
         src/io/Checkpoint.cpp
         src/analysis/RadialDistribution.cpp
         src/analysis/AngularDistribution.cpp

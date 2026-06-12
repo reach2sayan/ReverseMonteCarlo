@@ -105,33 +105,19 @@ int CoordinationConstraint::count_shell(const coords_t &coords, std::size_t si,
   const auto &sh = shells_[si];
   const double r2_min = sh.r_min * sh.r_min;
   const double r2_max = sh.r_max * sh.r_max;
-  int cn = 0;
-  if (elem_id_.empty()) {
-    // No element filtering.
-    for (std::size_t j = 0; j < N; ++j) {
-      if (j == sh.centre_idx || absent(j)) {
-        continue;
-      }
-      const double d2 = distance_sq(coords, sh.centre_idx, j);
-      if (d2 >= r2_min && d2 <= r2_max) {
-        ++cn;
-      }
-    }
-  } else {
-    const uint8_t nb_id = shell_nb_id_[si];
-    for (std::size_t j = 0; j < N; ++j) {
-      if (j == sh.centre_idx || absent(j)) {
-        continue;
-      } else if (elem_id_[j] != nb_id) {
-        continue;
-      }
-      const double d2 = distance_sq(coords, sh.centre_idx, j);
-      if (d2 >= r2_min && d2 <= r2_max) {
-        ++cn;
-      }
-    }
-  }
-  return cn;
+  const bool filter = !elem_id_.empty();
+  const uint8_t nb_id = filter ? shell_nb_id_[si] : uint8_t{0};
+  return static_cast<int>(std::ranges::count_if(
+      std::views::iota(std::size_t{0}, N), [&](std::size_t j) {
+        if (j == sh.centre_idx || absent(j)) {
+          return false;
+        }
+        if (filter && elem_id_[j] != nb_id) {
+          return false;
+        }
+        const double d2 = distance_sq(coords, sh.centre_idx, j);
+        return d2 >= r2_min && d2 <= r2_max;
+      }));
 }
 
 void CoordinationConstraint::incremental_update(

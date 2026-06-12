@@ -1,5 +1,6 @@
 #include <RMC/io/AtomicNumbers.hpp>
 #include <RMC/io/LammpsReader.hpp>
+#include <algorithm>
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 #include <boost/leaf/result.hpp>
 #include <boost/parser/parser.hpp>
@@ -66,12 +67,7 @@ bool is_section_keyword(std::string_view kw) {
       "Impropers",       "Pair Coeffs",     "PairIJ Coeffs",
       "Bond Coeffs",     "Angle Coeffs",    "Dihedral Coeffs",
       "Improper Coeffs", "BondBond Coeffs", "Atom Type Labels"};
-  for (auto k : kws) {
-    if (kw == k) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::contains(kws, kw);
 }
 
 } // namespace

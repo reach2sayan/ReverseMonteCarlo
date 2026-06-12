@@ -52,10 +52,8 @@ static_assert(std::ranges::is_sorted(ELEMENTS, {}, &Element::symbol),
 // Atomic number -> symbol; returns {} for an out-of-range Z. Linear scan, since
 // the table is ordered by symbol rather than Z.
 [[nodiscard]] constexpr std::string_view element_symbol(int z) {
-  for (const auto &e : ELEMENTS)
-    if (e.z == z)
-      return e.symbol;
-  return {};
+  const auto it = std::ranges::find(ELEMENTS, z, &Element::z);
+  return it != ELEMENTS.end() ? it->symbol : std::string_view{};
 }
 
 } // namespace RMC::io

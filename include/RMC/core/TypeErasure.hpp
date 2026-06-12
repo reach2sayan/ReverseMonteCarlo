@@ -1,35 +1,33 @@
 #pragma once
+
+// clang-format off
 // Generator macros for the project's owning type-erasure idiom
-// (concept + Concept-ABC + Model<T> + passkey, with value semantics via
-// clone()). Each wrapper Foo is declared by listing only its methods; the
-// derived names CFoo / detail::FooToken / FooConcept / FooModel follow the
-// existing convention, so the generator needs nothing but the wrapper name.
-//
+// (concept + Concept-ABC + Model<T> + passkey
 // A method is described by a Boost.PP tuple. Normal row (9 fields):
-//   (NODISCARD, RET, NAME, PARAMS, ARGC, ARGS, CV, NOEXCEPT, TOKEN)
+// (NODISCARD, RET, NAME, PARAMS, ARGC, ARGS, CV, NOEXCEPT, TOKEN)
 //     NODISCARD : 0/1   -> emits [[nodiscard]] when 1
 //     RET       : return type
 //     NAME      : method name
 //     PARAMS    : parenthesized typed parameter list, emitted verbatim, e.g.
 //                 (const coords_t &c, std::span<const std::size_t> m) or ()
-//     ARGC      : number of forward args (explicit, avoids empty-tuple
-//     pitfalls) ARGS      : parenthesized bare arg names, e.g. (c, m) or () CV
-//     : const  or empty NOEXCEPT  : noexcept or empty TOKEN     : WITH_TOKEN
-//     (forward data_.f(make_token(), args...)) or
-//                 NO_TOKEN  (forward data_.f(args...))
+//     ARGC      : number of forward args (explicit, avoids empty-tuplepitfalls)
+//     ARGS      : bare arg names, e.g. (c, m) or () CV : const or empty
+//     NOEXCEPT  : noexcept or empty
+//     TOKEN     : WITH_TOKEN (forward data_.f(make_token(), args...)) or
+//                 NO_TOKEN   (forward data_.f(args...))
 //
 // Optional row (10 fields) — for methods gated on a refining concept that fall
 // back to a default when the wrapped type does not provide them:
 //   (NODISCARD, RET, NAME, PARAMS, ARGC, ARGS, CV, NOEXCEPT, REFINES, DEFAULT)
 //     REFINES   : refining concept (called as REFINES<T>)
 //     DEFAULT   : expression returned when REFINES<T> is not satisfied
-//   Optional methods forward to data_ WITHOUT the passkey token (mirrors the
-//   existing CMoveGeneratorWith* concepts, which require token-free calls).
-//
+// Optional methods forward to data_ WITHOUT the passkey token
+
 // Lists are Boost.PP sequences of these tuples. Build a wrapper with
 // RMC_DEFINE_ERASED_TYPE(Foo, METHODS) or, when optional rows are present,
 // RMC_DEFINE_ERASED_TYPE_EXT(Foo, METHODS, OPT_METHODS).
 
+// clang-format on
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/control/if.hpp>
 #include <boost/preprocessor/punctuation/comma_if.hpp>
@@ -73,8 +71,6 @@
   BOOST_PP_IF(RMC_TE_TOKBOOL(M), RMC_TE_FWD_WITH, RMC_TE_FWD_NO)(M)
 
 // --- per-method generators (driven by BOOST_PP_SEQ_FOR_EACH) ----------------
-// Public wrapper forwarder (delegates to the type-erased self_). Reused for
-// optional rows too — it only reads fields 0..7.
 #define RMC_TE_WRAPPER_METHOD(r, data, M)                                      \
   RMC_TE_ND(RMC_TE_ND_F(M))                                                    \
   constexpr RMC_TE_RET(M) RMC_TE_NAME(M) RMC_TE_PARAMS(M) RMC_TE_CV(M)         \
@@ -116,9 +112,6 @@
     }                                                                          \
   }
 
-// --- shared boilerplate -----------------------------------------------------
-// The converting ctor + the four copy/move special members, identical across
-// every wrapper.
 #define RMC_TE_SPECIAL_MEMBERS(Name)                                           \
   using Token = detail::BOOST_PP_CAT(Name, Token);                             \
   template <BOOST_PP_CAT(C, Name) T>                                           \
@@ -136,7 +129,6 @@
     return *this;                                                              \
   }
 
-// --- assembly ---------------------------------------------------------------
 #define RMC_DEFINE_ERASED_TYPE(Name, METHODS)                                  \
   RMC_TE_BEGIN(Name)                                                           \
   BOOST_PP_SEQ_FOR_EACH(RMC_TE_WRAPPER_METHOD, ~, METHODS)                     \
@@ -176,7 +168,6 @@
   };                                                                           \
   RMC_TE_END(Name)
 
-// Structural fragments shared by both assemblers.
 #define RMC_TE_BEGIN(Name)                                                     \
   class Name {                                                                 \
   public:                                                                      \

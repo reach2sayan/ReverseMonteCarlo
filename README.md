@@ -6,6 +6,8 @@ C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(
 
 **Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · vendored ATAT `corrdump` for the SQS extension (`RMC_BUILD_ATAT=ON`, default; pulled in as a git submodule)
 
+For the architecture — the engine pipeline, the constraint / generator / sampler / selector contracts, and how to add your own — see [DESIGN.md](DESIGN.md).
+
 ## Build
 
 The ATAT submodule backs the SQS extension — clone recursively (or fetch it after the fact):
@@ -56,31 +58,93 @@ cmake --build build -j$(nproc)
 
 ## CLI
 
+`RMC_run` is a small multi-command driver. The default command **refines** a
+structure against experimental data; mode flags (`--gr`, `--adf-compute`,
+`--gen-random`) switch it into a one-shot analysis or generation tool that runs
+no Monte Carlo. `--help` prints the full option schema.
+
 ```bash
 ./build/RMC_run \
-    --pdb   input.pdb          \
+    --pdb   input.pdb           \
     --pdf   experimental_gr.dat \
-    --rho0  0.033              \
-    --box   "20.0 20.0 20.0"  \
-    --steps 100000             \
-    --out   refined.pdb        \
+    --rho0  0.033               \
+    --box   "20.0 20.0 20.0"    \
+    --steps 100000              \
+    --out   refined.pdb         \
     --smart
 ```
+
+### Input / output
+
+Supply **exactly one** input structure. The output format is chosen from the
+`--out` extension: `.vasp`/`.poscar` (or a `POSCAR`/`CONTCAR` name) → VASP,
+`.lammps`/`.lmp`/`.data` → LAMMPS data, otherwise PDB.
 
 | Flag | Default | Description |
 |---|---|---|
 | `--pdb` / `-p` | — | Input structure (PDB) |
-| `--pdf` / `-d` | — | Experimental G(r), two-column text |
-| `--sq` / `-q` | — | Experimental S(Q), two-column text |
-| `--rho0` | `0.1` | Number density in atoms/Å³ |
-| `--box` | `inf` | `"a b c"` for orthogonal periodic box, or `inf` |
+| `--lammps` / `-l` | — | Input LAMMPS data file (`atom_style atomic`); supplies its own periodic box |
+| `--types` / `-t` | — | Element symbols for LAMMPS atom types, in order, e.g. `"Zr Cu Ag"` |
+| `--vasp` | — | Input VASP POSCAR/CONTCAR; supplies its own cell |
+| `--box` | input/`inf` | `"a b c"` for an orthogonal periodic box, or `inf`. Overrides any cell from the input file |
+| `--out` / `-o` | `refined.pdb` | Output path (format inferred from extension) |
+
+### Refinement (default command)
+
+| Flag | Default | Description |
+|---|---|---|
+| `--pdf` / `-d` | — | Experimental G(r), two-column text → `PairDistributionConstraint` |
+| `--sq` / `-q` | — | Experimental S(Q), two-column text → `StructureFactorConstraint` |
+| `--adf` / `-a` | — | Experimental bond-angle distribution → `AngularDistributionConstraint` |
+| `--rho0` | `0.1` | Number density in atoms/Å³ (used by the G(r)/S(Q) constraints) |
+| `--adf-cutoff` | `3.4` | ADF bond cutoff (Å) |
+| `--adf-smooth` | `2` | ADF boxcar smoothing half-width (`0` disables) |
 | `--steps` / `-n` | `100000` | MC trial moves |
-| `--out` / `-o` | `refined.pdb` | Output PDB |
-| `--checkpoint` / `-c` | — | Save/restore checkpoint every 5 000 accepted moves |
+| `--move-gen` | `random` | Move proposer: `random` (classic walk), `langevin` (MALA) or `leapfrog` (HMC). The gradient movers steer atoms along −∇χ² toward the target |
+| `--step` | `0.05` | Gradient step ε (Å) for `--move-gen langevin`/`leapfrog` |
 | `--smart` | off | Adaptive selector — successful groups get picked more often |
 | `--ensemble` / `-e` | `1` | Run N replicas in parallel; return the one with the lowest final χ² |
+| `--checkpoint` / `-c` | — | Save/restore checkpoint every 5 000 accepted moves |
 | `--seed` | `42` | RNG seed (replica i uses seed + i) |
 | `--verbose` / `-v` | off | Debug logging |
+
+Any combination of `--pdf` / `--sq` / `--adf` may be supplied; each adds its
+constraint and they are refined jointly.
+
+### Analysis & generation (one-shot, no MC)
+
+Compute g(r) (total + per-element-pair partials) from a structure:
+
+```bash
+./build/RMC_run --pdb input.pdb --box "20 20 20" --gr \
+    --rmin 0 --rmax 10 --nbins 200 --gr-out gr.dat
+```
+
+Compute the bond-angle distribution function:
+
+```bash
+./build/RMC_run --pdb input.pdb --adf-compute --adf-cutoff 3.4 --adf-out adf.dat
+```
+
+Generate a random amorphous starting structure and write it out:
+
+```bash
+./build/RMC_run --gen-random --elements "Zr Cu" --counts "50 50" \
+    --spacing 3.0 --out start.pdb
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--gr` | off | Compute g(r) and exit |
+| `--gr-out` | `gr.dat` | Output path for g(r) |
+| `--rmin` / `--rmax` | `0` / `10` | g(r) radius range (Å) |
+| `--nbins` | `200` | g(r) / ADF bin count |
+| `--adf-compute` | off | Compute the ADF and exit |
+| `--adf-out` | `adf.dat` | Output path for the ADF |
+| `--gen-random` | off | Generate a random amorphous structure → `--out`, then exit |
+| `--elements` | — | Element symbols for `--gen-random`, e.g. `"Zr Cu"` |
+| `--counts` | — | Atom count per element for `--gen-random`, e.g. `"50 50"` |
+| `--spacing` | `3.0` | Grid spacing (Å) for `--gen-random` |
 
 ## Library API
 
@@ -317,6 +381,32 @@ auto st = engine.stats();
 ```
 
 Refined coordinates: `engine.structure().coordinates` — N×3 Eigen matrix, row i = atom i.
+
+### Analysis: g(r) and the ADF
+
+Beyond the constraints, the analysis layer computes a structure's pair
+distribution g(r) and angular distribution function directly (the same kernels
+the CLI's `--gr` / `--adf-compute` modes use):
+
+```cpp
+#include <RMC/analysis/RadialDistribution.hpp>
+
+RMC::analysis::GrParams gp{.r_min = 0.0, .r_max = 10.0, .n_bins = 200};
+auto g = *RMC::analysis::compute_gr(s.coordinates, bc, s.elements, gp);
+// g.r — bin centres; g.total — total g(r); g.partials — per-element-pair g_ab(r)
+RMC::analysis::write_gr(g, "gr.dat");
+```
+
+```cpp
+#include <RMC/analysis/AngularDistribution.hpp>
+
+RMC::analysis::AdfParams ap{.max_dis = 3.4, .n_bins = 200, .smooth_range = 2};
+auto a = *RMC::analysis::compute_adf(s.coordinates, bc, s.elements, ap);
+RMC::analysis::write_adf(a, "adf.dat");
+```
+
+Both return a `Result<…>` (a `boost::leaf::result`); dereference on success.
+g(r) requires a periodic box.
 
 ### Ensemble runs
 

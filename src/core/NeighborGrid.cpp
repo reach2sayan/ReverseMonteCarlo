@@ -127,9 +127,8 @@ void NeighborGrid::neighbors_of(std::size_t i, const coords_t &coords,
       vis = {(ci(a) - 1 + n_(a)) % n_(a), ci(a), (ci(a) + 1) % n_(a)};
       k = 3;
     } else {
-      for (int c = 0; c < n_(a); ++c) {
-        vis[k++] = c;
-      }
+      std::ranges::copy(std::views::iota(0, n_(a)), vis.begin());
+      k = n_(a);
     }
     axes[a] = std::span{vis.data(), static_cast<std::size_t>(k)};
   }

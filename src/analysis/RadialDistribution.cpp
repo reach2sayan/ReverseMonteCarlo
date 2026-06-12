@@ -1,8 +1,7 @@
 #include <RMC/analysis/RadialDistribution.hpp>
 #include <RMC/analysis/detail/InputCheck.hpp>
 #include <RMC/constraints/PairHistogram.hpp>
-#include <RMC/io/LammpsReader.hpp>
-#include <RMC/io/PdbReader.hpp>
+#include <RMC/io/StructFormat.hpp>
 
 #include <boost/leaf.hpp>
 #include <boost/leaf/result.hpp>
@@ -135,18 +134,11 @@ Result<GrResult> compute_gr(const std::filesystem::path &path,
                             const BoundaryConditions &bc,
                             const GrParams &params,
                             const std::vector<std::string> &type_to_element) {
-  const std::string ext = path.extension().string();
-
-  if (ext == ".pdb" || ext == ".PDB") {
-    BOOST_LEAF_AUTO(s, io::read_pdb(path));
-    return compute_gr(s.coordinates, bc, s.elements, params);
-  }
-
-  // Treat anything else as a LAMMPS data file; use its own cell.
-  BOOST_LEAF_AUTO(data, io::read_lammps_data(path, type_to_element));
-  const BoundaryConditions lammps_bc = data.periodic_bc();
-  return compute_gr(data.structure.coordinates, lammps_bc,
-                    data.structure.elements, params);
+  // Format chosen from the path (PDB uses the supplied bc; VASP/LAMMPS use the
+  // cell declared in the file; unknown extensions fall back to LAMMPS).
+  BOOST_LEAF_AUTO(loaded, io::read_structure_by_ext(path, bc, type_to_element));
+  return compute_gr(loaded.structure.coordinates, loaded.bc,
+                    loaded.structure.elements, params);
 }
 
 Result<void> write_gr(const GrResult &g, const std::filesystem::path &path) {

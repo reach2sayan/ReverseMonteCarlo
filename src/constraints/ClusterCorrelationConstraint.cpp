@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <ranges>
 
 namespace RMC {
@@ -118,10 +119,10 @@ std::vector<double> ClusterCorrelationConstraint::current_correlations() const {
 // string fallback in refresh_site_occ() is used (binary / test path, where
 // atomic_numbers carry true Z rather than occupation indices).
 void ClusterCorrelationConstraint::build_occ_of_code() {
-  int max_occ = -1;
-  for (const auto &[elem, occ] : occ_index_) {
-    max_occ = std::max(max_occ, occ);
+  if (occ_index_.empty()) {
+    return;
   }
+  const int max_occ = std::ranges::max(occ_index_ | std::views::values);
   if (max_occ < 0) {
     return;
   }
@@ -144,18 +145,25 @@ void ClusterCorrelationConstraint::refresh_site_occ() const {
   site_occ_.resize(n);
   if (!occ_of_code_.empty()) {
     const int cap = static_cast<int>(occ_of_code_.size());
-    for (std::size_t s = 0; s < n; ++s) {
-      const int code = structure_.atomic_numbers[static_cast<Eigen::Index>(s)];
-      site_occ_[s] = (!absent(s) && code >= 0 && code < cap)
-                         ? occ_of_code_[static_cast<std::size_t>(code)]
-                         : -1;
-    }
+    std::ranges::transform(
+        std::views::iota(std::size_t{0}, n), site_occ_.begin(),
+        [&](std::size_t s) {
+          const int code =
+              structure_.atomic_numbers[static_cast<Eigen::Index>(s)];
+          return (!absent(s) && code >= 0 && code < cap)
+                     ? occ_of_code_[static_cast<std::size_t>(code)]
+                     : -1;
+        });
     return;
   }
-  for (std::size_t s = 0; s < n; ++s) {
-    const auto it = occ_index_.find(structure_.elements[s]);
-    site_occ_[s] = (absent(s) || it == occ_index_.end()) ? -1 : it->second;
-  }
+  std::ranges::transform(std::views::iota(std::size_t{0}, n), site_occ_.begin(),
+                         [&](std::size_t s) {
+                           const auto it =
+                               occ_index_.find(structure_.elements[s]);
+                           return (absent(s) || it == occ_index_.end())
+                                      ? -1
+                                      : it->second;
+                         });
 }
 
 double ClusterCorrelationConstraint::orbit_correlation(
@@ -229,11 +237,10 @@ void ClusterCorrelationConstraint::build_index() {
     return orbit.instance_count();
   });
 
-  std::size_t total = 0;
-  for (std::size_t o = 0; o < orbit_count_.size(); ++o) {
-    orbit_base_[o] = total;
-    total += orbit_count_[o];
-  }
+  std::exclusive_scan(orbit_count_.begin(), orbit_count_.end(),
+                      orbit_base_.begin(), std::size_t{0});
+  const std::size_t total =
+      orbit_count_.empty() ? 0 : orbit_base_.back() + orbit_count_.back();
 
   inst_orbit_.assign(total, 0);
   seen_inst_.assign(total, 0);
@@ -261,9 +268,8 @@ void ClusterCorrelationConstraint::build_index() {
 void ClusterCorrelationConstraint::resync_full() {
   const std::size_t n = site_to_instances_.size();
   occ_.resize(n);
-  for (std::size_t k = 0; k < n; ++k) {
-    occ_[k] = current_occ(k);
-  }
+  std::ranges::transform(std::views::iota(std::size_t{0}, n), occ_.begin(),
+                         [&](std::size_t k) { return current_occ(k); });
   total_err_ = 0.0;
   for (std::size_t o = 0; o < orbits_.size(); ++o) {
     double sum = 0.0;

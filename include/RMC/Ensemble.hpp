@@ -1,13 +1,13 @@
 #pragma once
 #include <RMC/Engine.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <barrier>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <future>
-#include <limits>
 #include <ranges>
 #include <thread>
 #include <vector>
@@ -139,17 +139,14 @@ Engine run_ensemble_cooperative(
   std::barrier sync_point{
       static_cast<std::ptrdiff_t>(n_replicas), [&]() noexcept {
         try {
-          double best_chi2 = std::numeric_limits<double>::max();
-          std::size_t best_i = 0;
-          bool done = false;
-          for (std::size_t j = 0; j < n_replicas; ++j) {
-            const double chi2 = engines[j].stats().last_total_err;
-            if (chi2 < best_chi2) {
-              best_chi2 = chi2;
-              best_i = j;
-            }
-            done = done || chi2 <= target_chi2;
-          }
+          const auto chi2_of = [](const auto &e) {
+            return e.stats().last_total_err;
+          };
+          const auto best = std::ranges::min_element(engines, {}, chi2_of);
+          const auto best_i =
+              static_cast<std::size_t>(best - engines.begin());
+          // The minimum is <= target iff some replica reached the target.
+          const bool done = chi2_of(*best) <= target_chi2;
 
           if (done) {
             any_done.store(true, std::memory_order_relaxed);

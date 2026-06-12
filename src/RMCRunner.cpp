@@ -10,6 +10,7 @@
 #include <RMC/io/DataReader.hpp>
 #include <RMC/io/LammpsReader.hpp>
 #include <RMC/io/PdbReader.hpp>
+#include <RMC/io/StructFormat.hpp>
 #include <RMC/io/VaspReader.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
@@ -20,13 +21,16 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -259,14 +263,13 @@ mat3_t periodic_box_or_zero(const BoundaryConditions &bc) {
 // zero for infinite) is needed by the VASP and LAMMPS writers.
 Result<void> write_structure_by_ext(const AtomicStructure &s, const mat3_t &box,
                                     const std::string &path) {
-  const std::filesystem::path p(path);
-  const std::string ext = p.extension().string();
-  const std::string stem = p.filename().string();
-  if (ext == ".vasp" || ext == ".poscar" || ext == ".VASP" ||
-      stem == "POSCAR" || stem == "CONTCAR") {
+  // Unknown extensions fall back to PDB.
+  const auto fmt =
+      io::classify_structure_format(path).value_or(io::StructFormat::Pdb);
+  if (fmt == io::StructFormat::Vasp) {
     return io::write_vasp(s, box, path);
   }
-  if (ext == ".lammps" || ext == ".lmp" || ext == ".data") {
+  if (fmt == io::StructFormat::Lammps) {
     // The engine wraps atoms into [0,L), and PeriodicBC drops the box origin, so
     // a structure read from a centered cell (xlo=-L/2) would otherwise be
     // written with xlo=0 — the cell appears to jump. Re-center: write the box as
@@ -295,9 +298,7 @@ namespace {
 template <typename T> std::vector<T> parse_tokens(const std::string &text) {
   std::vector<T> out;
   std::istringstream is(text);
-  for (T v; is >> v;) {
-    out.push_back(std::move(v));
-  }
+  std::ranges::copy(std::ranges::istream_view<T>(is), std::back_inserter(out));
   return out;
 }
 
@@ -535,11 +536,12 @@ std::vector<RMCCommand> build_commands() {
 
 Result<int> dispatch(const po::variables_map &vm) {
   RMCContext ctx(vm);
-  for (const RMCCommand &cmd : build_commands()) {
-    if (cmd.selected(vm)) {
-      spdlog::debug("Running command '{}'", cmd.name);
-      return cmd.run(ctx);
-    }
+  const auto commands = build_commands();
+  const auto cmd = std::ranges::find_if(
+      commands, [&](const RMCCommand &c) { return c.selected(vm); });
+  if (cmd != commands.end()) {
+    spdlog::debug("Running command '{}'", cmd->name);
+    return cmd->run(ctx);
   }
   // Unreachable: the trailing "refine" command matches everything.
   return leaf::new_error(std::string{"no command selected"});
