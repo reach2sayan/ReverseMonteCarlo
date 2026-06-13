@@ -1,5 +1,7 @@
 # ReverseMonteCarlo
 
+[![CI](https://github.com/reach2sayan/ReverseMonteCarlo/actions/workflows/ci.yml/badge.svg)](https://github.com/reach2sayan/ReverseMonteCarlo/actions/workflows/ci.yml)
+
 C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(r), S(Q)), the engine iteratively perturbs atomic positions via Metropolis acceptance until computed data matches experiment.
 
 **Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 13, Clang ≥ 17) · Eigen ≥ 3.4 · Boost ≥ 1.83 · Intel oneAPI TBB ≥ 2021 (on by default) · Catch2 ≥ 3 (tests only)
