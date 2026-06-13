@@ -3,7 +3,10 @@
 #include "AtatFormats.hpp"
 
 #include <boost/asio/io_context.hpp>
-#include <boost/process/v2.hpp>
+// Boost 1.88 promoted Process v2 to the main boost::process namespace and
+// removed the old <boost/process/v2.hpp> umbrella header. The boost::process::v2
+// alias below still resolves (it's now an inline namespace under boost::process).
+#include <boost/process.hpp>
 
 #include <cstdio>
 #include <fstream>
