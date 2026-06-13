@@ -60,21 +60,85 @@ struct ClusterOrbit {
       add_instance(std::span<const std::size_t>(sites.begin(), sites.size()));
     }
   }
+
+  // Basis coordinates of cluster point p. Empty metadata ⇒ binary defaults
+  // (site_type 0, func 0), so legacy binary orbits index the degenerate table.
+  [[nodiscard]] constexpr int site_type_at(std::size_t p) const {
+    return site_types.empty() ? 0 : site_types[p];
+  }
+  [[nodiscard]] constexpr int func_at(std::size_t p) const {
+    return funcs.empty() ? 0 : funcs[p];
+  }
 };
 
-// ATAT trigonometric (Chebyshev-like) site-basis table: value indexed by
-// [site_type][func][occupation], where site_type = (#components − 2). For
-// binary it reduces to {occ 0 → −1, occ 1 → +1}. Port of
+// ATAT trigonometric (Chebyshev-like) site-basis table, addressed by the
+// coordinate (site_type, func, occupation), where site_type = (#components − 2).
+// For binary it reduces to {occ 0 → −1, occ 1 → +1}. Port of
 // TrigoCorrFuncTable::init (atat/src/calccorr.c++:163-180).
-struct CorrFuncTable {
-  std::vector<std::vector<std::vector<double>>> t; // [site_type][func][occ]
+//
+// Storage is one flat buffer holding a rectangular (n_func × n_occ) block per
+// site_type, reached through the C++23 multidimensional subscript — so callers
+// write table[site_type, func, occ] instead of casting three indices into a
+// nested vector-of-vector-of-vector. Build by appending one block per site_type
+// with add_site_type(), then filling cells through the mutable subscript.
+class CorrFuncTable {
+public:
+  // Append a zero-initialised (n_func × n_occ) block; returns its site_type
+  // index (== number of prior site_types). Call once per site_type, in order.
+  std::size_t add_site_type(int n_func, int n_occ) {
+    blocks_.push_back({data_.size(), n_occ});
+    data_.resize(data_.size() + static_cast<std::size_t>(n_func) *
+                                    static_cast<std::size_t>(n_occ));
+    return blocks_.size() - 1;
+  }
 
-  [[nodiscard]] constexpr double value(int site_type, int func, int occ) const {
-    return t[static_cast<std::size_t>(site_type)]
-            [static_cast<std::size_t>(func)][static_cast<std::size_t>(occ)];
+  // Portable accessors (work on every C++23 compiler): value() reads, at()
+  // returns a mutable cell for building. These are the canonical API used
+  // internally — the operator[] below is sugar that forwards to them.
+  [[nodiscard]] constexpr double value(int site_type, int func,
+                                       int occ) const {
+    return data_[flat_index(site_type, func, occ)];
+  }
+  [[nodiscard]] constexpr double &at(int site_type, int func, int occ) {
+    return data_[flat_index(site_type, func, occ)];
+  }
+
+  // C++23 multidimensional subscript: table[site_type, func, occ]. Guarded by
+  // its feature-test macro so the declaration itself is skipped on toolchains
+  // without P2128 (e.g. MSVC < 17.10); value()/at() remain the safe fallback.
+#ifdef __cpp_multidimensional_subscript
+  [[nodiscard]] constexpr double operator[](int site_type, int func,
+                                            int occ) const {
+    return value(site_type, func, occ);
+  }
+  [[nodiscard]] constexpr double &operator[](int site_type, int func, int occ) {
+    return at(site_type, func, occ);
+  }
+#endif
+
+  [[nodiscard]] constexpr std::size_t site_type_count() const noexcept {
+    return blocks_.size();
   }
 
   [[nodiscard]] static CorrFuncTable trigonometric(int max_components);
+
+private:
+  // One site_type's rectangular block: where it starts in data_ and its row
+  // stride (n_occ). n_func is implied by the gap to the next block.
+  struct Block {
+    std::size_t offset;
+    int n_occ;
+  };
+  [[nodiscard]] constexpr std::size_t flat_index(int site_type, int func,
+                                                 int occ) const {
+    const Block &b = blocks_[static_cast<std::size_t>(site_type)];
+    return b.offset +
+           static_cast<std::size_t>(func) * static_cast<std::size_t>(b.n_occ) +
+           static_cast<std::size_t>(occ);
+  }
+
+  std::vector<Block> blocks_; // per site_type
+  std::vector<double> data_;  // flat (n_func × n_occ) blocks, concatenated
 };
 
 // Constraint for Special Quasi-random Structure (SQS) search.

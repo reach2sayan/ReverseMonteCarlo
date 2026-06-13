@@ -238,18 +238,16 @@ struct ClusterBasis {
   std::vector<ClusterOrbit> orbits;
 };
 
-// Expand a species map into the (occ_index, table) pair: one site_type, one
-// func, table[0][0][i] = σ_i.
+// Expand a species map into the (occ_index, table) pair: one degenerate
+// site_type with a single func, table.at(0, 0, i) = σ_i.
 std::pair<std::unordered_map<std::string, int>, CorrFuncTable>
 make_linear_basis(const ClusterCorrelationConstraint::SpeciesMap &species_map) {
   std::unordered_map<std::string, int> occ_index;
   CorrFuncTable table;
-  table.t.resize(1);
-  table.t[0].resize(1);
-  table.t[0][0].resize(species_map.size(), 0.0);
+  table.add_site_type(/*n_func=*/1, /*n_occ=*/static_cast<int>(species_map.size()));
   for (const auto [i, kv] : std::views::enumerate(species_map)) {
     occ_index[kv.first] = static_cast<int>(i);
-    table.t[0][0][static_cast<std::size_t>(i)] = kv.second;
+    table.at(0, 0, static_cast<int>(i)) = kv.second;
   }
   return {std::move(occ_index), std::move(table)};
 }

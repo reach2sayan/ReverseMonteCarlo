@@ -13,21 +13,18 @@ CorrFuncTable CorrFuncTable::trigonometric(int max_components) {
   if (max_components < 2) {
     max_components = 2;
   }
-  tab.t.resize(static_cast<std::size_t>(max_components - 1));
   for (int m = 2; m <= max_components; ++m) {
-    auto &site = tab.t[static_cast<std::size_t>(m - 2)];
-    site.resize(static_cast<std::size_t>(m - 1));
-    for (int f = 0; f < m - 1; ++f) {
-      site[static_cast<std::size_t>(f)].assign(static_cast<std::size_t>(m), 0.0);
-    }
+    // site_type m−2 holds m−1 basis functions over m occupations.
+    const int st = static_cast<int>(tab.add_site_type(/*n_func=*/m - 1,
+                                                      /*n_occ=*/m));
     for (int s = 0; s < m; ++s) {
+      // Even funcs are cosines, odd funcs sines (the cos/sin interleaving of
+      // the ATAT trigonometric basis); s is the occupation.
       for (int k = 1; k <= m / 2; ++k) {
-        site[static_cast<std::size_t>(2 * k - 2)][static_cast<std::size_t>(s)] =
-            -std::cos(2.0 * std::numbers::pi * s * k / m);
+        tab.at(st, 2 * k - 2, s) = -std::cos(2.0 * std::numbers::pi * s * k / m);
       }
       for (int k = 1; k <= (m + 1) / 2 - 1; ++k) {
-        site[static_cast<std::size_t>(2 * k - 1)][static_cast<std::size_t>(s)] =
-            -std::sin(2.0 * std::numbers::pi * s * k / m);
+        tab.at(st, 2 * k - 1, s) = -std::sin(2.0 * std::numbers::pi * s * k / m);
       }
     }
   }
@@ -38,13 +35,12 @@ ClusterCorrelationConstraint::ClusterCorrelationConstraint(
     const AtomicStructure &structure, const SpeciesMap &species_map,
     std::vector<ClusterOrbit> orbits)
     : structure_(structure), orbits_(std::move(orbits)) {
-  table_.t.resize(1);
-  table_.t[0].resize(1);
-  table_.t[0][0].resize(species_map.size(), 0.0);
+  // Degenerate single-function table: one site_type, one func, σ per occupation.
+  table_.add_site_type(/*n_func=*/1, /*n_occ=*/static_cast<int>(species_map.size()));
   for (const auto [i, kv] : std::views::enumerate(species_map)) {
     const auto &[elem, sigma] = kv;
     occ_index_[elem] = static_cast<int>(i);
-    table_.t[0][0][static_cast<std::size_t>(i)] = sigma;
+    table_.at(0, 0, static_cast<int>(i)) = sigma;
   }
 }
 
@@ -182,9 +178,7 @@ double ClusterCorrelationConstraint::orbit_correlation(
         prod = 0.0; // unknown species → zero contribution (legacy behaviour)
         break;
       }
-      const int st = orbit.site_types.empty() ? 0 : orbit.site_types[p];
-      const int fn = orbit.funcs.empty() ? 0 : orbit.funcs[p];
-      prod *= table_.value(st, fn, occ);
+      prod *= table_.value(orbit.site_type_at(p), orbit.func_at(p), occ);
     }
     sum += prod;
   }
@@ -217,9 +211,7 @@ double ClusterCorrelationConstraint::instance_product(std::uint32_t gid) const {
     if (occ < 0) {
       return 0.0;
     }
-    const int st = orb.site_types.empty() ? 0 : orb.site_types[p];
-    const int fn = orb.funcs.empty() ? 0 : orb.funcs[p];
-    prod *= table_.value(st, fn, occ);
+    prod *= table_.value(orb.site_type_at(p), orb.func_at(p), occ);
   }
   return prod;
 }
