@@ -22,11 +22,11 @@ CorrFuncTable CorrFuncTable::trigonometric(int max_components) {
     for (int s = 0; s < m; ++s) {
       for (int k = 1; k <= m / 2; ++k) {
         site[static_cast<std::size_t>(2 * k - 2)][static_cast<std::size_t>(s)] =
-            -std::cos(2.0 * M_PI * s * k / m);
+            -std::cos(2.0 * std::numbers::pi * s * k / m);
       }
       for (int k = 1; k <= (m + 1) / 2 - 1; ++k) {
         site[static_cast<std::size_t>(2 * k - 1)][static_cast<std::size_t>(s)] =
-            -std::sin(2.0 * M_PI * s * k / m);
+            -std::sin(2.0 * std::numbers::pi * s * k / m);
       }
     }
   }
