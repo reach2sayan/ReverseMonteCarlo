@@ -1,6 +1,19 @@
 #pragma once
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+
+// Eigen 5 moved the slicing placeholders out of the top-level Eigen namespace
+// into Eigen::placeholders, so the Eigen 3.x spelling `Eigen::all` (used as the
+// all-columns selector in coords(indices, Eigen::all) throughout the generators)
+// no longer resolves — worse, it silently binds to the unrelated internal
+// helper Eigen::internal::all(). Re-expose the placeholder under its historical
+// name once, here, so every call site keeps working without per-site edits.
+// (Guarded so it's a no-op on Eigen < 5, where Eigen::all already exists.)
+#if EIGEN_VERSION_AT_LEAST(5, 0, 0)
+namespace Eigen {
+using placeholders::all;
+}
+#endif
 #include <boost/leaf/result.hpp>
 #include <concepts>
 #include <cstdint>

@@ -38,7 +38,18 @@ if (NOT TARGET RMC)
 
     find_library(RMC_LIB NAMES RMC PATHS "${RMC_BUILD_DIR}" NO_DEFAULT_PATH REQUIRED)
 
-    find_package(Eigen3 3.4 REQUIRED NO_MODULE)
+    # Fetch Eigen 5 from source (same as the top-level build — never the system
+    # package). Header-only: download without add_subdirectory, expose headers.
+    include(FetchContent)
+    FetchContent_Declare(eigen
+            GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+            GIT_TAG 5.0.0
+            GIT_SHALLOW TRUE
+            SOURCE_SUBDIR _headers_only_no_cmake)
+    FetchContent_MakeAvailable(eigen)
+    add_library(eigen_fetched INTERFACE)
+    target_include_directories(eigen_fetched SYSTEM INTERFACE "${eigen_SOURCE_DIR}")
+    add_library(Eigen3::Eigen ALIAS eigen_fetched)
     # 1.88: Process v2 was promoted to <boost/process.hpp> (see AtatRunner.cpp).
     find_package(Boost 1.88 REQUIRED CONFIG COMPONENTS
             serialization

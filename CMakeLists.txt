@@ -110,7 +110,26 @@ if (ENABLE_SANITIZERS AND (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG))
     message(STATUS "Sanitizers: ASan + UBSan enabled")
 endif ()
 
-find_package(Eigen3 3.4 REQUIRED NO_MODULE)
+# Eigen 5 is always fetched from source (never the system package) so every
+# platform builds against the exact same pinned version. It is header-only, so
+# we skip Eigen's CMake/test machinery: fetch only (no add_subdirectory) and
+# expose the headers as a plain interface target under the canonical
+# Eigen3::Eigen name. FetchContent caches the download under the build tree
+# (override with -DFETCHCONTENT_SOURCE_DIR_EIGEN to reuse a local checkout).
+include(FetchContent)
+# SOURCE_SUBDIR points at a directory with no CMakeLists, so MakeAvailable
+# downloads the source but does NOT add_subdirectory it — we want only the
+# headers, not Eigen's test/doc/install targets.
+FetchContent_Declare(eigen
+        GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+        GIT_TAG 5.0.0
+        GIT_SHALLOW TRUE
+        SOURCE_SUBDIR _headers_only_no_cmake)
+FetchContent_MakeAvailable(eigen)
+add_library(eigen_fetched INTERFACE)
+target_include_directories(eigen_fetched SYSTEM INTERFACE "${eigen_SOURCE_DIR}")
+add_library(Eigen3::Eigen ALIAS eigen_fetched)
+message(STATUS "Eigen: fetched 5.0.0 source at ${eigen_SOURCE_DIR}")
 # 1.87 is the true floor: src/io/*.cpp use Boost.Parser (added in 1.87) and
 # extensions/mcsqs uses Boost.Process v2's compiled library (added in 1.86).
 find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS
