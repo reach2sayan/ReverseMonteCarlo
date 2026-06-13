@@ -16,13 +16,6 @@ else ()
     message(STATUS "LTO: not supported: ${ipo_error}")
 endif ()
 
-option(ENABLE_PGO_GENERATE "Build with PGO profile generation" OFF)
-option(ENABLE_PGO_USE "Build with PGO profile use" OFF)
-
-if (ENABLE_PGO_GENERATE AND ENABLE_PGO_USE)
-    message(FATAL_ERROR "ENABLE_PGO_GENERATE and ENABLE_PGO_USE cannot both be ON")
-endif ()
-
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
@@ -104,6 +97,17 @@ endif ()
 # lets the loader find Boost's private .so deps in ${BOOST_ROOT}/lib at runtime.
 if (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     add_link_options(-Wl,--disable-new-dtags)
+endif ()
+
+# ── Sanitizer flags ──────────────────────────────────────────────────────────
+# These MUST precede the first add_library/add_executable: add_compile_options /
+# add_link_options only apply to targets created *after* the call, so placing
+# them after the targets (as before) silently no-ops them.
+option(ENABLE_SANITIZERS "Enable AddressSanitizer + UBSan on all targets" OFF)
+if (ENABLE_SANITIZERS AND (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG))
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "Sanitizers: ASan + UBSan enabled")
 endif ()
 
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
@@ -286,12 +290,9 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
         target_compile_options(RMC_tests PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
     endif ()
     include(Catch)
-    catch_discover_tests(RMC_tests DISCOVERY_MODE PRE_TEST)
+    # POST_BUILD (the default) enumerates each TEST_CASE right after the binary
+    # links, so IDEs (CLion) populate the test tree without having to run first.
+    # PRE_TEST defers discovery to test-run time, which leaves CLion's browser empty.
+    catch_discover_tests(RMC_tests DISCOVERY_MODE POST_BUILD)
 endif ()
 
-option(ENABLE_SANITIZERS "Enable AddressSanitizer + UBSan on all targets" OFF)
-if (ENABLE_SANITIZERS AND (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG))
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
-    add_link_options(-fsanitize=address,undefined)
-    message(STATUS "Sanitizers: ASan + UBSan enabled")
-endif ()

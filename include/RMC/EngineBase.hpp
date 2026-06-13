@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -53,7 +54,7 @@ public:
 
   void add_group(Group g) { groups_.push_back(std::move(g)); }
   void add_constraint(Constraint c) {
-    c.set_boundary_conditions(bc_);
+    c.set_boundary_conditions(*bc_);
     constraints_.add(std::move(c));
   }
 
@@ -82,8 +83,8 @@ public:
   [[nodiscard]] constexpr ConstraintCollection &constraints() noexcept {
     return constraints_;
   }
-  [[nodiscard]] constexpr const BoundaryConditions &boundary() const noexcept {
-    return bc_;
+  [[nodiscard]] const BoundaryConditions &boundary() const noexcept {
+    return *bc_;
   }
   [[nodiscard]] double total_error() const noexcept {
     return constraints_.total_error();
@@ -116,7 +117,8 @@ public:
   }
 
 protected:
-  explicit EngineBase(BoundaryConditions bc) : bc_(std::move(bc)) {}
+  explicit EngineBase(BoundaryConditions bc)
+      : bc_(std::make_unique<BoundaryConditions>(std::move(bc))) {}
 
   // One trial step: select → snapshot/score-before → propose → score-after →
   // settle, then log and (policy-gated) checkpoint. select() short-circuits the
@@ -202,7 +204,7 @@ protected:
   void apply_pbc_to(AtomicStructure &s, std::span<const std::size_t> moved) {
     std::ranges::for_each(moved, [&](auto i) {
       vec3_t r = s.coordinates.row(static_cast<Eigen::Index>(i)).transpose();
-      r = bc_wrap(bc_, r);
+      r = bc_wrap(*bc_, r);
       s.coordinates.row(static_cast<Eigen::Index>(i)) = r.transpose();
     });
   }
@@ -214,7 +216,11 @@ protected:
     }
   }
 
-  BoundaryConditions bc_;
+  // Heap-stable so the raw `const BoundaryConditions*` that each constraint
+  // holds (set in add_constraint) survives the engine being moved — e.g. into
+  // the vector in run_ensemble. A by-value member would relocate and dangle
+  // (ASan: stack-use-after-return). Mirrors the shared_ptr-held collector.
+  std::unique_ptr<BoundaryConditions> bc_;
   std::vector<Group> groups_;
   ConstraintCollection constraints_;
   Sampler sampler_{GreedySampler{}};
