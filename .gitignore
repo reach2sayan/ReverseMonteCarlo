@@ -7,6 +7,9 @@ cmake_install.cmake
 Makefile
 *.cmake
 !CMakeLists.txt
+# Hand-written CMake modules live under cmake/ and must be tracked, despite the
+# blanket *.cmake ignore above (which targets generated files in build trees).
+!cmake/*.cmake
 
 # Compiled output
 *.o
