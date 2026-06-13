@@ -17,6 +17,8 @@ using placeholders::all;
 #include <boost/leaf/result.hpp>
 #include <concepts>
 #include <cstdint>
+#include <cstdlib>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -75,6 +77,27 @@ constexpr auto upper_triangle_pairs(auto &&N) {
          std::views::join;
 }
 
+// Reads an environment variable, returning nullopt when it is unset or empty.
+// std::getenv trips MSVC's C4996 ("unsafe"); _dupenv_s is the sanctioned
+// replacement there. Centralize the platform split so call sites stay clean.
+inline std::optional<std::string> read_env(const char *name) {
+#if defined(_MSC_VER)
+  char *raw = nullptr;
+  std::size_t len = 0;
+  std::optional<std::string> result;
+  if (_dupenv_s(&raw, &len, name) == 0 && raw != nullptr && *raw != '\0') {
+    result.emplace(raw);
+  }
+  std::free(raw); // free(nullptr) is a no-op
+  return result;
+#else
+  if (const char *val = std::getenv(name); val && *val) {
+    return std::string(val);
+  }
+  return std::nullopt;
+#endif
+}
+
 // Returns the number of CPUs allocated to this process, in priority order:
 //   1. SLURM_CPUS_PER_TASK  (SLURM scheduler)
 //   2. PBS_NUM_PPN           (PBS/Torque scheduler)
@@ -83,12 +106,12 @@ constexpr auto upper_triangle_pairs(auto &&N) {
 inline std::size_t allocated_cpus() noexcept {
   for (const char *var :
        {"SLURM_CPUS_PER_TASK", "PBS_NUM_PPN", "LSB_DJOB_NUMPROC"}) {
-    if (const char *val = std::getenv(var); val && *val) {
-      if (const int n = std::atoi(val); n > 0) {
+    if (const auto val = read_env(var)) {
+      if (const int n = std::atoi(val->c_str()); n > 0) {
         return static_cast<std::size_t>(n);
       }
     }
-       }
+  }
   return std::max(1u, std::thread::hardware_concurrency());
 }
 

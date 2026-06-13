@@ -122,6 +122,8 @@ jobs:
         run: |
           vcpkg install boost-program-options boost-serialization boost-container `
             boost-coroutine2 boost-random boost-process boost-leaf `
+            boost-algorithm boost-assert boost-hof boost-parser boost-preprocessor `
+            boost-stl-interfaces `
             spdlog tbb catch2
 
       - name: Configure

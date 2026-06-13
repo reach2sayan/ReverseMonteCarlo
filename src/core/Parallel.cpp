@@ -8,8 +8,8 @@ namespace RMC::parallel {
 tbb::task_arena &arena() {
   static tbb::task_arena a = [] {
     int max_threads = default_concurrency();
-    if (const char *env = std::getenv("RMC_NUM_THREADS")) {
-      if (const int n = std::atoi(env); n > 0) {
+    if (const auto env = read_env("RMC_NUM_THREADS")) {
+      if (const int n = std::atoi(env->c_str()); n > 0) {
         max_threads = n;
       }
     }
