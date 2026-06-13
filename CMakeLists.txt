@@ -301,10 +301,17 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
         target_compile_options(RMC_tests PRIVATE
                 /W4 /permissive- /Zc:__cplusplus /external:W0 /external:anglebrackets)
         set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-        foreach (tgt Catch2 Catch2WithMain Catch2::Catch2 Catch2::Catch2WithMain)
+        foreach (tgt Catch2 Catch2WithMain)
             if (TARGET ${tgt})
-                target_compile_options(${tgt} PRIVATE /W0)
-                set_target_properties(${tgt} PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+                # Skip alias/imported targets: target_compile_options can only set
+                # INTERFACE properties on those, so only the real buildable targets
+                # (the non-namespaced FetchContent ones) get the warning overrides.
+                get_target_property(_tgt_aliased ${tgt} ALIASED_TARGET)
+                get_target_property(_tgt_imported ${tgt} IMPORTED)
+                if (NOT _tgt_aliased AND NOT _tgt_imported)
+                    target_compile_options(${tgt} PRIVATE /W0)
+                    set_target_properties(${tgt} PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+                endif ()
             endif ()
         endforeach ()
     elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
