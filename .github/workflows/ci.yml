@@ -35,8 +35,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build ccache \
-            libboost-all-dev libeigen3-dev libspdlog-dev libtbb-dev catch2 \
+            libeigen3-dev libspdlog-dev libtbb-dev catch2 \
             ${{ matrix.cc }}
+
+      # ubuntu-24.04's libboost-all-dev is 1.83, which lacks Boost.Parser
+      # (1.87+) and Boost.Process v2's compiled library (1.86+). Build the
+      # handful of compiled Boost libs we need from the 1.89 source release,
+      # matching the local /opt/boost toolchain, and cache the install tree.
+      - name: Cache Boost 1.89
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost
+          key: boost-1.89.0-${{ matrix.compiler }}
+
+      - name: Build Boost 1.89
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          ver=1.89.0
+          us=${ver//./_}
+          curl -fsSL "https://archives.boost.io/release/${ver}/source/boost_${us}.tar.bz2" \
+            -o boost.tar.bz2
+          tar xf boost.tar.bz2
+          cd "boost_${us}"
+          toolset=${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+          echo "using ${toolset} : : ${{ matrix.cxx }} ;" > "${HOME}/user-config.jam"
+          ./bootstrap.sh \
+            --with-libraries=program_options,serialization,container,context,filesystem,process
+          ./b2 -j"$(nproc)" \
+            toolset=${toolset} cxxstd=23 variant=release link=shared \
+            --user-config="${HOME}/user-config.jam" \
+            --prefix="${HOME}/boost" install
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -49,6 +79,7 @@ jobs:
           CXX: ${{ matrix.cxx }}
         run: >
           cmake -S . -B build -G Ninja
+          -DBOOST_ROOT=$HOME/boost
           -DCMAKE_BUILD_TYPE=Release
           -DENABLE_MKL=OFF
           -DENABLE_LTO=OFF
@@ -59,7 +90,9 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          export LD_LIBRARY_PATH="$HOME/boost/lib:${LD_LIBRARY_PATH:-}"
+          ctest --test-dir build --output-on-failure
 
   windows:
     name: msvc (Windows)

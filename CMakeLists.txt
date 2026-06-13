@@ -111,7 +111,9 @@ if (ENABLE_SANITIZERS AND (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG))
 endif ()
 
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
-find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
+# 1.87 is the true floor: src/io/*.cpp use Boost.Parser (added in 1.87) and
+# extensions/mcsqs uses Boost.Process v2's compiled library (added in 1.86).
+find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS
         program_options
         serialization
         container

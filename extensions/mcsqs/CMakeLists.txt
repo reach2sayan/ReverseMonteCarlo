@@ -39,7 +39,7 @@ if (NOT TARGET RMC)
     find_library(RMC_LIB NAMES RMC PATHS "${RMC_BUILD_DIR}" NO_DEFAULT_PATH REQUIRED)
 
     find_package(Eigen3 3.4 REQUIRED NO_MODULE)
-    find_package(Boost 1.83 REQUIRED CONFIG COMPONENTS
+    find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS
             serialization
             container context program_options
             process filesystem)
