@@ -47,7 +47,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/boost
-          key: boost-1.89.0-${{ matrix.compiler }}
+          key: boost-1.89.0-fullheaders-${{ matrix.compiler }}
 
       - name: Build Boost 1.89
         if: steps.cache-boost.outputs.cache-hit != 'true'
@@ -67,6 +67,11 @@ jobs:
             toolset=${toolset} cxxstd=23 variant=release link=shared \
             --user-config="${HOME}/user-config.jam" \
             --prefix="${HOME}/boost" install
+          # `b2 install` only copies headers for the --with libraries (and their
+          # scanned deps), which misses header-only modules we use (Boost.Parser)
+          # and the Process v2 umbrella header. The release tarball already ships
+          # the complete real header tree, so install it wholesale.
+          cp -af boost "${HOME}/boost/include/"
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
