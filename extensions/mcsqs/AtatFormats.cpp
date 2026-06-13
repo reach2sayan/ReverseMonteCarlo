@@ -13,6 +13,7 @@
 #include <optional>
 #include <ranges>
 #include <set>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 
@@ -56,7 +57,7 @@ vec3_t parse_vec3_line(const std::string &line) {
 // correlations (which live in the lattice/fractional frame).
 mat3_t lattice_vectors(double a, double b, double c, double alpha, double beta,
                        double gamma) {
-  const double d2r = M_PI / 180.0;
+  const double d2r = std::numbers::pi / 180.0;
   const double ca = std::cos(alpha * d2r), cb = std::cos(beta * d2r),
                cg = std::cos(gamma * d2r), sg = std::sin(gamma * d2r);
   mat3_t m;

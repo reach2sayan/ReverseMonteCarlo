@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <numeric>
 #include <optional>
 #include <random>
@@ -122,7 +123,7 @@ std::vector<vec3_t> enumerate_lattice_points(const mat3_t &cell,
                                              const mat3_t &supercell) {
   const mat3_t cell_to_super = supercell.inverse() * cell;
   const mat3_t super_to_cell = cell_to_super.inverse();
-  const vec3_t shift = vec3_t::Constant(M_PI * kTol * 0.1);
+  const vec3_t shift = vec3_t::Constant(std::numbers::pi * kTol * 0.1);
   vec3_t mn = vec3_t::Constant(1e30);
   vec3_t mx = vec3_t::Constant(-1e30);
   for (const auto [cx, cy, cz] : std::views::cartesian_product(
@@ -155,7 +156,7 @@ std::vector<vec3_t> enumerate_lattice_points(const mat3_t &cell,
 // supercell with a tiny irrational shift to avoid boundary ties.
 vec3_t wrap_inside(const vec3_t &pos, const mat3_t &super,
                    const mat3_t &inv_super) {
-  const vec3_t shift = vec3_t::Constant(M_PI * kTol * 0.1);
+  const vec3_t shift = vec3_t::Constant(std::numbers::pi * kTol * 0.1);
   vec3_t f = inv_super * pos - shift;
   for (int i = 0; i < 3; ++i) {
     f(i) -= std::floor(f(i)); // mod1
