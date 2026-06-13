@@ -4,6 +4,7 @@
 #include <cmath>
 #include <numeric>
 #include <ranges>
+#include <numbers>
 
 namespace RMC {
 
@@ -209,13 +210,10 @@ int ClusterCorrelationConstraint::current_occ(std::size_t k) const {
 
 // Product of the basis values over one instance (global id), using occ_.
 double ClusterCorrelationConstraint::instance_product(std::uint32_t gid) const {
-  const std::size_t o = inst_orbit_[gid];
-  const ClusterOrbit &orb = orbits_[o];
-  const std::size_t off =
-      (static_cast<std::size_t>(gid) - orbit_base_[o]) * orb.body;
+  const ClusterOrbit &orb = orbits_[index_.orbit_of(gid)];
   double prod = 1.0;
-  for (std::size_t p = 0; p < orb.body; ++p) {
-    const int occ = occ_[orb.flat_sites[off + p]];
+  for (const auto [p, site] : std::views::enumerate(sites_of(gid))) {
+    const int occ = occ_[site];
     if (occ < 0) {
       return 0.0;
     }
@@ -226,62 +224,69 @@ double ClusterCorrelationConstraint::instance_product(std::uint32_t gid) const {
   return prod;
 }
 
+// The single place that maps a global instance id to its slice of flat_sites.
+std::span<const std::size_t>
+ClusterCorrelationConstraint::sites_of(std::uint32_t gid) const {
+  const std::size_t o = index_.orbit_of(gid);
+  const ClusterOrbit &orb = orbits_[o];
+  const std::size_t off =
+      (static_cast<std::size_t>(gid) - ostate_[o].base) * orb.body;
+  return {orb.flat_sites.data() + off, orb.body};
+}
+
 // Build the site→instance reverse index and per-orbit globals (once).
 void ClusterCorrelationConstraint::build_index() {
   const std::size_t n =
       std::max(structure_.elements.size(),
                static_cast<std::size_t>(structure_.atomic_numbers.size()));
-  orbit_count_.resize(orbits_.size());
-  orbit_base_.resize(orbits_.size());
-  std::ranges::transform(orbits_, orbit_count_.begin(), [](const auto &orbit) {
-    return orbit.instance_count();
-  });
+  ostate_.assign(orbits_.size(), {});
 
-  std::exclusive_scan(orbit_count_.begin(), orbit_count_.end(),
-                      orbit_base_.begin(), std::size_t{0});
-  const std::size_t total =
-      orbit_count_.empty() ? 0 : orbit_base_.back() + orbit_count_.back();
+  std::size_t base = 0;
+  for (std::size_t o = 0; o < orbits_.size(); ++o) {
+    ostate_[o].base = base;
+    ostate_[o].count = orbits_[o].instance_count();
+    base += ostate_[o].count;
+  }
+  const std::size_t total = base;
 
-  inst_orbit_.assign(total, 0);
+  index_.inst_orbit.assign(total, 0);
+  index_.site_to_instances.assign(n, {});
   seen_inst_.assign(total, 0);
-  seen_orbit_.assign(orbits_.size(), 0);
-  orbit_sum_.assign(orbits_.size(), 0.0);
-  site_to_instances_.assign(n, {});
 
   for (std::size_t o = 0; o < orbits_.size(); ++o) {
     const ClusterOrbit &orb = orbits_[o];
-    for (std::size_t li = 0; li < orbit_count_[o]; ++li) {
-      const auto gid = static_cast<std::uint32_t>(orbit_base_[o] + li);
-      inst_orbit_[gid] = static_cast<std::uint32_t>(o);
+    for (std::size_t li = 0; li < ostate_[o].count; ++li) {
+      const auto gid = static_cast<std::uint32_t>(ostate_[o].base + li);
+      index_.inst_orbit[gid] = static_cast<std::uint32_t>(o);
       const std::size_t off = li * orb.body;
       for (std::size_t p = 0; p < orb.body; ++p) {
         const std::size_t site = orb.flat_sites[off + p];
-        if (site < site_to_instances_.size()) {
-          site_to_instances_[site].push_back(gid);
+        if (site < index_.site_to_instances.size()) {
+          index_.site_to_instances[site].push_back(gid);
         }
       }
     }
   }
 }
 
-// Recompute occ_, orbit_sum_ and total_err_ from scratch (init + resync).
+// Recompute occ_, per-orbit sums and total_err_ from scratch (init + resync).
 void ClusterCorrelationConstraint::resync_full() {
-  const std::size_t n = site_to_instances_.size();
+  const std::size_t n = index_.site_count();
   occ_.resize(n);
   std::ranges::transform(std::views::iota(std::size_t{0}, n), occ_.begin(),
                          [&](std::size_t k) { return current_occ(k); });
   total_err_ = 0.0;
   for (std::size_t o = 0; o < orbits_.size(); ++o) {
+    OrbitState &st = ostate_[o];
     double sum = 0.0;
-    for (std::size_t li = 0; li < orbit_count_[o]; ++li) {
-      sum += instance_product(static_cast<std::uint32_t>(orbit_base_[o] + li));
+    for (std::size_t li = 0; li < st.count; ++li) {
+      sum += instance_product(static_cast<std::uint32_t>(st.base + li));
     }
-    orbit_sum_[o] = sum;
-    if (orbit_count_[o] == 0) {
+    st.sum = sum;
+    if (st.count == 0) {
       continue;
     }
-    const double dev =
-        sum / static_cast<double>(orbit_count_[o]) - orbits_[o].target;
+    const double dev = sum / static_cast<double>(st.count) - orbits_[o].target;
     total_err_ += orbits_[o].weight * dev * dev;
   }
 }
@@ -320,14 +325,14 @@ void ClusterCorrelationConstraint::apply_move_update() {
   affected_insts_.clear();
   affected_orbits_.clear();
   for (const std::size_t site : changed_sites_) {
-    for (const std::uint32_t gid : site_to_instances_[site]) {
+    for (const std::uint32_t gid : index_.instances_of_site(site)) {
       if (seen_inst_[gid] != epoch_) {
         seen_inst_[gid] = epoch_;
         affected_insts_.push_back(gid);
       }
-      const std::size_t o = inst_orbit_[gid];
-      if (seen_orbit_[o] != epoch_) {
-        seen_orbit_[o] = epoch_;
+      const std::size_t o = index_.orbit_of(gid);
+      if (ostate_[o].seen != epoch_) {
+        ostate_[o].seen = epoch_;
         affected_orbits_.push_back(o);
       }
     }
@@ -343,7 +348,7 @@ void ClusterCorrelationConstraint::apply_move_update() {
   undo_orbit_sums_.reserve(affected_orbits_.size());
   std::ranges::transform(
       affected_orbits_, std::back_inserter(undo_orbit_sums_),
-      [&](std::size_t o) { return std::pair{o, orbit_sum_[o]}; });
+      [&](std::size_t o) { return std::pair{o, ostate_[o].sum}; });
 
   // Old per-instance products (computed against the pre-move occ_).
   old_prod_.resize(affected_insts_.size());
@@ -356,16 +361,17 @@ void ClusterCorrelationConstraint::apply_move_update() {
   }
 
   for (const auto [gid, old_prod] : std::views::zip(affected_insts_, old_prod_)) {
-    orbit_sum_[inst_orbit_[gid]] += instance_product(gid) - old_prod;
+    ostate_[index_.orbit_of(gid)].sum += instance_product(gid) - old_prod;
   }
   // Patch total_err_ for the affected orbits using their saved old sums.
   for (const auto &[o, old_sum] : undo_orbit_sums_) {
-    if (orbit_count_[o] == 0) {
+    const OrbitState &st = ostate_[o];
+    if (st.count == 0) {
       continue;
     }
-    const double cnt = static_cast<double>(orbit_count_[o]);
+    const double cnt = static_cast<double>(st.count);
     const double old_dev = old_sum / cnt - orbits_[o].target;
-    const double new_dev = orbit_sum_[o] / cnt - orbits_[o].target;
+    const double new_dev = st.sum / cnt - orbits_[o].target;
     total_err_ += orbits_[o].weight * (new_dev * new_dev - old_dev * old_dev);
   }
 }
@@ -373,7 +379,7 @@ void ClusterCorrelationConstraint::apply_move_update() {
 // Undo apply_move_update() on a rejected move (caller restores total_err_).
 void ClusterCorrelationConstraint::rollback_move() noexcept {
   for (const auto &[o, old_sum] : undo_orbit_sums_) {
-    orbit_sum_[o] = old_sum;
+    ostate_[o].sum = old_sum;
   }
   for (const auto &[site, old_occ] : undo_sites_) {
     occ_[site] = old_occ;
