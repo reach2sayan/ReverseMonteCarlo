@@ -110,16 +110,8 @@ if (ENABLE_SANITIZERS AND (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG))
     message(STATUS "Sanitizers: ASan + UBSan enabled")
 endif ()
 
-# Eigen 5 is always fetched from source (never the system package) so every
-# platform builds against the exact same pinned version. It is header-only, so
-# we skip Eigen's CMake/test machinery: fetch only (no add_subdirectory) and
-# expose the headers as a plain interface target under the canonical
-# Eigen3::Eigen name. FetchContent caches the download under the build tree
-# (override with -DFETCHCONTENT_SOURCE_DIR_EIGEN to reuse a local checkout).
 include(FetchContent)
-# SOURCE_SUBDIR points at a directory with no CMakeLists, so MakeAvailable
-# downloads the source but does NOT add_subdirectory it — we want only the
-# headers, not Eigen's test/doc/install targets.
+
 FetchContent_Declare(eigen
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
         GIT_TAG 5.0.0
@@ -130,13 +122,7 @@ add_library(eigen_fetched INTERFACE)
 target_include_directories(eigen_fetched SYSTEM INTERFACE "${eigen_SOURCE_DIR}")
 add_library(Eigen3::Eigen ALIAS eigen_fetched)
 message(STATUS "Eigen: fetched 5.0.0 source at ${eigen_SOURCE_DIR}")
-# 1.87 is the true floor: src/io/*.cpp use Boost.Parser (added in 1.87) and
-# extensions/mcsqs uses Boost.Process v2's compiled library (added in 1.86).
-find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS
-        program_options
-        serialization
-        container
-)
+find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS  program_options  serialization   container)
 find_package(spdlog REQUIRED)
 
 add_library(eigen_backend INTERFACE)
@@ -245,8 +231,6 @@ if (RMC_COMPILER_CLANG)
     target_compile_options(RMC PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
 endif ()
 
-# RMC_run is a thin CLI front-end: the driver (RMCRunner) and the shared
-# RMCConfig/build_engine API live in the RMC library.
 add_executable(RMC_run src/main.cpp)
 target_link_libraries(RMC_run PRIVATE RMC)
 
@@ -258,9 +242,6 @@ endif ()
 
 option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
 if (RMC_BUILD_MCSQS)
-    # Resolves corrdump (external tool, run via boost::process — never linked,
-    # ATAT not vendored). Provider is selected with RMC_ATAT_PROVIDER; see
-    # cmake/Atat.cmake. Default SYSTEM uses an installed corrdump / --corrdump.
     include(${CMAKE_SOURCE_DIR}/cmake/Atat.cmake)
     add_subdirectory(extensions/mcsqs)
 endif ()
@@ -318,9 +299,6 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
         target_compile_options(RMC_tests PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
     endif ()
     include(Catch)
-    # POST_BUILD (the default) enumerates each TEST_CASE right after the binary
-    # links, so IDEs (CLion) populate the test tree without having to run first.
-    # PRE_TEST defers discovery to test-run time, which leaves CLion's browser empty.
     catch_discover_tests(RMC_tests DISCOVERY_MODE POST_BUILD)
 endif ()
 
