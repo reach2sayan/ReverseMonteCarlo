@@ -2,11 +2,25 @@
 
 #include <algorithm>
 #include <cmath>
-#include <numeric>
-#include <ranges>
+#include <functional>
 #include <numbers>
+#include <numeric>
+#include <optional>
+#include <ranges>
 
 namespace RMC {
+
+namespace {
+// Lifts void(T&) into optional<T>(T) for and_then chaining (mirrors
+// EngineBase::stage, kept file-local so the chain reads the same way here).
+constexpr auto stage(auto &&fn) {
+  return [fn = std::forward<decltype(fn)>(fn)](
+             auto c) -> std::optional<decltype(c)> {
+    std::invoke(fn, c);
+    return c;
+  };
+}
+} // namespace
 
 CorrFuncTable CorrFuncTable::trigonometric(int max_components) {
   CorrFuncTable tab;
@@ -21,10 +35,12 @@ CorrFuncTable CorrFuncTable::trigonometric(int max_components) {
       // Even funcs are cosines, odd funcs sines (the cos/sin interleaving of
       // the ATAT trigonometric basis); s is the occupation.
       for (int k = 1; k <= m / 2; ++k) {
-        tab.at(st, 2 * k - 2, s) = -std::cos(2.0 * std::numbers::pi * s * k / m);
+        tab.at(st, 2 * k - 2, s) =
+            -std::cos(2.0 * std::numbers::pi * s * k / m);
       }
       for (int k = 1; k <= (m + 1) / 2 - 1; ++k) {
-        tab.at(st, 2 * k - 1, s) = -std::sin(2.0 * std::numbers::pi * s * k / m);
+        tab.at(st, 2 * k - 1, s) =
+            -std::sin(2.0 * std::numbers::pi * s * k / m);
       }
     }
   }
@@ -35,9 +51,11 @@ ClusterCorrelationConstraint::ClusterCorrelationConstraint(
     const AtomicStructure &structure, const SpeciesMap &species_map,
     std::vector<ClusterOrbit> orbits)
     : structure_(structure), orbits_(std::move(orbits)) {
-  // Degenerate single-function table: one site_type, one func, σ per occupation.
-  table_.add_site_type(/*n_func=*/1, /*n_occ=*/static_cast<int>(species_map.size()));
-  for (const auto [i, kv] : std::views::enumerate(species_map)) {
+  // Degenerate single-function table: one site_type, one func, σ per
+  // occupation.
+  table_.add_site_type(/*n_func=*/1,
+                       /*n_occ=*/static_cast<int>(species_map.size()));
+  for (const auto [i, kv] : species_map | std::views::enumerate) {
     const auto &[elem, sigma] = kv;
     occ_index_[elem] = static_cast<int>(i);
     table_.at(0, 0, static_cast<int>(i)) = sigma;
@@ -53,8 +71,9 @@ ClusterCorrelationConstraint::ClusterCorrelationConstraint(
   build_occ_of_code();
 }
 
-double ClusterCorrelationConstraint::compute_error(
-    const coords_t &, std::span<const std::size_t>) {
+double
+ClusterCorrelationConstraint::compute_error(const coords_t &,
+                                            std::span<const std::size_t>) {
   refresh_site_occ();
   return std::ranges::fold_left(
       orbits_, 0.0, [this](double total, const ClusterOrbit &orbit) {
@@ -153,14 +172,12 @@ void ClusterCorrelationConstraint::refresh_site_occ() const {
         });
     return;
   }
-  std::ranges::transform(std::views::iota(std::size_t{0}, n), site_occ_.begin(),
-                         [&](std::size_t s) {
-                           const auto it =
-                               occ_index_.find(structure_.elements[s]);
-                           return (absent(s) || it == occ_index_.end())
-                                      ? -1
-                                      : it->second;
-                         });
+  std::ranges::transform(
+      std::views::iota(std::size_t{0}, n), site_occ_.begin(),
+      [&](std::size_t s) {
+        const auto it = occ_index_.find(structure_.elements[s]);
+        return (absent(s) || it == occ_index_.end()) ? -1 : it->second;
+      });
 }
 
 double ClusterCorrelationConstraint::orbit_correlation(
@@ -270,10 +287,13 @@ void ClusterCorrelationConstraint::resync_full() {
   total_err_ = 0.0;
   for (std::size_t o = 0; o < orbits_.size(); ++o) {
     OrbitState &st = ostate_[o];
-    double sum = 0.0;
-    for (std::size_t li = 0; li < st.count; ++li) {
-      sum += instance_product(static_cast<std::uint32_t>(st.base + li));
-    }
+    auto values =
+        std::views::iota(std::size_t{0}, st.count) |
+        std::views::transform([&](std::size_t li) {
+          return instance_product(static_cast<std::uint32_t>(st.base + li));
+        });
+
+    double sum = std::accumulate(values.begin(), values.end(), 0.0);
     st.sum = sum;
     if (st.count == 0) {
       continue;
@@ -299,24 +319,43 @@ constexpr bool ClusterCorrelationConstraint::occ_mismatch() const {
       [&](std::size_t k) { return current_occ(k) != occ_[k]; });
 }
 
-// Apply the just-proposed move: diff changed sites, update only the affected
-// orbit sums + total error, and record undo info for a possible reject().
+// Apply the just-proposed move as a monadic pipeline: diff changed sites, then
+// (only if any changed) collect the touched instances/orbits, log undo info,
+// commit the new occupations, and patch the affected orbit sums + total error.
+// diff_changed_sites() returns nullopt to short-circuit the whole chain.
 void ClusterCorrelationConstraint::apply_move_update() {
+  diff_changed_sites()
+      .and_then(stage([this](MoveCtx &c) { collect_affected(c); }))
+      .and_then(stage([this](MoveCtx &c) { save_undo(c); }))
+      .and_then(stage([this](MoveCtx &c) { commit_occupations(c); }))
+      .and_then(stage([this](MoveCtx &c) { apply_product_deltas(c); }))
+      .and_then(stage([this](MoveCtx &c) { patch_orbit_errors(c); }));
+}
+
+// Step 1 — diff the live structure against the committed occ_ baseline.
+// nullopt ⇒ no occupation change (e.g. generator found no candidate), which
+// short-circuits the rest of apply_move_update().
+std::optional<ClusterCorrelationConstraint::MoveCtx>
+ClusterCorrelationConstraint::diff_changed_sites() {
   changed_sites_.clear();
   changed_sites_.reserve(occ_.size());
   std::ranges::copy_if(std::views::iota(std::size_t{0}, occ_.size()),
                        std::back_inserter(changed_sites_), [&](std::size_t k) {
                          return current_occ(k) != occ_[k];
                        });
-
   if (changed_sites_.empty()) {
-    return; // no occupation change (e.g. generator found no candidate)
+    return std::nullopt;
   }
+  return MoveCtx{changed_sites_};
+}
 
+// Step 2 — gather the instances and orbits touched by the changed sites,
+// de-duplicated within this step via the epoch stamp.
+void ClusterCorrelationConstraint::collect_affected(MoveCtx &c) {
   ++epoch_;
   affected_insts_.clear();
   affected_orbits_.clear();
-  for (const std::size_t site : changed_sites_) {
+  for (const std::size_t site : c.changed) {
     for (const std::uint32_t gid : index_.instances_of_site(site)) {
       if (seen_inst_[gid] != epoch_) {
         seen_inst_[gid] = epoch_;
@@ -329,11 +368,15 @@ void ClusterCorrelationConstraint::apply_move_update() {
       }
     }
   }
-  // Save undo (occupations of changed sites, raw sums of affected orbits).
+}
+
+// Step 3 — record undo info (changed sites' old occ, affected orbits' old sums)
+// and the pre-move per-instance products, all against the still-current occ_.
+void ClusterCorrelationConstraint::save_undo(MoveCtx &c) {
   undo_sites_.clear();
-  undo_sites_.reserve(changed_sites_.size());
+  undo_sites_.reserve(c.changed.size());
   std::ranges::transform(
-      changed_sites_, std::back_inserter(undo_sites_),
+      c.changed, std::back_inserter(undo_sites_),
       [&](std::size_t site) { return std::pair{site, occ_[site]}; });
 
   undo_orbit_sums_.clear();
@@ -342,20 +385,30 @@ void ClusterCorrelationConstraint::apply_move_update() {
       affected_orbits_, std::back_inserter(undo_orbit_sums_),
       [&](std::size_t o) { return std::pair{o, ostate_[o].sum}; });
 
-  // Old per-instance products (computed against the pre-move occ_).
   old_prod_.resize(affected_insts_.size());
   std::ranges::transform(affected_insts_, old_prod_.begin(),
                          [&](auto gid) { return instance_product(gid); });
+}
 
-  // Commit the new occupations, then apply the per-instance product deltas.
-  for (const std::size_t site : changed_sites_) {
+// Step 4 — commit the new occupations for the changed sites (must run after
+// save_undo so the old products were taken against the pre-move occ_).
+void ClusterCorrelationConstraint::commit_occupations(MoveCtx &c) {
+  for (const std::size_t site : c.changed) {
     occ_[site] = current_occ(site);
   }
+}
 
-  for (const auto [gid, old_prod] : std::views::zip(affected_insts_, old_prod_)) {
+// Step 5 — fold each affected instance's product delta into its orbit's sum,
+// now that occ_ holds the new occupations.
+void ClusterCorrelationConstraint::apply_product_deltas(const MoveCtx &) {
+  for (const auto [gid, old_prod] :
+       std::views::zip(affected_insts_, old_prod_)) {
     ostate_[index_.orbit_of(gid)].sum += instance_product(gid) - old_prod;
   }
-  // Patch total_err_ for the affected orbits using their saved old sums.
+}
+
+// Step 6 — patch total_err_ for the affected orbits using their saved old sums.
+void ClusterCorrelationConstraint::patch_orbit_errors(const MoveCtx &) {
   for (const auto &[o, old_sum] : undo_orbit_sums_) {
     const OrbitState &st = ostate_[o];
     if (st.count == 0) {

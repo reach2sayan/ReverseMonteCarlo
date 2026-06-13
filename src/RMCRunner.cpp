@@ -172,12 +172,14 @@ void attach_constraint(Engine &engine, const mat_t &experimental,
 } // namespace
 
 Result<LoadedStructure> load_structure(const RMCConfig &cfg) {
+  auto pdb_loader = [](const PdbInput &in) { return load_pdb(in); };
+  auto lammps_loader = [](const LammpsInput &in) { return load_lammps(in); };
+  auto vasp_loader = [](const VaspInput &in) { return load_vasp(in); };
   BOOST_LEAF_AUTO(input, select_input(cfg));
-  BOOST_LEAF_AUTO(loaded,
-                  std::visit(boost::hof::match(BOOST_HOF_LIFT(load_pdb),
-                                               BOOST_HOF_LIFT(load_lammps),
-                                               BOOST_HOF_LIFT(load_vasp)),
-                             input));
+  BOOST_LEAF_AUTO(
+      loaded,
+      std::visit(boost::hof::match(pdb_loader, lammps_loader, vasp_loader),
+                 input));
   apply_box_override(cfg, loaded.bc);
   return loaded;
 }

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <numeric>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -244,6 +245,13 @@ private:
     }
   };
 
+  // Per-move pipeline context threaded through the apply_move_update() and_then
+  // chain (mirrors EngineBase::TrialCtx). The heavy scratch buffers stay as
+  // members; this only carries the changed-site view that seeds later steps.
+  struct MoveCtx {
+    std::span<const std::size_t> changed; // view into changed_sites_
+  };
+
   void build_occ_of_code();
   void refresh_site_occ() const;
   [[nodiscard]] double orbit_correlation(const ClusterOrbit &orbit) const;
@@ -255,7 +263,16 @@ private:
   void resync_full();
   void ensure_built();
   [[nodiscard]] constexpr bool occ_mismatch() const;
+  // Incremental move application, expressed as a monadic and_then pipeline of
+  // the private steps below. diff_changed_sites() seeds the chain and
+  // short-circuits it (empty optional) when the move changed no occupation.
   void apply_move_update();
+  [[nodiscard]] std::optional<MoveCtx> diff_changed_sites();
+  void collect_affected(MoveCtx &c);   // touched instances/orbits (epoch dedup)
+  void save_undo(MoveCtx &c);          // undo log + pre-move per-instance prods
+  void commit_occupations(MoveCtx &c); // write new occ_ for changed sites
+  void apply_product_deltas(const MoveCtx &); // patch affected orbit sums
+  void patch_orbit_errors(const MoveCtx &);   // patch total_err_ for those orbits
   void rollback_move() noexcept;
 
   const AtomicStructure &structure_;
