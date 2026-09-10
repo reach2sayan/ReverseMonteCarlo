@@ -3,9 +3,8 @@
 #include "AtatFormats.hpp"
 
 #include <boost/asio/io_context.hpp>
-// Boost 1.88 promoted Process v2 to the main boost::process namespace and
-// removed the old <boost/process/v2.hpp> umbrella header. The boost::process::v2
-// alias below still resolves (it's now an inline namespace under boost::process).
+// Boost 1.88+: Process v2 lives in boost::process; boost::process::v2 is now an
+// inline namespace alias.
 #include <boost/process.hpp>
 
 #include <cstdio>
@@ -26,12 +25,9 @@ std::string slurp(const fs::path &p) {
   return ss.str();
 }
 
-// Run corrdump in `workdir`, redirecting stdout→out_file and stderr→err_file.
-// Throws std::runtime_error (with captured stderr) on a non-zero exit.
-//
-// Note: this Boost's process::v2 aliases `filesystem` to boost::filesystem, so
-// paths are passed as std::strings (→ boost::filesystem::path) and the stdio
-// streams are bound via FILE* to avoid a std/boost path-type mismatch.
+// Run corrdump in `workdir`, redirecting stdout→out_file, stderr→err_file.
+// Throws (with captured stderr) on non-zero exit. Paths passed as strings and
+// stdio bound via FILE* to avoid a std/boost::filesystem path-type mismatch.
 void run_corrdump(const fs::path &exe, const std::vector<std::string> &args,
                   const fs::path &workdir, const fs::path &out_file) {
   const fs::path err_file = workdir / "corrdump.stderr";
@@ -108,8 +104,8 @@ std::vector<double> corrdump_correlations(const fs::path &corrdump_exe,
   }
 
   const fs::path corr = workdir / "corr.out";
-  // -ro: parse the lattice in rndstr format (Sp=occ), so its species labels are
-  // "Au"/"Cu" — matching the str.out atom labels — not "Au=0.5"/"Cu=0.5".
+  // -ro: parse lattice in rndstr format so labels are "Au"/"Cu" (matching
+  // str.out), not "Au=0.5"/"Cu=0.5".
   run_corrdump(corrdump_exe,
                {"-l=rndstr.in", "-ro", "-s=str.out", "-c", "-cf=clusters.out"},
                workdir, corr);

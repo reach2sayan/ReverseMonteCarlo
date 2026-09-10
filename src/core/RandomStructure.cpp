@@ -33,8 +33,7 @@ make_random_amorphous(std::span<const std::string> elements,
     return boost::leaf::new_error(
         std::string{"make_random_amorphous: total atom count is zero"});
   }
-  // The exact composition as a flat list of species indices, then shuffled, so
-  // every grid site gets a uniformly random species while the counts stay exact.
+  // Flat list of species indices, shuffled: random per-site species, exact counts.
   std::vector<std::size_t> species;
   species.reserve(total);
   for (auto [e, count] : counts | std::views::enumerate) {

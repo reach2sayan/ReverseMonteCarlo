@@ -8,18 +8,10 @@
 
 namespace RMC {
 
-// Swaps the species (elements + atomic_numbers) of a selected site with a
-// randomly chosen site from the same sublattice that carries a different
-// element.  Coordinates are never modified — lattice sites are fixed, only
-// occupancy changes (SQS / alloy MC).
-//
-// Usage:
-//   SpeciesSwapGenerator gen{engine.structure(), sublattices};
-//   Group g{"site_0", {0}, MoveGenerator{gen}};
-//   engine.add_group(g);
-//
-// sublattices: outer index = sublattice id; inner = site indices in that
-// sublattice.  Every site index must appear in exactly one sublattice.
+// Swaps the species (elements + atomic_numbers) of a site with a random site in
+// the same sublattice carrying a different element. Coordinates unchanged (SQS /
+// alloy MC). sublattices: outer = sublattice id, inner = its site indices; every
+// site appears in exactly one sublattice.
 struct SpeciesSwapGenerator : MoveGeneratorBase<SpeciesSwapGenerator> {
   AtomicStructure *structure;                        // non-owning
   std::vector<std::vector<std::size_t>> sublattices; // grouped site indices
@@ -64,9 +56,7 @@ public:
     candidates.reserve(sl_sites.size());
     std::ranges::copy_if(
         sl_sites, std::back_inserter(candidates), [&, i](std::size_t j) {
-          // Compare occupation via atomic_numbers (ints, mirrors elements and
-          // swapped together below) instead of the std::string element symbols
-          // — avoids a per-candidate per-step string memcmp in the hot loop.
+          // Compare via atomic_numbers (ints) to avoid per-candidate string cmp.
           return j != i &&
                  structure->atomic_numbers[static_cast<Eigen::Index>(j)] !=
                      structure->atomic_numbers[static_cast<Eigen::Index>(i)];

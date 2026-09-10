@@ -16,8 +16,7 @@ inline int default_concurrency() noexcept {
   return hw > 0 ? static_cast<int>(hw) : 1;
 }
 
-// Process-wide arena. Concurrency defaults to all hardware threads, or to
-// $RMC_NUM_THREADS when that env var is set to a positive int.
+// Process-wide arena; concurrency = all hardware threads or $RMC_NUM_THREADS.
 tbb::task_arena &arena();
 inline void set_max_concurrency(int n) {
   arena().terminate();

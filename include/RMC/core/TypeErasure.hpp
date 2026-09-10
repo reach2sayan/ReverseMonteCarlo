@@ -1,32 +1,13 @@
 #pragma once
 
 // clang-format off
-// Generator macros for the project's owning type-erasure idiom
-// (concept + Concept-ABC + Model<T> + passkey
-// A method is described by a Boost.PP tuple. Normal row (9 fields):
-// (NODISCARD, RET, NAME, PARAMS, ARGC, ARGS, CV, NOEXCEPT, TOKEN)
-//     NODISCARD : 0/1   -> emits [[nodiscard]] when 1
-//     RET       : return type
-//     NAME      : method name
-//     PARAMS    : parenthesized typed parameter list, emitted verbatim, e.g.
-//                 (const coords_t &c, std::span<const std::size_t> m) or ()
-//     ARGC      : number of forward args (explicit, avoids empty-tuplepitfalls)
-//     ARGS      : bare arg names, e.g. (c, m) or () CV : const or empty
-//     NOEXCEPT  : noexcept or empty
-//     TOKEN     : WITH_TOKEN (forward data_.f(make_token(), args...)) or
-//                 NO_TOKEN   (forward data_.f(args...))
-//
-// Optional row (10 fields) — for methods gated on a refining concept that fall
-// back to a default when the wrapped type does not provide them:
-//   (NODISCARD, RET, NAME, PARAMS, ARGC, ARGS, CV, NOEXCEPT, REFINES, DEFAULT)
-//     REFINES   : refining concept (called as REFINES<T>)
-//     DEFAULT   : expression returned when REFINES<T> is not satisfied
-// Optional methods forward to data_ WITHOUT the passkey token
-
-// Lists are Boost.PP sequences of these tuples. Build a wrapper with
-// RMC_DEFINE_ERASED_TYPE(Foo, METHODS) or, when optional rows are present,
-// RMC_DEFINE_ERASED_TYPE_EXT(Foo, METHODS, OPT_METHODS).
-
+// Generator macros for the owning type-erasure idiom (concept + Concept-ABC +
+// Model<T> + passkey). Methods are Boost.PP sequences of tuples.
+// Normal row (9): (NODISCARD, RET, NAME, PARAMS, ARGC, ARGS, CV, NOEXCEPT, TOKEN)
+//   ARGC: number of forward args; TOKEN: WITH_TOKEN forwards make_token() first.
+// Optional row (10): replace TOKEN with (REFINES, DEFAULT) — forwards when
+//   REFINES<T> holds (no token), else returns DEFAULT.
+// Build via RMC_DEFINE_ERASED_TYPE(Foo, METHODS) or ..._EXT(Foo, METHODS, OPT).
 // clang-format on
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/control/if.hpp>

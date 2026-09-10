@@ -24,9 +24,7 @@ void Engine::do_initialise() {
   const std::size_t n_frames = store_.size();
   constraints_.set_n_frames(n_frames);
 
-  // Prime each frame's histogram (one full compute_before_move pass per frame)
-  // so the averaged sum is correct from the first step. For a single frame this
-  // is one eager full build; multi-frame primes all N.
+  // Prime each frame's histogram so the averaged sum is correct from step one.
   const std::size_t n_atoms = store_[0].size();
   std::vector<std::size_t> all_idx(n_atoms);
   std::iota(all_idx.begin(), all_idx.end(), std::size_t{0});

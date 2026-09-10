@@ -5,11 +5,8 @@
 namespace RMC {
 
 void AtomicStructure::save_snapshot(std::span<const std::size_t> indices) {
-  // assign() keeps capacity (never shrinks) and snapshot_coords_ only grows, so
-  // after the largest group is seen once these stop reallocating — the snapshot
-  // is allocation-free in steady state even when group sizes vary per step.
-  // snapshot_indices_.size() is the authoritative row count (snapshot_coords_
-  // may be larger from a previous, bigger group).
+  // snapshot_coords_ only grows; snapshot_indices_.size() is the row count
+  // (snapshot_coords_ may be larger from a previous, bigger group).
   snapshot_indices_.assign(indices.begin(), indices.end());
   const auto n = static_cast<Eigen::Index>(indices.size());
   if (snapshot_coords_.rows() < n) {
@@ -36,10 +33,9 @@ void AtomicStructure::save_species_snapshot() {
   std::copy(atomic_numbers.data(),
             atomic_numbers.data() + atomic_numbers.size(),
             snapshot_atomic_numbers_.begin());
-  // Build the code→symbol map once. Species moves only permute the existing
-  // set of (code, symbol) pairs, so this stays valid for the whole run.
+  // Build the code→symbol map once; species moves only permute existing pairs.
   if (code_to_symbol_.empty() && !elements.empty()) {
-    // zip stops at the shorter of the two, giving the min(n, elements) bound.
+    // zip stops at the shorter, giving the min(n, elements) bound.
     for (const auto &[code, sym] :
          std::views::zip(snapshot_atomic_numbers_, elements)) {
       code_to_symbol_.try_emplace(code, sym);
@@ -52,8 +48,7 @@ void AtomicStructure::restore_species_snapshot() {
   if (!has_species_snapshot_) {
     return;
   }
-  // Only the sites whose code changed need fixing (2 for a swap). Restore the
-  // int code and rebuild the symbol from the map — no full vector copy.
+  // Fix only sites whose code changed: restore code, rebuild symbol from map.
   for (Eigen::Index k = 0; k < atomic_numbers.size(); ++k) {
     const int old_code = snapshot_atomic_numbers_[static_cast<std::size_t>(k)];
     if (atomic_numbers[k] == old_code) {

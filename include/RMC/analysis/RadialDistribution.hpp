@@ -26,10 +26,9 @@ struct GrResult {
   double density = 0.0;              // N / V used for normalization
 };
 
-// Compute g(r) from an in-memory configuration. Requires a periodic box (the
-// partial densities ρ_b = N_b/V need the cell volume); returns a failed Result
-// for a non-periodic (InfiniteBC) cell. Element labels distinguish species; the
-// total uses ρ = N/V, matching PairDistributionConstraint's convention.
+// Compute g(r) from an in-memory configuration. Requires a periodic box
+// (partial densities ρ_b = N_b/V need the cell volume). Total uses ρ = N/V,
+// matching PairDistributionConstraint's convention.
 [[nodiscard]] Result<GrResult> compute_gr(const coords_t &coords,
                                           const BoundaryConditions &bc,
                                           std::span<const std::string> elements,

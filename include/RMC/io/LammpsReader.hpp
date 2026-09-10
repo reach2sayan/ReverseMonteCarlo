@@ -8,19 +8,16 @@
 
 namespace RMC::io {
 
-// Per-atom column layout of the `Atoms` section. LAMMPS does not record the
-// atom_style in the data file, so the caller must say how many leading columns
-// precede the x,y,z coordinates. The default (Atomic) matches files written by
-// `atom_style atomic`: `atom-id atom-type x y z`.
+// Per-atom column layout of the `Atoms` section (the data file doesn't record
+// atom_style, so the caller picks it). Default Atomic matches `atom_style atomic`.
 //   Atomic    : id type x y z
 //   Charge    : id type q x y z
 //   Molecular : id mol type x y z
 //   Full      : id mol type q x y z
 enum class LammpsAtomStyle { Atomic, Charge, Molecular, Full };
 
-// Result of reading a LAMMPS data file: the atoms plus the simulation box the
-// file declares. `box` holds the cell edge vectors as columns (triclinic tilt
-// factors xy/xz/yz are honoured); `origin` is the lower corner (xlo,ylo,zlo).
+// Atoms plus declared box. `box` holds cell edge vectors as columns (triclinic
+// tilt xy/xz/yz honoured); `origin` is the lower corner (xlo,ylo,zlo).
 struct LammpsData {
   AtomicStructure structure;
   mat3_t box{mat3_t::Zero()};
@@ -30,15 +27,9 @@ struct LammpsData {
   [[nodiscard]] PeriodicBC periodic_bc() const { return PeriodicBC(box); }
 };
 
-// Parse a LAMMPS data file (header + `Atoms` section). Coordinates are stored
-// as the absolute Cartesian values found in the file.
-//
-// LAMMPS atom *types* are integers with no intrinsic element identity. Pass
-// `type_to_element` to label them: index 0 -> type 1, index 1 -> type 2, etc.
-// (e.g. {"Zr","Cu","Ag"}). Recognised symbols get their atomic number; the
-// element string is also stored on every atom. When the mapping is empty (or
-// shorter than the number of types) the unmapped types fall back to element
-// "X<type>" with atomic_number = type, which still keeps species distinct.
+// Parse a LAMMPS data file (header + `Atoms`); coordinates are absolute Cartesian.
+// `type_to_element` labels integer atom types: index 0 -> type 1, etc.
+// (e.g. {"Zr","Cu","Ag"}). Unmapped types fall back to "X<type>" / atomic_number=type.
 [[nodiscard]] Result<LammpsData>
 read_lammps_data(const std::filesystem::path &path,
                  const std::vector<std::string> &type_to_element = {},

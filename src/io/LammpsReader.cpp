@@ -18,7 +18,6 @@ namespace {
 namespace bp = boost::parser;
 
 // Trim ASCII whitespace from both ends, returning a sub-view (no allocation).
-// Uses a boost classification predicate rather than two find_*_not_of scans.
 std::string_view trim(std::string_view sv) {
   static const auto is_ws = boost::is_any_of(" \t\r\n");
   while (!sv.empty() && is_ws(sv.front())) {
@@ -91,11 +90,8 @@ read_lammps_data(const std::filesystem::path &path,
   std::string line;
   bool first = true;
 
-  // Header-datum grammars. Each consumes the WHOLE line under the bp::ws
-  // skipper, so the trailing keyword disambiguates — "atoms" can't match the
-  // leading word of "atom types", which the hand-rolled version had to rule out
-  // with tok[tok.size() - 2]. Lines matching none (atom types, bonds, masses
-  // count, ...) fall through and are ignored, as before.
+  // Header-datum grammars. Each consumes the WHOLE line, so the trailing keyword
+  // disambiguates. Lines matching none (atom types, bonds, ...) are ignored.
   const auto atoms_p = bp::ulong_ >> "atoms";                     // -> count
   const auto xlo_p = bp::double_ >> bp::double_ >> "xlo" >> "xhi"; // -> (lo,hi)
   const auto ylo_p = bp::double_ >> bp::double_ >> "ylo" >> "yhi";
@@ -120,8 +116,7 @@ read_lammps_data(const std::filesystem::path &path,
       break;
     }
 
-    // Parse the trimmed view directly — no per-line std::string or token-vector
-    // copies. The first grammar that consumes the whole line wins.
+    // The first grammar that consumes the whole line wins.
     if (const auto n = bp::parse(content, atoms_p, bp::ws)) {
       declared_atoms = static_cast<std::size_t>(*n);
     } else if (const auto bx = bp::parse(content, xlo_p, bp::ws)) {
@@ -212,10 +207,7 @@ read_lammps_data(const std::filesystem::path &path,
     return type_symbol.emplace(type, std::move(sym)).first->second;
   };
 
-  // Every column we read (id, mol, type, charge, x, y, z, and any trailing
-  // image flags) is numeric, so parse the whole line as a run of reals straight
-  // from the view — no token vector, no per-field from_chars — then index by
-  // atom_style.
+  // Every column is numeric: parse the line as a run of reals, then index by atom_style.
   while (std::getline(file, line)) {
     const std::string_view content = trim(strip_comment(line));
     if (content.empty()) {
@@ -258,8 +250,7 @@ read_lammps_data(const std::filesystem::path &path,
         declared_atoms, xyz.size()));
 
   const std::size_t N = xyz.size();
-  // xyz is a contiguous std::vector<std::array<double,3>>; map it directly into
-  // the row-major coordinate matrix instead of copying component by component.
+  // Map the contiguous xyz buffer directly into the row-major coordinate matrix.
   s.coordinates = Eigen::Map<const coords_t>(
       reinterpret_cast<const double *>(xyz.data()),
       static_cast<Eigen::Index>(N), 3);

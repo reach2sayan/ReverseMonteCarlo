@@ -9,19 +9,14 @@
 
 namespace RMC {
 
-// Lifecycle per MC step (see update()):
-
-//   *
-//   * f
+// Single-/multi-frame incremental histogram engine (lifecycle per MC step in update()).
 struct IncrementalHistogram {
   int len_{0};
   std::size_t n_frames_{1};
   std::size_t active_frame_{0};
 
-  // Per-frame running counts: one slot per frame, engaged once that frame's
-  // full histogram has been built. A disengaged slot means "full rebuild
-  // pending" and contributes nothing to sum_hist_. Single-frame is simply
-  // n_frames_ == 1 (one slot); there is no separate fast path.
+  // Per-frame running counts; a disengaged slot means "full rebuild pending"
+  // and contributes nothing to sum_hist_.
   mutable std::vector<std::optional<vec_t>> frame_hists_;
   mutable vec_t sum_hist_;         // running Σ over the engaged frame slots
   mutable vec_t saved_frame_hist_; // pre-move snapshot for rollback
@@ -31,8 +26,7 @@ struct IncrementalHistogram {
   mutable vec_t scratch_delta_;     // reused after-move delta buffer
   mutable bool incremental_ready_{false}; // set by before-move, cleared after
 
-  // Pre-size the per-step scratch buffers so the hot path can setZero() in
-  // place instead of allocating each step. Call once the bin count is known.
+  // Pre-size the per-step scratch buffers. Call once the bin count is known.
   void set_length(int len) {
     len_ = len;
     saved_moved_delta_.resize(len);
@@ -66,8 +60,7 @@ struct IncrementalHistogram {
               BeforeMove &&before_move, AfterMove &&after_move) const {
     auto &slot = frame_hists_[active_frame_];
     if (incremental_ready_ && !moved.empty()) {
-      // after-move call (incremental_ready_ == true): recompute the moved-atom
-      // delta at the NEW coords and patch  new = saved − D_old + D_new.
+      // after-move: patch new = saved − D_old + D_new (delta at NEW coords).
       BOOST_ASSERT_MSG(slot.has_value(), "Slot is Disengaged");
       after_move(moved);
       scratch_delta_.setZero();
@@ -78,10 +71,9 @@ struct IncrementalHistogram {
       slot = std::move(new_frame_hist);
       incremental_ready_ = false;
     } else {
-      // before-move call (moved staged, incremental_ready_ == false): snapshot
-      // the active histogram, Lazily full-build a pending slot,
+      // before-move (or full eval when `moved` empty): snapshot, lazily full-build
+      // a pending slot.
       slot = std::move(slot).or_else([&] {
-        // full-evaluation call (empty `moved`)
         vec_t tmp = vec_t::Zero(len_);
         build_full(tmp);
         sum_hist_ += tmp;

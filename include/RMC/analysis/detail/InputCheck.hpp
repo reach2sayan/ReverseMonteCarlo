@@ -11,11 +11,9 @@
 
 namespace RMC::analysis::detail {
 
-// Shared precondition check for the in-memory ADF / g(r) entry points: a
-// non-empty structure whose element labels match the atom count, a positive
-// bin count, and a periodic box with positive volume (both normalisations need
-// a finite cell volume). `fn` prefixes the error message so callers keep their
-// distinct diagnostics. Returns the cell volume V on success for reuse.
+// Shared precondition check for ADF / g(r): non-empty structure, elements match
+// atom count, n_bins > 0, periodic box with positive volume. `fn` prefixes the
+// error message; returns the cell volume V on success.
 [[nodiscard]] FORCE_INLINE Result<double>
 check_periodic_inputs(std::string_view fn, const coords_t &coords,
                       std::span<const std::string> elements, int n_bins,

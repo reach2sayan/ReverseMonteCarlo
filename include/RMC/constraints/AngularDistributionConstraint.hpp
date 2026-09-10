@@ -44,37 +44,21 @@ struct AdfColumn {
 // histogram split, per-column scaling and target divisor all share.
 [[nodiscard]] std::vector<AdfColumn> adf_columns(int n_types);
 
-// Accumulate a raw bond-angle histogram into `hist` (length n_bins ·
-// adf_n_cols). For every central atom i, every unordered pair (j, k) of its
-// neighbours within `max_dis` contributes 1 to the bin of the angle j–i–k
-// (binned over [0, π] into n_bins) and the column (central = elem_id[i], legs =
-// elem_id[j], elem_id[k]). `hist` is zeroed first. `elem_id` holds the small
-// contiguous species id per atom (the same 0,1,2,… ids initialise() assigns),
-// `n_types` their count.
-//
-// This is a full O(N·⟨n⟩²) recompute that rebuilds the whole ADF every step. It
-// targets the small DFT-ready cells the
-// Special Glass Structure method produces; an incremental neighbour-delta path
-// (mirroring accumulate_moved_pairs) is the planned follow-up optimisation.
+// Accumulate a raw bond-angle histogram into `hist` (length n_bins·adf_n_cols),
+// zeroed first. Each central atom i and unordered neighbour pair (j,k) within
+// `max_dis` adds 1 to the bin of angle j–i–k (over [0,π], n_bins) in column
+// (central=elem_id[i], legs=elem_id[j],elem_id[k]). Full O(N·⟨n⟩²) recompute.
 void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
                                 const BoundaryConditions *bc,
                                 const std::vector<uint8_t> &elem_id,
                                 int n_types, double max_dis, int n_bins,
                                 const AtomsCollector *collector = nullptr);
 
-// Incremental neighbour-delta companion to accumulate_angle_histogram. Adds
-// into `hist` (caller zeroes) every angle j–i–k PRESENT in `coords` whose
-// vertex set {apex i, leg j, leg k} intersects `moved`, each exactly once, in
-// the SAME bin/column layout. `grid` must already be synced to `coords` (it
-// serves the neighbour queries). Used for the before/after-move delta:
-// new_hist = saved − accumulate_moved_angles(old) + accumulate_moved_angles(new).
-//
-// Iterating by apex over the candidate centres { moved ∪ neighbours(moved) }
-// counts each affected angle exactly once (the apex is its unique key — no
-// ordering trick is needed, unlike accumulate_moved_pairs). The seed reads a
-// moved atom's coordinate row even when it is absent, so a removed atom's
-// former neighbours are still revisited (its angles get subtracted, not
-// re-added). Per-step cost is independent of N.
+// Incremental companion to accumulate_angle_histogram: adds into `hist` (caller
+// zeroes) every angle j–i–k in `coords` whose vertex set {apex i, leg j, leg k}
+// intersects `moved`, once each, same layout. `grid` must be synced to `coords`.
+// Used for: new_hist = saved − accumulate_moved_angles(old) + accumulate_moved_angles(new).
+// Iterating by apex over {moved ∪ neighbours(moved)} keys each angle uniquely.
 void accumulate_moved_angles(vec_t &hist, const coords_t &coords,
                              const BoundaryConditions *bc,
                              const std::vector<uint8_t> &elem_id, int n_types,
@@ -83,29 +67,20 @@ void accumulate_moved_angles(vec_t &hist, const coords_t &coords,
                              const NeighborGrid &grid,
                              const AtomsCollector *collector = nullptr);
 
-// Soft constraint fitting the bond-angle distribution function (ADF) — the
-// angular companion to PairDistributionConstraint. Distinct from
-// AngleConstraint (a rigid per-triplet bound check): this fits the full angular
-// *distribution* histogram, per element triplet, against a target, contributing
-// to the engine's total chi².
-//
-// The histogram is one flat vec_t, row-major angle_bin × triplet_column (stride
-// = n_cols_), so the multi-frame averaging arithmetic carries over verbatim
-// from PairConstraintBase. Element ids are assigned by *sorted* symbol (as in
-// analysis::compute_adf and compute_gr) so the column order is independent of
-// the structure's atom ordering and a target written by `--adf-compute` is
-// directly consumable here.
+// Soft constraint fitting the bond-angle distribution function (ADF), per element
+// triplet, against a target (contributes to total chi²). Histogram is one flat
+// vec_t, row-major angle_bin × triplet_column (stride n_cols_). Element ids are
+// assigned by *sorted* symbol (as in analysis::compute_adf), so column order is
+// independent of atom ordering.
 class AngularDistributionConstraint
     : public SingularConstraintBase<AngularDistributionConstraint> {
 public:
   using SingularConstraintBase<
       AngularDistributionConstraint>::set_boundary_conditions;
 
-  // Experimental target. Column 0 = angle bin centres (rad, over [0, π]); each
-  // remaining column = one triplet's target value, in the canonical column
-  // order (central id outer, leg pair inner — see adf_leg_pair_index). The
-  // number of value columns must equal adf_n_cols(n_types); validated in
-  // initialise().
+  // Experimental target. Column 0 = angle bin centres (rad, [0,π]); remaining
+  // columns = per-triplet targets in canonical order (see adf_leg_pair_index).
+  // Value-column count must equal adf_n_cols(n_types); validated in initialise().
   void set_experimental_data(const mat_t &data);
 
   constexpr void set_elements(std::span<const std::string> e) noexcept {
@@ -113,27 +88,22 @@ public:
   }
   constexpr void set_cutoff(double max_dis) noexcept { max_dis_ = max_dis; }
   constexpr void set_smoothing(int range) noexcept { smooth_range_ = range; }
-  // When true (default) the chi² is RMC's scale-invariant residual, matching
-  // the pair constraints. Set false for an unscaled L2 residual with the full
-  // volume normalization applied.
+  // true (default): scale-invariant residual (matches pair constraints).
+  // false: unscaled L2 residual with full volume normalization.
   constexpr void set_scale_invariant(bool v) noexcept { scale_invariant_ = v; }
 
-  // Force a full histogram + grid rebuild every `n` accepted moves to bound the
-  // floating-point drift of the incremental `saved − D_old + D_new` update. 0
-  // (default) disables it, matching the never-resyncing pair constraints; the
-  // per-step deltas are sums of integer counts so drift is negligible in
-  // practice.
+  // Full histogram + grid rebuild every `n` accepts to bound drift of the
+  // `saved − D_old + D_new` update. 0 (default) disables.
   constexpr void set_resync_interval(unsigned n) noexcept { resync_every_ = n; }
 
-  // build species ids, per-column normalization, and flatten/validate target.
-  // Call after set_experimental_data and set_elements (automatic).
+  // Build species ids, per-column normalization, flatten/validate target.
+  // Call after set_experimental_data and set_elements.
   void initialise();
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     return "AngularDistributionConstraint";
   }
-  // Between PDF (1e6) and S(Q) (2e6): a full ADF recompute is O(N·⟨n⟩²), so it
-  // runs after the PDF in the cost-ordered collection.
+  // Between PDF (1e6) and S(Q) (2e6); full ADF recompute is O(N·⟨n⟩²).
   [[nodiscard]] static constexpr double
   computation_cost(Constraint::Token) noexcept {
     return 1.5e6;
@@ -142,15 +112,12 @@ public:
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;
 
-  // Public (non-token) multi-frame controls, mirroring PairConstraintBase so
-  // tests and tools can drive them directly. set_active_frame_idx resets the
-  // pending before-move delta: the saved snapshot/grid belong to the previously
-  // active frame, so a before-move on a switched-to frame must not be mistaken
-  // for an after-move.
+  // Public (non-token) multi-frame controls. set_active_frame_idx resets the
+  // pending before-move delta (saved snapshot/grid belong to the previous frame).
   void set_n_frames(std::size_t n);
   void set_active_frame_idx(std::size_t k) noexcept { hist_.set_active_frame(k); }
-  // Restore the active frame's histogram + grid after a rejected move; commit
-  // drops the rollback snapshot (and drives the optional drift resync).
+  // rollback restores the active frame's histogram + grid; commit drops the
+  // snapshot and drives the optional drift resync.
   void rollback_frame() noexcept;
   void commit_frame() noexcept;
 
@@ -179,8 +146,7 @@ public:
 private:
   void normalise_and_smooth(const coords_t &coords) const;
 
-  // The neighbour grid backing the active frame. Single-frame is just
-  // n_frames_ == 1 (one entry), so there is no separate single-frame grid.
+  // The neighbour grid backing the active frame (single-frame = one entry).
   [[nodiscard]] NeighborGrid &active_grid() const noexcept {
     return frame_grids_[hist_.active_frame_];
   }
@@ -206,14 +172,10 @@ private:
   mutable vec_t computed_;       // normalised, smoothed (length hist_len_)
   mutable vec_t smooth_scratch_; // reused smoothing buffer
 
-  // Single-/multi-frame incremental histogram engine (shared with the pair
-  // constraints). Holds all running raw-count buffers and the moved-vertex
-  // angle delta scratch; the constraint supplies the angle kernels and the
-  // neighbour-grid relocation hooks below.
+  // Single-/multi-frame incremental histogram engine (shared with pair constraints).
   mutable IncrementalHistogram hist_;
 
-  // ---- Neighbour grids (constraint-owned; driven via the update() hooks) ----
-  // One grid per frame; single-frame runs hold exactly one.
+  // One neighbour grid per frame (single-frame holds one); driven via update() hooks.
   mutable std::vector<NeighborGrid> frame_grids_;
 
   // ---- Optional drift-resync guard ----

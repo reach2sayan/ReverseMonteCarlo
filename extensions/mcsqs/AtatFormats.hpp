@@ -1,12 +1,8 @@
 #pragma once
 // Parsers and writers for the ATAT text formats consumed/produced by corrdump.
-//
-// Convention: every coordinate here is expressed in the lat.in "axes" frame
-// (i.e. fractional w.r.t. the coordinate-system vectors given on the first
-// line(s) of lat.in / rndstr.in). This is exactly the frame ATAT uses for
-// clusters.out point coordinates and sym.out operations, so the symmetry
-// enumeration in ClusterEnumerator can stay in one consistent frame. The
-// Cartesian `axes` matrix is only needed to emit physical (Å) coordinates.
+// Convention: all coordinates here are in the lat.in "axes" frame (fractional
+// w.r.t. the coordinate-system vectors), matching clusters.out / sym.out. The
+// Cartesian `axes` matrix is only for emitting physical (Å) coordinates.
 #include <RMC/core/Types.hpp>
 
 #include <filesystem>

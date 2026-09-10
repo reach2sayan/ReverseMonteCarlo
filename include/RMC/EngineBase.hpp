@@ -27,24 +27,19 @@ using StepCallback = std::function<void(std::uint64_t, std::uint64_t,
                                         std::uint64_t, double,
                                         const AtomicStructure &)>;
 
-// CRTP base for the refinement engine (Engine is its sole instantiation; the
-// CRTP seam is kept so the pipeline stays decoupled from the policy wiring).
-//
-// MC : step() - 4 stage : choose / perturb / score / sample
-// the four pipeline stages, the three-tier acceptance (decide_rejection) and
-// settle() all live here and reach the per-engine specifics through CRTP
-// customization points the Derived class supplies:
-//   select()                -> std::optional<TrialCtx>  (1 or 2 selectors)
+// CRTP base for the refinement engine. step() is the 4-stage MC pipeline
+// (choose/perturb/score/sample) plus three-tier acceptance (decide_rejection)
+// and settle(); per-engine specifics come from CRTP customization points:
+//   select()                -> std::optional<TrialCtx>
 //   store()                 -> indexed frame storage (frame 0 = primary)
 //   species_policy() / feedback_policy() / collector_policy() /
-//   checkpoint_policy()     -> orthogonal compile-time feature policies
-//   group_sel_for_feedback()-> the selector that receives adaptive feedback
+//   checkpoint_policy()     -> compile-time feature policies
+//   group_sel_for_feedback()-> selector receiving adaptive feedback
 //   do_initialise()         -> one-time frame/constraint priming
-// Derived must `friend class EngineBase<Derived>;` to expose these.
+// Derived must `friend class EngineBase<Derived>;`.
 template <typename Derived> class EngineBase {
 public:
-  // Ephemeral per-step context threaded through the and_then pipeline. The
-  // frame pointer is always populated (single-frame fixes fi == 0).
+  // Per-step context threaded through the and_then pipeline (single-frame fixes fi == 0).
   struct TrialCtx {
     std::size_t fi;
     std::size_t gi;
@@ -107,10 +102,9 @@ public:
     log_every_ = log_every;
   }
 
-  // Replace the move-acceptance policy. Default is GreedySampler (strict
-  // downhill — RMC's historical behaviour). `seed` seeds the dedicated RNG the
-  // engine draws Metropolis/annealing uniforms from; give each ensemble replica
-  // a distinct seed for independent stochastic streams.
+  // Replace the move-acceptance policy (default GreedySampler, strict downhill).
+  // `seed` seeds the RNG for Metropolis/annealing uniforms; give each replica a
+  // distinct seed for independent streams.
   void set_sampler(Sampler s, std::uint32_t seed = 0xACCE55u) {
     sampler_ = std::move(s);
     accept_rng_ = RngBuffer<>{seed};
@@ -121,8 +115,7 @@ protected:
       : bc_(std::make_unique<BoundaryConditions>(std::move(bc))) {}
 
   // One trial step: select → snapshot/score-before → propose → score-after →
-  // settle, then log and (policy-gated) checkpoint. select() short-circuits the
-  // and_then chain when no eligible group is available.
+  // settle, then log and checkpoint. select() short-circuits when no group is eligible.
   void step() {
     ++n_steps_total_;
     auto ctx = self().select();
@@ -216,10 +209,8 @@ protected:
     }
   }
 
-  // Heap-stable so the raw `const BoundaryConditions*` that each constraint
-  // holds (set in add_constraint) survives the engine being moved — e.g. into
-  // the vector in run_ensemble. A by-value member would relocate and dangle
-  // (ASan: stack-use-after-return). Mirrors the shared_ptr-held collector.
+  // Heap-stable so the raw `const BoundaryConditions*` each constraint holds
+  // survives the engine being moved (e.g. into run_ensemble's vector).
   std::unique_ptr<BoundaryConditions> bc_;
   std::vector<Group> groups_;
   ConstraintCollection constraints_;

@@ -7,15 +7,12 @@
 
 namespace RMC {
 
-// Frame storage for the engine. The store presents a uniform indexed interface
-// (size(), operator[], primary()) so the shared step pipeline in EngineBase
-// addresses frames the same way regardless of arity — frame 0 is always
-// "primary". Single-frame runs simply hold one frame.
+// Frame storage with a uniform indexed interface (size/operator[]/primary);
+// frame 0 is always "primary".
 
 // A single frame on the heap at a STABLE address: a moved engine steals the
-// unique_ptr, so any references held by its constraints / move generators (e.g.
-// SQS's ClusterCorrelationConstraint, SpeciesSwapGenerator) keep pointing at the
-// same live structure. This is the per-frame unit FrameStore is built from.
+// unique_ptr, so references held by constraints/generators keep pointing at the
+// same live structure.
 struct SingleFrameStore {
   std::unique_ptr<AtomicStructure> s_;
 
@@ -37,13 +34,10 @@ struct SingleFrameStore {
   }
 };
 
-// The engine's frame storage, built on SingleFrameStore so every frame inherits
-// the stable-heap-address guarantee: each frame's AtomicStructure lives behind a
-// unique_ptr, so a vector reallocation during add() merely moves the pointers
-// (cheap) while the structures stay put. References bound by constraints / move
-// generators therefore survive both engine moves AND add() growth, so frames
-// need NOT all be added before generator/constraint construction. Single-frame
-// runs hold exactly one frame; there is no separate single-frame store.
+// Frame storage on SingleFrameStore, so every frame keeps a stable heap address:
+// a vector realloc during add() moves only the pointers, leaving structures put.
+// References bound by constraints/generators survive both engine moves and add()
+// growth — frames need not all be added before generator/constraint construction.
 struct FrameStore {
   std::vector<SingleFrameStore> v_;
 

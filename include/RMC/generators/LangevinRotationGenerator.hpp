@@ -8,11 +8,9 @@
 
 namespace RMC {
 
-// MALA-style rotation: parameterize as angle θ about a random axis through the
-// group centroid. θ' = -(ε²/2)·(∂χ²/∂θ) + ε·η, η ~ N(0,1).
-// Only 2 constraint evaluations for the gradient (vs 6k for translation).
-// The random axis is re-sampled each call; the drift steers the angle magnitude
-// and sign, not the axis direction.
+// MALA-style rotation by angle θ about a random axis through the group centroid:
+// θ' = -(ε²/2)·(∂χ²/∂θ) + ε·η, η ~ N(0,1). Gradient is 2 evals. Axis re-sampled
+// each call; drift steers angle magnitude/sign, not axis direction.
 struct LangevinRotationGenerator
     : MoveGeneratorBase<LangevinRotationGenerator> {
 

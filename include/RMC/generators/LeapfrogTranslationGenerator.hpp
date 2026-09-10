@@ -104,8 +104,7 @@ struct LeapfrogTranslationGenerator
     }
     (void)steps_done;
 
-    // H₁: χ² at leapfrog endpoint (last gradient call already set err_after_,
-    // but we need an explicit evaluation for total_error() to reflect this)
+    // H₁: χ² at leapfrog endpoint (explicit eval so total_error() reflects it).
     constraints->compute_after_move(coords, indices);
     const double chi2_1 = constraints->total_error();
     const double K1 = p.squaredNorm() / 2.0;
@@ -117,8 +116,6 @@ struct LeapfrogTranslationGenerator
         (log_alpha < 0.0) && (rng.uniform() > std::exp(log_alpha));
 
     if (rejected) {
-      // Engine's `score_after` will then see
-      // `err_after ≈ err_before` and accept the no-op correctly.
       coords(idx, Eigen::all) = saved;
     }
     rejection_hint_ = rejected;

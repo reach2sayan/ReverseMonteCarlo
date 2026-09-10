@@ -7,10 +7,8 @@
 
 namespace RMC {
 
-// Central-difference gradient oracle shared by all Langevin/Leapfrog
-// generators. Calls constraints.compute_after_move() twice per parameter
-// dimension — the Engine overwrites err_after_ again in its own score_after
-// stage, so these calls are safe.
+// Central-difference gradient oracle for Langevin/Leapfrog generators. Calls
+// compute_after_move() twice per dimension; Engine re-scores after, so it's safe.
 struct GradientOracle {
   static constexpr double default_fd_step = 1e-4;
   static constexpr double rotation_fd_step = 1e-5;

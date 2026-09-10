@@ -31,10 +31,8 @@ void NeighborGrid::build(const coords_t &coords, const BoundaryConditions *bc,
   if (pbc && cutoff > 0.0) {
     periodic_ = true;
     inv_box_ = pbc->inv_box();
-    // Perpendicular width along reciprocal direction a is 1/|b_a|, with b_a the
-    // a-th reciprocal vector = row a of inv_box (since inv_box * box = I and
-    // the lattice vectors are the columns of box). A cell must be >= cutoff
-    // wide so that neighbours fall within the +/-1 cell stencil.
+    // Perpendicular width along axis a = 1/|b_a|, b_a = row a of inv_box.
+    // Cell must be >= cutoff wide so neighbours fall within the +/-1 stencil.
     const Eigen::Array3d widths =
         inv_box_.rowwise().norm().cwiseInverse().array();
     n_ = (widths / cutoff).floor().cast<int>().max(1).matrix();
@@ -113,11 +111,8 @@ void NeighborGrid::neighbors_of(std::size_t i, const coords_t &coords,
   const Eigen::Vector3i ci = cell_coords(ri);
   const Eigen::Vector3i strd = strides();
 
-  // Per-axis list of cell indices to visit. For >=3 cells the +/-1 stencil with
-  // wrap gives three distinct cells; for 1 or 2 cells we scan every cell along
-  // that axis (a +/-1 stencil would alias and double-visit the same cell). Each
-  // axis visits at most 3 cells, so a stack buffer + span avoids any
-  // allocation.
+  // Per-axis cells to visit: for >=3 cells the wrapped +/-1 stencil gives 3
+  // distinct cells; for 1-2 cells scan every cell (a +/-1 stencil would alias).
   std::array<std::array<int, 3>, 3> visit;
   std::array<std::span<const int>, 3> axes;
   for (auto &&[a, vis] :

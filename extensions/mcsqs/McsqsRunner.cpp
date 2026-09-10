@@ -258,7 +258,7 @@ struct McsqsProblem {
   std::vector<std::vector<std::size_t>> sublattices;
   ClusterBasis basis;
 
-  // Oracle cross-check outputs, populated only when corrdump is available.
+  // Oracle cross-check outputs, populated only with corrdump.
   bool has_oracle = false;
   std::string lattice_path;
   std::filesystem::path clusters_out_path;
@@ -362,12 +362,10 @@ McsqsProblem resolve_problem(const po::variables_map &vm, std::uint32_t seed) {
   return resolve_problem_corrdump(vm, seed);
 }
 
-// ---------------------------------------------------------------------------
 // Search
-// ---------------------------------------------------------------------------
 
-// Configure an engine in place. Its constraint and generator hold references
-// into eng.structure(), which stays heap-stable across the later move.
+// Configure engine in place. Constraint/generator hold refs into eng.structure(),
+// which stays heap-stable across the later move.
 void configure_engine(Engine &eng, const McsqsProblem &prob,
                       const SamplerSettings &sampler, std::uint32_t rseed,
                       std::uint64_t log_every) {
@@ -421,8 +419,8 @@ Engine run_search(const McsqsProblem &prob, const SamplerSettings &sampler,
   return eng;
 }
 
-// Write the best structure and also emit bestsqs.out (str.out) plus cross-check
-// its corrdump-recomputed correlations against the search — a direct oracle.
+// Write best structure; with corrdump, also emit bestsqs.out (str.out) and
+// cross-check its corrdump-recomputed correlations (oracle).
 void report_result(const Engine &best_engine, const McsqsProblem &prob,
                    const po::variables_map &vm, const std::string &out_path) {
   const auto &best = best_engine.best_structure();

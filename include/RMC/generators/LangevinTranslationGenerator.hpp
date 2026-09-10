@@ -8,12 +8,9 @@
 
 namespace RMC {
 
-// MALA-style translation: Δr = -(ε²/2)·∇χ²(r_group) + ε·η, η ~ N(0,I_{3k})
-// The gradient is computed by central finite differences over the group atoms
-// only (O(6k) constraint evaluations, k = group size). The Engine's standard
-// Metropolis accept/reject applies after the move — this is an O(ε²)
-// approximation to the exact MALA correction; refine with Tier 1b for large
-// step sizes.
+// MALA-style translation: Δr = -(ε²/2)·∇χ²(r_group) + ε·η, η ~ N(0,I_{3k}).
+// Gradient by central differences over the group atoms (O(6k) evals). Engine's
+// Metropolis accept/reject follows; this is an O(ε²) approximation to MALA.
 struct LangevinTranslationGenerator
     : MoveGeneratorBase<LangevinTranslationGenerator> {
 

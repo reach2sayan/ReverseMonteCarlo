@@ -43,9 +43,8 @@ concept CConstraint =
       c.initialise(tok);
     };
 
-// standard_error_before() is the soft error BEFORE the proposed move (0 for
-// rigid constraints) — lets the engine form the total ΔE handed to the Sampler.
-// name() is the only method forwarded without the passkey token.
+// standard_error_before() = soft error BEFORE the move (0 for rigid). name() is
+// the only method forwarded without the passkey token.
 #define RMC_CONSTRAINT_METHODS                                                 \
   ((0, void, compute_before_move,                                              \
     (const coords_t &coords, std::span<const std::size_t> moved), 2,           \
@@ -103,8 +102,8 @@ public:
   set_boundary_conditions(const BoundaryConditions &bc) noexcept {
     bc_ = &bc;
   }
-  // The engine's AtomsCollector (null when the collector feature is off). Lets
-  // term-accumulating loops skip atoms staged/committed for removal.
+  // The engine's AtomsCollector (null when off); lets loops skip atoms staged
+  // for removal.
   constexpr void set_collector(Constraint::Token,
                                const AtomsCollector *c) noexcept {
     collector_ = c;
@@ -125,8 +124,7 @@ public:
     err_before_ = err_after_;
   }
   constexpr void reject(Constraint::Token) noexcept {
-    // Reset err_after_ so total_error() stays consistent after short-circuited
-    // compute_after_move (i.e. when this constraint was skipped).
+    // Reset err_after_ so total stays consistent if compute_after_move was skipped.
     err_after_ = err_before_;
   }
 
@@ -138,9 +136,8 @@ public:
   standard_error_before(Constraint::Token) const noexcept {
     return err_before_;
   }
-  // Per-constraint downhill test. Used directly only as the RIGID hard gate
-  // now; the soft accept/reject decision (incl. any uphill tolerance or
-  // annealing) is made by the engine's Sampler on the TOTAL soft error.
+  // Per-constraint downhill test; used only as the RIGID hard gate. The soft
+  // accept/reject decision is made by the engine's Sampler on the TOTAL error.
   [[nodiscard]] constexpr bool should_reject(Constraint::Token) const noexcept {
     return err_after_ > err_before_;
   }
@@ -158,14 +155,12 @@ public:
   // No-op defaults for multi-frame support; override in pair constraints.
   constexpr void set_n_frames(Constraint::Token, std::size_t) noexcept {}
   constexpr void set_active_frame(Constraint::Token, std::size_t) noexcept {}
-  // No-op default: most constraints need no one-time setup. Pair constraints
-  // override with the token-gated wrapper that fills their tables.
+  // No-op default; pair constraints override to fill their tables.
   constexpr void initialise(Constraint::Token) noexcept {}
 
 protected:
-  // True when atom `i` is staged or committed for removal — a term that
-  // involves it must be skipped (contribute nothing). Cheap when the collector
-  // feature is off (null pointer short-circuits before any lookup).
+  // True when atom `i` is staged/committed for removal (terms involving it skip).
+  // Null collector short-circuits before any lookup.
   [[nodiscard]] FORCE_INLINE bool absent(std::size_t i) const noexcept {
     return collector_ != nullptr && collector_->absent(i);
   }
@@ -192,8 +187,6 @@ public:
   standard_error(Constraint::Token) noexcept {
     return 0.0;
   }
-  // Rigid constraints contribute 0 to the soft total both before and after, so
-  // they never enter the Sampler's ΔE — they act purely as a hard gate.
   [[nodiscard]] static constexpr double
   standard_error_before(Constraint::Token) noexcept {
     return 0.0;

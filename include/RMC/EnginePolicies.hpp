@@ -15,11 +15,8 @@
 
 namespace RMC {
 
-// Orthogonal, compile-time engine features. Each axis carries any needed state;
-// the engine holds these as [[no_unique_address]] members and the shared
-// pipeline in EngineBase invokes them at fixed hook points. (These were once
-// paired with stateless No* off-variants for a feature-stripped second engine;
-// with a single unified engine every axis is always on.)
+// Orthogonal, compile-time engine features held as [[no_unique_address]]
+// members and invoked at fixed hook points by EngineBase's pipeline.
 
 // --- Species snapshots (atom-swap moves) -----------------------------------
 struct WithSpecies {
@@ -63,9 +60,8 @@ struct WithCollector {
 };
 
 // --- Best-ever configuration tracking --------------------------------------
-// With simulated annealing the FINAL MC state is deliberately not the minimum,
-// so SQS wants the best-ever structure. Off by default: greedy fitting's final
-// state is already its best, and tracking costs an O(N) copy per improvement.
+// For annealing, where the final MC state is not the minimum. Off by default
+// (greedy's final state is already its best; tracking costs an O(N) copy per improvement).
 struct WithBestTracking {
   bool track_{false};
   double best_error_{std::numeric_limits<double>::max()};
@@ -78,8 +74,7 @@ struct WithBestTracking {
       best_structure_ = cur; // snapshot the new best configuration
     }
   }
-  // Lowest error seen (or the live error when not tracking — so ensemble
-  // winner-selection is correct either way).
+  // Lowest error seen, or the live error when not tracking.
   [[nodiscard]] constexpr double best_error(double live) const noexcept {
     return track_ ? best_error_ : live;
   }

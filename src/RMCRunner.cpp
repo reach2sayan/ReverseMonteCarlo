@@ -44,8 +44,7 @@ namespace leaf = boost::leaf;
 namespace RMC {
 namespace {
 
-// Per-format input descriptors, fused into a variant for std::visit dispatch —
-// the value-oriented overload set, now keyed off RMCConfig's input paths.
+// Per-format input descriptors, fused into a variant for std::visit dispatch.
 struct PdbInput {
   std::string path;
 };
@@ -131,9 +130,8 @@ void apply_box_override(const RMCConfig &cfg, BoundaryConditions &bc) {
   spdlog::info("Periodic box: {} x {} x {}", a, b, c);
 }
 
-// One experimental target: a human label, the RMCConfig field naming its file,
-// the reader to parse it, and where the parsed matrix lands in ExperimentalData.
-// The reader varies — S(Q)/G(r) are two-column, the ADF is multi-column.
+// One experimental target: label, config field naming its file, reader, and
+// destination field. S(Q)/G(r) are two-column; ADF is multi-column.
 struct ExperimentalTarget {
   const char *label;
   std::optional<std::string> RMCConfig::*path;
@@ -259,10 +257,8 @@ mat3_t periodic_box_or_zero(const BoundaryConditions &bc) {
 // Command-line driver (RMC_run).
 // =====================================================================
 
-// Write a structure choosing the format from the output path: a VASP POSCAR for
-// .vasp/.poscar (or a POSCAR/CONTCAR name), a LAMMPS data file for
-// .lammps/.lmp/.data, otherwise a PDB. The box (from the active periodic cell;
-// zero for infinite) is needed by the VASP and LAMMPS writers.
+// Write a structure, picking the format from the output path's extension
+// (.vasp/.poscar → VASP, .lammps/.lmp/.data → LAMMPS, else PDB).
 Result<void> write_structure_by_ext(const AtomicStructure &s, const mat3_t &box,
                                     const std::string &path) {
   // Unknown extensions fall back to PDB.
@@ -272,15 +268,11 @@ Result<void> write_structure_by_ext(const AtomicStructure &s, const mat3_t &box,
     return io::write_vasp(s, box, path);
   }
   if (fmt == io::StructFormat::Lammps) {
-    // The engine wraps atoms into [0,L), and PeriodicBC drops the box origin, so
-    // a structure read from a centered cell (xlo=-L/2) would otherwise be
-    // written with xlo=0 — the cell appears to jump. Re-center: write the box as
-    // [-L/2, L/2) and wrap atoms into it. (Orthogonal cells; any tilt is passed
-    // through unwrapped.)
+    // Re-center into [-L/2, L/2) and wrap atoms (the engine wraps into [0,L) and
+    // PeriodicBC drops the origin). Orthogonal cells; any tilt passes through.
     AtomicStructure centered = s;
     const vec3_t half(0.5 * box(0, 0), 0.5 * box(1, 1), 0.5 * box(2, 2));
-    // Wrap each axis into [-L/2, L/2) as a single vectorised column op:
-    // x -= L·floor((x + L/2)/L). The d loop is over the three box dims.
+    // Per-axis wrap into [-L/2, L/2): x -= L·floor((x + L/2)/L).
     for (int d = 0; d < 3; ++d) {
       const double L = box(d, d);
       if (L > 0.0) {
@@ -305,10 +297,8 @@ template <typename T> std::vector<T> parse_tokens(const std::string &text) {
 }
 
 void configure_logging(bool verbose) {
-  // A single thread-safe (_mt) colour sink, shared as the default logger so the
-  // ensemble's parallel replicas can all log without racing on the sink. The
-  // static guard keeps the named logger registered exactly once even if this is
-  // called more than once.
+  // One thread-safe (_mt) colour sink as the default logger (parallel replicas
+  // share it); static guard registers the named logger exactly once.
   static const std::shared_ptr<spdlog::logger> logger = [] {
     auto l = spdlog::stdout_color_mt("rmc");
     spdlog::set_default_logger(l);
@@ -318,10 +308,8 @@ void configure_logging(bool verbose) {
   spdlog::set_level(verbose ? spdlog::level::debug : spdlog::level::info);
 }
 
-// Map the parsed command line onto the program_options-independent RMCConfig the
-// builder consumes. This is the only place the CLI's option names meet the
-// builder. Numeric knobs not exposed by the CLI (group amps, log_every) keep
-// their RMCConfig defaults, preserving the historical behaviour.
+// Map the parsed command line onto RMCConfig. Knobs not exposed by the CLI
+// (group amps, log_every) keep their RMCConfig defaults.
 RMCConfig sim_config_from_vm(const po::variables_map &vm) {
   RMCConfig cfg;
   if (vm.count("pdb")) {
@@ -366,11 +354,8 @@ RMCConfig sim_config_from_vm(const po::variables_map &vm) {
   return cfg;
 }
 
-// State threaded through every command. The RMCConfig is derived once from the
-// options; the input structure is loaded lazily (via the shared load_structure,
-// which also applies --box) the first time a command asks for it, then cached —
-// so structure-free commands like --gen-random never read a structure, while the
-// structure-consuming commands share a single load.
+// State threaded through every command. The structure is loaded lazily on first
+// use (and cached), so structure-free commands never read one.
 class RMCContext {
 public:
   explicit RMCContext(const po::variables_map &vm)
@@ -499,14 +484,13 @@ Result<int> cmd_refine(RMCContext &ctx) {
   BOOST_LEAF_AUTO(in, ctx.structure());
   BOOST_LEAF_AUTO(data, load_experimental_data(cfg));
 
-  // Engine factory: a fresh engine per replica from the shared inputs, with a
-  // per-replica seed offset for an independent stochastic stream.
+  // Fresh engine per replica with a per-replica seed offset.
   auto make_engine = [&](std::size_t replica) {
     RMCConfig c = cfg;
     c.seed = cfg.seed + static_cast<std::uint32_t>(replica);
     return build_engine(*in, data, c);
   };
-  // Applied to each engine in its final location (gradient generators bind to
+  // Applied in each engine's final location (gradient generators bind to
   // engine.constraints(), which the build/ensemble moves would invalidate).
   auto prepare = [&](Engine &e) { apply_move_generator(e, cfg); };
 

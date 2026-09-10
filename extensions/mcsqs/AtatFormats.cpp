@@ -35,8 +35,7 @@ bool next_nonempty_line(std::istream &in, std::string &line) {
   return false;
 }
 
-// Slurp an entire stream into a string (the sym.out / clusters.out token
-// streams are small and parse most cleanly as one whitespace-skipped range).
+// Slurp an entire stream into a string.
 std::string slurp(std::istream &in) {
   return std::string((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
@@ -53,8 +52,7 @@ vec3_t parse_vec3_line(const std::string &line) {
 }
 
 // Build lattice vectors (columns) from a,b,c,alpha,beta,gamma (degrees).
-// Orientation is conventional; the absolute orientation is immaterial to SQS
-// correlations (which live in the lattice/fractional frame).
+// Conventional orientation (absolute orientation is immaterial to correlations).
 mat3_t lattice_vectors(double a, double b, double c, double alpha, double beta,
                        double gamma) {
   const double d2r = std::numbers::pi / 180.0;
@@ -89,8 +87,7 @@ AtatLattice parse_lattice(std::istream &in) {
   if (!next_nonempty_line(in, line)) {
     throw std::runtime_error("rndstr: empty file");
   }
-  // First line is either 'a b c al be ga' (6 numbers) or the first of three
-  // axis rows (3 numbers each).
+  // First line: 'a b c al be ga' (6 numbers) or first of three axis rows (3 each).
   if (const auto six = bp::parse(line, bp::repeat(6)[bp::double_], bp::ws)) {
     const auto &p = *six;
     lat.axes = lattice_vectors(p[0], p[1], p[2], p[3], p[4], p[5]);
@@ -116,10 +113,8 @@ AtatLattice parse_lattice(std::istream &in) {
   }
 
   // --- sites ---
-  // A site line is "fx fy fz" followed by a species list. Species are
-  // separated by any of " \t,;/" (the skipper below) and each token is either
-  // "Sp" or "Sp=occ"; lexeme[] keeps each token contiguous (no skipping
-  // inside).
+  // Site line: "fx fy fz" then a species list. Species separated by " \t,;/";
+  // each token is "Sp" or "Sp=occ" (lexeme[] keeps tokens contiguous).
   const auto sep = bp::char_(" \t\r\n,;/");
   const auto name = +(bp::char_ - bp::char_(" \t\r\n,;/="));
   const auto species_p = bp::lexeme[name >> -('=' >> bp::double_)];

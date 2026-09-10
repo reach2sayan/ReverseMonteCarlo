@@ -95,9 +95,8 @@ bool cluster_equiv(const MC &a, const MC &b, const mat3_t &inv_cell) {
 }
 
 // ATAT find_equivalent_clusters (calccorr.c++:186-208): symmetry images of the
-// representative, deduped modulo the primitive cell. apply_symmetry preserves
-// point order and func, so each image's point p carries the representative's
-// func[p] — letting the orbit keep ONE per-point func/site_type array.
+// representative, deduped mod primitive cell. apply_symmetry preserves point
+// order and func, so the orbit keeps ONE per-point func/site_type array.
 std::vector<MC> find_equivalent(const MC &rep, const std::vector<SymOp> &sym,
                                 const mat3_t &inv_cell) {
   std::vector<MC> list;
@@ -192,9 +191,8 @@ double compute_target(const MC &rep, const AtatLattice &lat,
 EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
                         const std::vector<RawOrbit> &raw,
                         const Eigen::Matrix3i &sc_matrix, std::uint32_t seed) {
-  // Single-sublattice guard: every active (multi-species) site must share one
-  // species set, so the global alphabetical occupation index == within-site
-  // one.
+  // Single-sublattice guard: all active (multi-species) sites must share one
+  // species set (global alphabetical occ index == within-site index).
   std::optional<std::vector<std::string>> active_set;
   for (const auto &s : lat.sites) {
     if (s.occ.size() <= 1) {
@@ -293,9 +291,8 @@ EnumeratedSqs enumerate(const AtatLattice &lat, const std::vector<SymOp> &sym,
     }
   }
 
-  // Assemble the AtomicStructure (coords are cosmetic — the constraint ignores
-  // them; residue = sublattice id so SpeciesSwap respects sublattice
-  // boundaries).
+  // Assemble AtomicStructure (coords cosmetic; residue = sublattice id so
+  // SpeciesSwap respects sublattice boundaries).
   EnumeratedSqs out;
   out.occ_index = occ_index;
   out.table = table;

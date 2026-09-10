@@ -19,9 +19,8 @@ namespace RMC::analysis {
 
 namespace {
 
-// Per-bin ideal-gas shell volumes: (4π/3)(r_hi³ − r_lo³). Same formula the
-// pair constraints use (PairConstraintBase::initialise), so total g(r) here
-// matches the fitting path bin-for-bin.
+// Per-bin ideal-gas shell volumes: (4π/3)(r_hi³ − r_lo³). Matches
+// PairConstraintBase::initialise.
 vec_t shell_volumes(double r_min, double bin_width, int n_bins) {
   const auto idx = Eigen::ArrayXd::LinSpaced(n_bins, 0, n_bins - 1);
   const auto r_lo = r_min + idx * bin_width;
@@ -54,9 +53,7 @@ Result<GrResult> compute_gr(const coords_t &coords,
 
   const int S = static_cast<int>(id_of.size());
   GrResult out;
-  // Per-id symbol and atom count, accumulated by integer species id; folded
-  // into the result's flat_set once complete (set elements are immutable, so
-  // the counts can't be incremented in place there).
+  // Per-id symbol/count, folded into the result's (immutable) flat_set once done.
   std::vector<std::string> sym_of_id(static_cast<std::size_t>(S));
   for (const auto &[sym, id] : id_of) {
     sym_of_id[id] = sym;
@@ -84,9 +81,8 @@ Result<GrResult> compute_gr(const coords_t &coords,
 
   out.density = static_cast<double>(N) / V;
 
-  // For each unordered species pair (a ≤ b), isolate it with a weight matrix
-  // and accumulate its histogram. Reuses the same tested, PBC-correct loop the
-  // constraints use. accumulate_pair_histogram adds 2·w per i<j pair.
+  // For each unordered species pair (a ≤ b), isolate with a weight matrix and
+  // accumulate its histogram. accumulate_pair_histogram adds 2·w per i<j pair.
   vec_t total_hist = vec_t::Zero(params.n_bins);
   for (int a = 0; a < S; ++a) {
     for (int b = a; b < S; ++b) {
@@ -134,8 +130,7 @@ Result<GrResult> compute_gr(const std::filesystem::path &path,
                             const BoundaryConditions &bc,
                             const GrParams &params,
                             const std::vector<std::string> &type_to_element) {
-  // Format chosen from the path (PDB uses the supplied bc; VASP/LAMMPS use the
-  // cell declared in the file; unknown extensions fall back to LAMMPS).
+  // Format from path: PDB uses bc; VASP/LAMMPS use the file's cell (default LAMMPS).
   BOOST_LEAF_AUTO(loaded, io::read_structure_by_ext(path, bc, type_to_element));
   return compute_gr(loaded.structure.coordinates, loaded.bc,
                     loaded.structure.elements, params);

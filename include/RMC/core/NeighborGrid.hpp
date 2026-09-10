@@ -10,23 +10,12 @@
 
 namespace RMC {
 
-// Linked-cell list over a (possibly triclinic) periodic box, used to answer
-// "which atoms are within `cutoff` of atom i" in O(<n>) instead of an O(N)
-// scan. It is kept in sync across Monte-Carlo moves (relocate/remove) and
-// supports a small-set snapshot/restore so a rejected move can roll it back.
-//
-// Binning is done in FRACTIONAL coordinates (frac = inv_box * r), so it works
-// for triclinic cells. The number of cells per axis is chosen so each cell is
-// at least `cutoff` wide along its perpendicular direction; neighbours of an
-// atom then lie in the atom's own cell plus the 26 surrounding cells (or, for a
-// box too small to subdivide, in every cell along that axis — see the stencil
-// note in neighbors_of). For an aperiodic / null box the grid degenerates to a
-// single cell (brute force); the ADF use-case is periodic.
-//
-// IMPORTANT: neighbours of i are located from i's CURRENT coordinate row, not
-// from its stored cell, so a query still works after i has been removed from
-// the grid (the atom-removal path needs i's former neighbours even though i is
-// absent).
+// Linked-cell list over a (possibly triclinic) periodic box: "atoms within
+// cutoff of i" in O(<n>). Binning in fractional coords (frac = inv_box * r).
+// Cells sized >= cutoff per axis, so neighbours lie in i's cell + 26 around;
+// null box degenerates to one cell (brute force).
+// Neighbours of i are located from i's CURRENT coordinate row, not its stored
+// cell, so a query still works after i has been removed from the grid.
 class NeighborGrid {
 public:
   // (Re)build from scratch. Absent atoms (collector) are not inserted. O(N).

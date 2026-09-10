@@ -41,7 +41,6 @@ Result<T> or_error(std::optional<T> o, std::string_view msg) {
 }
 
 // Trim ASCII whitespace from both ends, returning a sub-view (no allocation).
-// Uses a boost classification predicate rather than two find_*_not_of scans.
 std::string_view trim(std::string_view sv) {
   static const auto is_ws = boost::is_any_of(" \t\r\n");
   while (!sv.empty() && is_ws(sv.front())) {
@@ -116,9 +115,8 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
   if (!next(line)) {
     return boost::leaf::new_error(std::string{"POSCAR missing element line"});
   }
-  // Element symbols are whitespace-separated words; +word_p needs at least one,
-  // so a blank line fails the parse and or_error turns it into the empty-line
-  // error — no separate emptiness check, and no istringstream copy.
+  // Element symbols are whitespace-separated words; a blank line fails +word_p
+  // and or_error turns it into the empty-line error.
   const auto word_p = bp::lexeme[+(bp::char_ - bp::char_(" \t\r\n"))];
   BOOST_LEAF_AUTO(symbols, or_error(bp::parse(line, +word_p, bp::ws),
                                     "POSCAR empty element line"));
@@ -133,9 +131,7 @@ Result<VaspData> read_vasp(const std::filesystem::path &path) {
     return boost::leaf::new_error(std::string{"POSCAR missing counts line"});
   }
 
-  // Parse the per-element counts, then require exactly one per symbol in the
-  // same chain: .and_then drops to nullopt (→ the mismatch error) if the
-  // lengths disagree or the line held no integers.
+  // Parse per-element counts, requiring exactly one per symbol.
   auto counts_it = line.begin();
   BOOST_LEAF_AUTO(
       counts,

@@ -17,21 +17,15 @@
 
 namespace RMC {
 
-// All symmetry-equivalent instances of one cluster type (orbit).
-//
-// Every instance shares the same arity (`body` = cluster point count), so the
-// instances are stored as a single contiguous flat buffer rather than a
-// vector-of-vectors: `flat_sites` holds body·instance_count supercell site
-// indices, instance i occupying [i·body, (i+1)·body). Read them as a range of
-// contiguous subranges via instances() (the index order within each subrange
-// matches the orbit's per-point func/site_type).
+// Symmetry-equivalent instances of one cluster type (orbit). Flat buffer:
+// flat_sites holds body·instance_count site indices, instance i at [i·body,(i+1)·body).
 struct ClusterOrbit {
   std::size_t body = 0;  // points per instance (0 ⇒ empty orbit)
   std::vector<std::size_t> flat_sites; // body * instance_count, contiguous
   double target = 0.0; // target correlation (0 = random equiatomic binary)
   double weight = 1.0; // weight in objective function
   // Multicomponent (ATAT) metadata, per cluster point. Empty ⇒ binary defaults
-  // (site_type 0, func 0) so legacy binary orbits keep working unchanged.
+  // (site_type 0, func 0).
   std::vector<int> funcs;
   std::vector<int> site_types;
 
@@ -62,8 +56,7 @@ struct ClusterOrbit {
     }
   }
 
-  // Basis coordinates of cluster point p. Empty metadata ⇒ binary defaults
-  // (site_type 0, func 0), so legacy binary orbits index the degenerate table.
+  // Basis coordinates of cluster point p. Empty metadata ⇒ binary defaults (0, 0).
   [[nodiscard]] constexpr int site_type_at(std::size_t p) const {
     return site_types.empty() ? 0 : site_types[p];
   }
@@ -72,20 +65,14 @@ struct ClusterOrbit {
   }
 };
 
-// ATAT trigonometric (Chebyshev-like) site-basis table, addressed by the
-// coordinate (site_type, func, occupation), where site_type = (#components − 2).
-// For binary it reduces to {occ 0 → −1, occ 1 → +1}. Port of
-// TrigoCorrFuncTable::init (atat/src/calccorr.c++:163-180).
-//
-// Storage is one flat buffer holding a rectangular (n_func × n_occ) block per
-// site_type, reached through the C++23 multidimensional subscript — so callers
-// write table[site_type, func, occ] instead of casting three indices into a
-// nested vector-of-vector-of-vector. Build by appending one block per site_type
-// with add_site_type(), then filling cells through the mutable subscript.
+// ATAT trigonometric site-basis table, addressed by (site_type, func, occ),
+// where site_type = (#components − 2); binary reduces to {occ 0→−1, occ 1→+1}.
+// Port of TrigoCorrFuncTable::init (atat/src/calccorr.c++:163-180). Flat storage:
+// one (n_func × n_occ) block per site_type, accessed via table[site_type, func, occ].
 class CorrFuncTable {
 public:
   // Append a zero-initialised (n_func × n_occ) block; returns its site_type
-  // index (== number of prior site_types). Call once per site_type, in order.
+  // index. Call once per site_type, in order.
   std::size_t add_site_type(int n_func, int n_occ) {
     blocks_.push_back({data_.size(), n_occ});
     data_.resize(data_.size() + static_cast<std::size_t>(n_func) *
@@ -93,9 +80,7 @@ public:
     return blocks_.size() - 1;
   }
 
-  // Portable accessors (work on every C++23 compiler): value() reads, at()
-  // returns a mutable cell for building. These are the canonical API used
-  // internally — the operator[] below is sugar that forwards to them.
+  // Portable accessors: value() reads, at() returns a mutable cell.
   [[nodiscard]] constexpr double value(int site_type, int func,
                                        int occ) const {
     return data_[flat_index(site_type, func, occ)];
@@ -105,8 +90,7 @@ public:
   }
 
   // C++23 multidimensional subscript: table[site_type, func, occ]. Guarded by
-  // its feature-test macro so the declaration itself is skipped on toolchains
-  // without P2128 (e.g. MSVC < 17.10); value()/at() remain the safe fallback.
+  // its feature-test macro (P2128); value()/at() are the fallback.
 #ifdef __cpp_multidimensional_subscript
   [[nodiscard]] constexpr double operator[](int site_type, int func,
                                             int occ) const {
@@ -124,8 +108,7 @@ public:
   [[nodiscard]] static CorrFuncTable trigonometric(int max_components);
 
 private:
-  // One site_type's rectangular block: where it starts in data_ and its row
-  // stride (n_occ). n_func is implied by the gap to the next block.
+  // One site_type's block: offset into data_ and row stride (n_occ).
   struct Block {
     std::size_t offset;
     int n_occ;
@@ -142,29 +125,18 @@ private:
   std::vector<double> data_;  // flat (n_func × n_occ) blocks, concatenated
 };
 
-// Constraint for Special Quasi-random Structure (SQS) search.
-//
-// Tracks the weighted χ² deviation of multi-body cluster correlations from
-// target values. Works with SpeciesSwapGenerator: coordinates are ignored; only
-// structure.elements (species labels) are read.
-//
-// Two ways to define the site basis:
-//   • SpeciesMap — element → scalar σ (binary / simple linear encoding):
-//       {{"Cu", +1.0}, {"Au", -1.0}}
-//   • CorrFuncTable + occupation-index map — the full ATAT (m−1) trigonometric
-//     basis for correct multicomponent (m>2) correlations; supplied by the
-//     ClusterEnumerator from corrdump's clusters.out.
-//
-// Cluster instances are pre-computed (ATAT corrdump + symmetry enumeration) and
-// passed in as ClusterOrbit objects.
+// SQS-search constraint: weighted χ² deviation of multi-body cluster correlations
+// from target. Reads only structure.elements (coordinates ignored). Site basis is
+// either a SpeciesMap (element → scalar σ, binary/linear) or a CorrFuncTable +
+// occupation-index map (full ATAT (m−1) trigonometric basis, m>2 components).
 class ClusterCorrelationConstraint
     : public ConstraintBase<ClusterCorrelationConstraint> {
 public:
   // Maps element symbol → occupation function value σ (typically ±1).
   using SpeciesMap = std::unordered_map<std::string, double>;
 
-  // Binary / linear-encoding constructor (back-compatible). Builds a degenerate
-  // single-function table whose value for each element is its scalar σ.
+  // Binary / linear-encoding constructor: builds a degenerate single-function
+  // table whose value per element is its scalar σ.
   ClusterCorrelationConstraint(const AtomicStructure &structure,
                                const SpeciesMap &species_map,
                                std::vector<ClusterOrbit> orbits);
@@ -176,18 +148,13 @@ public:
                                CorrFuncTable table,
                                std::vector<ClusterOrbit> orbits);
 
-  // Full from-scratch error (oracle / used by current_correlations() and the
-  // periodic resync). The engine no longer routes through this — it uses the
-  // incremental compute_before_move/compute_after_move overrides below.
+  // Full from-scratch error (oracle; used by current_correlations() and resync).
   [[nodiscard]] double compute_error(const coords_t &,
                                      std::span<const std::size_t>);
 
   // --- Incremental interface (overrides ConstraintBase defaults) -----------
-  // A SpeciesSwap move changes the occupation of only ~2 sites, so instead of
-  // refolding every orbit instance (O(total_instances)) we maintain a running
-  // per-orbit raw sum + total error and update only the instances that touch a
-  // changed site (O(N scan + affected_instances)). Float drift is bounded by a
-  // periodic full resync on accept().
+  // Maintains a running per-orbit raw sum + total error, updating only instances
+  // touching a changed site. Float drift bounded by periodic full resync on accept().
   void compute_before_move(Constraint::Token, const coords_t &,
                            std::span<const std::size_t>);
   void compute_after_move(Constraint::Token, const coords_t &,
@@ -212,9 +179,7 @@ public:
   }
 
 private:
-  // Runtime state for one orbit, parallel to orbits_ by orbit index. Collapses
-  // what used to be four index-aligned vectors (base/count/sum/seen) into one
-  // struct so the per-orbit fields can never drift out of alignment.
+  // Runtime state for one orbit, by orbit index.
   struct OrbitState {
     std::size_t base = 0;   // global instance id of this orbit's first instance
     std::size_t count = 0;  // instance count (cached orbit.instance_count())
@@ -222,10 +187,8 @@ private:
     std::uint64_t seen = 0; // per-step epoch dedup stamp
   };
 
-  // Static adjacency over the (orbit, global-instance-id, site) id-spaces, built
-  // once by build_index(). Owns the gid→orbit map and the site→instances
-  // reverse index and exposes them through named accessors, so the accounting
-  // code never hand-rolls id arithmetic.
+  // Static adjacency over (orbit, gid, site) id-spaces, built once by build_index():
+  // gid→orbit map and site→instances reverse index.
   struct ClusterIndex {
     std::vector<std::uint32_t> inst_orbit;  // global instance id → orbit index
     std::vector<std::vector<std::uint32_t>> site_to_instances; // site → gids
@@ -246,8 +209,7 @@ private:
   };
 
   // Per-move pipeline context threaded through the apply_move_update() and_then
-  // chain (mirrors EngineBase::TrialCtx). The heavy scratch buffers stay as
-  // members; this only carries the changed-site view that seeds later steps.
+  // chain; carries the changed-site view that seeds later steps.
   struct MoveCtx {
     std::span<const std::size_t> changed; // view into changed_sites_
   };
@@ -263,9 +225,8 @@ private:
   void resync_full();
   void ensure_built();
   [[nodiscard]] constexpr bool occ_mismatch() const;
-  // Incremental move application, expressed as a monadic and_then pipeline of
-  // the private steps below. diff_changed_sites() seeds the chain and
-  // short-circuits it (empty optional) when the move changed no occupation.
+  // Incremental move application as an and_then pipeline of the steps below;
+  // diff_changed_sites() seeds it and short-circuits when no occupation changed.
   void apply_move_update();
   [[nodiscard]] std::optional<MoveCtx> diff_changed_sites();
   void collect_affected(MoveCtx &c);   // touched instances/orbits (epoch dedup)
@@ -277,15 +238,13 @@ private:
 
   const AtomicStructure &structure_;
   std::unordered_map<std::string, int> occ_index_; // element → occupation index
-  // Flat occupation-index → occupation-index table for the integer fast path in
-  // refresh_site_occ(); empty ⇒ fall back to the occ_index_ string lookup.
+  // Flat code → occupation-index table (integer fast path in refresh_site_occ());
+  // empty ⇒ fall back to occ_index_ string lookup.
   std::vector<int> occ_of_code_;
   CorrFuncTable table_;
   std::vector<ClusterOrbit> orbits_;
-  // Per-site occupation index, refreshed once per evaluation from
-  // structure_.elements; -1 = unknown species. Source of the hot-loop reads.
-  // mutable: refreshed by const current_correlations() as well as
-  // compute_error.
+  // Per-site occupation index, refreshed per evaluation from structure_.elements;
+  // -1 = unknown species. mutable: refreshed by const current_correlations() too.
   mutable std::vector<int> site_occ_;
   std::size_t total_instances_ = [this] {
     return std::transform_reduce(
@@ -299,8 +258,7 @@ private:
   double total_err_ = 0.0;         // running Σ weight·(corr−target)²
   ClusterIndex index_;             // gid↔orbit + site→gids adjacency (built once)
   std::vector<OrbitState> ostate_; // per-orbit runtime state, by orbit index
-  // Per-step dedup of touched instances via an epoch stamp (per-orbit dedup
-  // lives in OrbitState::seen).
+  // Per-step dedup of touched instances via epoch stamp (per-orbit in OrbitState::seen).
   std::uint64_t epoch_ = 0;
   std::vector<std::uint64_t> seen_inst_; // per-gid stamp
   // Per-step scratch (members to avoid reallocation each step).

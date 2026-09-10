@@ -7,13 +7,9 @@
 
 namespace RMC {
 
-// Tracks atoms temporarily removed from the system (RemoveGenerator).
-// Constraints query this to skip removed atoms without reallocating arrays.
-//
-// Atom indices are dense positions [0, total) into the structure's coordinate
-// array, so membership lives in a flag array indexed by atom id: is_removed is
-// O(1) and no sort is needed. `pending_` stays a small index list (one move's
-// worth, typically <=10) because we only ever iterate it on commit/rollback.
+// Tracks atoms temporarily removed from the system (RemoveGenerator); queried
+// by constraints to skip removed atoms. Membership is a flag array indexed by
+// atom id in [0, total) (is_removed O(1)); pending_ is one move's index list.
 class AtomsCollector {
 public:
   constexpr void stage_removal(std::span<const index_t> indices) {
@@ -41,10 +37,8 @@ public:
   [[nodiscard]] constexpr bool is_pending(index_t i) const noexcept {
     return std::ranges::contains(pending_, i);
   }
-  // Currently absent from the system. During compute_before_move the staged
-  // removals are not yet applied (pending_ is empty), so this reduces to the
-  // committed set; during compute_after_move the move's removals are staged, so
-  // it includes them — letting one predicate serve both pipeline phases.
+  // Currently absent: committed set during compute_before_move (pending_ empty),
+  // plus staged removals during compute_after_move. One predicate, both phases.
   [[nodiscard]] constexpr bool absent(index_t i) const noexcept {
     return is_removed(i) || is_pending(i);
   }

@@ -1,7 +1,6 @@
 #pragma once
-// Drive ATAT's `corrdump` as an external binary via boost::process (v2). We do
-// NOT link ATAT — each call runs corrdump in a working directory, lets it emit
-// its files there, and (for correlations) redirects stdout to a file we parse.
+// Drive ATAT's `corrdump` as an external binary via boost::process (v2); ATAT
+// is not linked. Each call runs corrdump in a workdir and parses its outputs.
 #include <filesystem>
 #include <map>
 #include <vector>
@@ -21,8 +20,8 @@ corrdump_generate_clusters(const std::filesystem::path &corrdump_exe,
                            const std::map<int, double> &diameters,
                            const std::filesystem::path &workdir);
 
-// corrdump -l=<rndstr> -s=<str.out> -c -cf=<clusters.out>; parses the per-orbit
-// correlations printed to stdout. The validation oracle for the enumerator.
+// corrdump -l=<rndstr> -s=<str.out> -c -cf=<clusters.out>; parses per-orbit
+// correlations from stdout. Validation oracle for the enumerator.
 std::vector<double>
 corrdump_correlations(const std::filesystem::path &corrdump_exe,
                       const std::filesystem::path &rndstr_in,

@@ -25,21 +25,15 @@ struct AtomicStructure {
   void save_snapshot(std::span<const std::size_t> indices);
   void restore_snapshot(std::span<const std::size_t> indices);
 
-  // Species snapshot: saves only the (cheap, contiguous) atomic_numbers array
-  // and reconstructs the few changed element symbols on restore from a
-  // code→symbol map — species moves (SpeciesSwap) permute existing
-  // (code, symbol) pairs, so the map built once stays valid. Avoids deep-copying
-  // the whole std::vector<std::string> elements every step.
-  // Call conditionally (only when a generator modifies species).
-  // restore_species_snapshot() is a no-op if save was never called.
+  // Species snapshot: saves only atomic_numbers; rebuilds changed element
+  // symbols on restore from a code→symbol map (species moves only permute
+  // existing (code, symbol) pairs). restore is a no-op if save never called.
   void save_species_snapshot();
   void restore_species_snapshot();
 
-  // Copy only the fields a running engine mutates — coordinates, atomic_numbers
-  // and elements — from another structure with identical immutable metadata
-  // (names, residues, molecule_ids). Used to broadcast the best replica in
-  // cooperative ensembles without deep-copying the shared label vectors.
-  // Keeps this object's vectors in place, so spans bound to them stay valid.
+  // Copy only the engine-mutated fields (coordinates, atomic_numbers, elements)
+  // from a structure with identical immutable metadata. Keeps this object's
+  // vectors in place, so spans bound to them stay valid.
   void assign_mutable_state(const AtomicStructure &other);
 
   [[nodiscard]] FORCE_INLINE double

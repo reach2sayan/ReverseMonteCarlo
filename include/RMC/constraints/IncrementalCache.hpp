@@ -10,18 +10,10 @@
 
 namespace RMC {
 
-// Type 1: ItemCache
-// Incremental cache for constraints defined over a fixed list of items (bonds,
-// angles, dihedrals, …). Each item touches a small set of atoms. On a move,
-// only items that include a moved atom are recomputed; all others retain their
-// cached error contribution.
-//
-// Usage in compute_error():
-//   return cache_.compute(items_, atoms_of_lambda, err_of_lambda, coords,
-//   moved);
-//
-// Template parameter Item is the constraint's item struct (Bond, Triplet,
-// Quad…).
+// Type 1: ItemCache — incremental cache for constraints over a fixed list of
+// items (bonds, angles, …). On a move, only items including a moved atom are
+// recomputed. Item is the constraint's item struct (Bond, Triplet, …).
+//   compute(items_, atoms_of, err_of, coords, moved)
 template <typename Item> struct ItemCache {
   mutable bool ready{false};
   mutable double total{0.0};
@@ -65,15 +57,10 @@ template <typename Item> struct ItemCache {
   }
 };
 
-// ── Type 2: PairCache ────────────────────────────────────────────────────────
-// Incremental cache for O(N²) pair-distance constraints. Stores forward refs
-// fwd[i] = {(j, threshold, contrib) | j > i, pair eligible} and backward refs
-// bwd[j] = {(i, pos_in_fwd[i]) | i < j}. A single-atom move at k touches only
-// fwd[k] (O(N-k) pairs) and bwd[k] (O(k) back-refs), keeping each step O(N).
-//
-// Usage in compute_error():
-//   return cache_.compute(N, pair_threshold_lambda, dist_lambda, coords,
-//   moved);
+// Type 2: PairCache — incremental cache for O(N²) pair-distance constraints.
+// fwd[i] = {(j, threshold, contrib) | j>i, eligible}, bwd[j] = {(i, pos_in_fwd[i]) | i<j}.
+// A single-atom move at k touches fwd[k] (O(N-k)) and bwd[k] (O(k)), so each step is O(N).
+//   compute(N, pair_threshold, dist, coords, moved)
 struct PairCache {
   struct FwdPair {
     std::size_t j;
@@ -90,9 +77,6 @@ struct PairCache {
   mutable std::vector<std::vector<BackRef>> bwd;
   mutable Eigen::VectorXd atom_contrib;
   // Membership flags for the multi-atom backward pass (1 = atom is in `moved`).
-  // A member, not thread_local: avoids the __tls_get_addr cost of a hot-loop
-  // TLS access, and is no less safe than the other mutable members update()
-  // writes (one update() call per instance at a time).
   mutable std::vector<std::uint8_t> in_moved;
 
   constexpr void invalidate() noexcept { ready = false; }
@@ -134,11 +118,8 @@ struct PairCache {
   template <typename DistFn>
   double update(std::span<const std::size_t> moved,
                 DistFn dist) const noexcept {
-    // For multi-atom moves the backward pass must skip back-refs whose i is
-    // also in `moved` (their forward pass already handles that pair). Membership
-    // is an O(1) indexed flag lookup: a thread_local byte array sized to N, with
-    // only the K moved slots set and cleared per call — replacing the flat_set
-    // binary search (lower_bound) that ran per back-ref.
+    // Multi-atom moves skip back-refs whose i is also in `moved` (their forward
+    // pass already handles that pair), via the O(1) in_moved flag lookup.
     const bool multi = moved.size() > 1;
     if (multi) {
       if (in_moved.size() < fwd.size()) {
@@ -149,9 +130,7 @@ struct PairCache {
       }
     }
     for (std::size_t k : moved) {
-      // 1. Recompute all forward pairs (k, j) with j > k. `dist` returns the
-      //    SQUARED distance; the sqrt is taken only when the pair is actually
-      //    below threshold (a violation), which is the minority case.
+      // 1. Recompute forward pairs (k, j>k). `dist` is SQUARED; sqrt only on violation.
       double c_k = 0.0;
       for (auto &p : fwd[k]) {
         const double d2 = dist(k, p.j);
@@ -163,10 +142,8 @@ struct PairCache {
       }
       atom_contrib(static_cast<Eigen::Index>(k)) = c_k;
 
-      // 2. Update backward pairs (i, k) with i < k.
-      //    Skip i if it is also in moved — its forward pass handles pair (i,k).
-      //    The common single-atom case has no such i, so it takes the fast
-      //    path; the multi-atom case tests the in_moved flag (set above).
+      // 2. Update backward pairs (i<k); skip i if also in moved (its forward
+      //    pass handles pair (i,k)).
       auto update_bwd = [&](const BackRef &br) {
         auto &p = fwd[br.i][br.pos];
         const double d2 = dist(br.i, k);

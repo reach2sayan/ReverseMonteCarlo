@@ -23,8 +23,7 @@ Result<AdfResult> compute_adf(const coords_t &coords,
                               std::span<const std::string> elements,
                               const AdfParams &params) {
   const Eigen::Index N = coords.rows();
-  // Shared precondition check (non-empty, matching labels, positive bins,
-  // periodic box); returns the cell volume the normalisation needs.
+  // Shared precondition check; returns cell volume for normalisation.
   BOOST_LEAF_AUTO(V, detail::check_periodic_inputs(
                          "compute_adf", coords, elements, params.n_bins, bc));
 
@@ -41,9 +40,7 @@ Result<AdfResult> compute_adf(const coords_t &coords,
 
   AdfResult out;
   out.max_dis = params.max_dis;
-  // Per-id symbol and atom count, accumulated by integer species id; folded
-  // into the result's flat_set once complete (set elements are immutable, so
-  // the counts can't be incremented in place there).
+  // Per-id symbol/count, folded into the result's (immutable) flat_set once done.
   std::vector<std::string> sym_of_id(static_cast<std::size_t>(S));
   for (const auto &[sym, id] : id_of) {
     sym_of_id[id] = sym;
@@ -77,17 +74,15 @@ Result<AdfResult> compute_adf(const coords_t &coords,
     col_scale(col) = denom > 0.0 ? inc / denom : 0.0;
   }
 
-  // Per-column scaling: `hist` is a row-major (bin × column) matrix flattened
-  // into a vector, so a column-tiled copy of col_scale aligns element-for-
-  // element with it (entry b·n_cols+c ↦ col_scale(c)).
+  // Per-column scaling: hist is row-major (bin × column) flattened; tiled
+  // col_scale aligns element-wise (entry b·n_cols+c ↦ col_scale(c)).
   hist.array() *= col_scale.replicate(params.n_bins, 1).array();
 
   // Row-major (n_bins × n_cols) view over the flat histogram; reused below.
   using RowMajMat =
       Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
-  // Per-column boxcar smoothing (shrinking window), 2 passes — matches the
-  // constraint's smoothing.
+  // Per-column boxcar smoothing (shrinking window), 2 passes.
   if (params.smooth_range > 0 && params.n_bins > 1) {
     const int range = params.smooth_range;
     vec_t scratch = hist;
@@ -131,8 +126,7 @@ Result<AdfResult> compute_adf(const std::filesystem::path &path,
                               const BoundaryConditions &bc,
                               const AdfParams &params,
                               const std::vector<std::string> &type_to_element) {
-  // Format chosen from the path (PDB uses the supplied bc; VASP/LAMMPS use the
-  // cell declared in the file; unknown extensions fall back to LAMMPS).
+  // Format from path: PDB uses bc; VASP/LAMMPS use the file's cell (default LAMMPS).
   BOOST_LEAF_AUTO(loaded, io::read_structure_by_ext(path, bc, type_to_element));
   return compute_adf(loaded.structure.coordinates, loaded.bc,
                      loaded.structure.elements, params);

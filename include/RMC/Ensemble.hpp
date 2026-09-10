@@ -36,26 +36,17 @@ inline std::size_t tbb_budget(std::size_t n_replicas,
 
 } // namespace detail
 
-// Runs n_replicas engines in parallel threads (each built by make_engine(i))
-// for n_steps each, then returns the replica with the lowest total chi2 error.
-// make_engine(i) must return a fully configured Engine ready to run.
+// Runs n_replicas engines (each built by make_engine(i)) for n_steps each in
+// parallel threads, returns the lowest-chi2 replica. Engines keep their
+// structure on the heap, so the move into the internal vector is safe even when
+// constraints/generators hold references into engine.structure().
 //
-// The returned Engine is moved into an internal vector. This is safe even when
-// its constraints / move generators hold references into engine.structure()
-// (e.g. SQS), because Engine keeps its structure on the heap at a stable
-// address (see Engine), so the move does not relocate it.
-//
-// tbb_threads_per_replica: TBB workers per replica engine (RMC_USE_TBB only).
-//   0 = auto (uses SLURM_CPUS_PER_TASK / PBS_NUM_PPN / hardware_concurrency,
-//             divided by n_replicas).  Set explicitly when running inside a
-//             scheduler that does not export those variables.
-// prepare(engine) is invoked on each replica AFTER it lands in the internal
-// vector (its final, non-relocated address) and before it runs. Use it for
-// setup that must bind to the engine's final location — e.g. gradient move
-// generators that hold a pointer into engine.constraints(), which the move into
-// the vector would otherwise invalidate.
-// Default no-op for the prepare hook (a named type avoids a lambda in a default
-// template argument).
+// tbb_threads_per_replica: TBB workers per replica (RMC_USE_TBB only). 0 = auto
+//   (SLURM_CPUS_PER_TASK / PBS_NUM_PPN / hardware_concurrency, divided by
+//   n_replicas); set explicitly under a scheduler that does not export those.
+// prepare(engine) runs on each replica after it lands at its final address,
+// before it runs — for setup that must bind to that address (e.g. gradient
+// generators holding a pointer into engine.constraints()).
 struct NoPrepare {
   void operator()(Engine &) const noexcept {}
 };
@@ -110,11 +101,9 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
   return std::move(engines[best_i]);
 }
 
-// Runs n_replicas engines in parallel. Every sync_every steps all workers
-// synchronize: the best (lowest chi2) replica's STRUCTURE is broadcast to all
-// laggards, who continue the search from it (each keeps its own selector/RNG,
-// so they re-diverge). Stops as soon as any replica reaches target_chi2 (or
-// max_steps is exhausted). Returns the best engine seen.
+// Runs n_replicas engines in parallel. Every sync_every steps the best replica's
+// structure is broadcast to all laggards (each keeps its own selector/RNG, so
+// they re-diverge). Stops when any replica reaches target_chi2 (or max_steps).
 template <std::invocable<std::size_t> F>
   requires std::same_as<std::invoke_result_t<F, std::size_t>, Engine>
 Engine run_ensemble_cooperative(
@@ -128,10 +117,8 @@ Engine run_ensemble_cooperative(
                          std::back_inserter(engines),
                          [&](std::size_t i) { return make_engine(i); });
 
-  // Broadcasting only the structure (not the whole Engine) keeps this
-  // move-only: each laggard copies the best structure into its OWN engine,
-  // whose structure lives at a stable address, so its constraints/generators
-  // stay bound.
+  // Broadcast only the structure (not the whole Engine): each laggard copies it
+  // into its own engine, keeping its constraints/generators bound.
   AtomicStructure shared_best_structure = engines[0].structure();
   std::atomic<bool> any_done{false};
   std::atomic<std::size_t> best_i_atomic{0};

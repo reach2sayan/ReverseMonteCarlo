@@ -61,10 +61,8 @@ FORCE_INLINE auto gaussian_shape_fn(double sigma) {
       [s = sigma](double r) -> double { return std::exp(-(r * r) / (s * s)); };
 }
 
-// Accumulate a raw pair-count histogram into `hist`.
-// Each pair (i<j) contributes 2*w to hist[bin].
-// If molecule_ids is non-empty and exclude_intra is true, same-molecule pairs
-// are skipped (useful for modelling molecular liquids).
+// Accumulate a raw pair-count histogram into `hist`; each pair (i<j) adds 2*w to
+// hist[bin]. If molecule_ids non-empty and exclude_intra, same-molecule pairs skipped.
 void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                                const BoundaryConditions *bc,
                                const std::vector<uint8_t> &elem_id,
@@ -74,11 +72,9 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                                bool exclude_intra = false,
                                const AtomsCollector *collector = nullptr);
 
-// Accumulate only the pairs that involve at least one atom from `moved`.
-// Used for O(K·N) incremental histogram updates in the multi-frame MC path.
-// Adds into `hist` (caller should zero-initialize before calling).
-// Double-counting of moved-moved pairs is avoided: pair (k,j) with both in
-// moved is counted once, when k appears before j in the moved array.
+// Accumulate only pairs involving at least one atom from `moved` (O(K·N)
+// incremental update); adds into `hist` (caller zeroes). A moved-moved pair (k,j)
+// is counted once, when k precedes j in the moved array.
 void accumulate_moved_pairs(
     vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
     const std::vector<uint8_t> &elem_id, const PairWeightMatrix &weights,
@@ -136,16 +132,14 @@ public:
     return exp_data_;
   }
 
-  // Call after set_experimental_data / set_elements / set_weight. Idempotent:
-  // safe to call more than once (e.g. client call + engine safety-net sweep).
+  // Call after set_experimental_data / set_elements / set_weight. Idempotent.
   void initialise();
 
 protected:
   bool initialised_{false}; // guards initialise() against repeat work
   std::optional<std::function<double(double)>> shape_fn_;
 
-  // Single-/multi-frame incremental histogram engine (shared with the angular
-  // constraint). Holds all running counts and the moved-atom delta scratch.
+  // Single-/multi-frame incremental histogram engine (shared with angular constraint).
   mutable IncrementalHistogram hist_;
 };
 
@@ -198,9 +192,7 @@ public:
   void set_active_frame(Constraint::Token, std::size_t k) noexcept {
     PairConstraintBase::set_active_frame_idx(k);
   }
-  // Token-gated initialise — routes the engine's safety-net sweep to the real
-  // (idempotent) per-constraint setup instead of ConstraintBase's no-op
-  // default.
+  // Token-gated initialise: routes the engine's safety-net sweep to the real setup.
   void initialise(Constraint::Token) { PairConstraintBase::initialise(); }
 
   // Restore the active frame's histogram on rejection.
@@ -215,9 +207,8 @@ double PairFunctionConstraint<Mode>::compute_error(
     const coords_t &coords, std::span<const std::size_t> moved) const {
   const Eigen::Index N = coords.rows();
 
-  // Build/patch the raw pair-count histogram into computed_. The incremental
-  // moved-atom machinery lives in IncrementalHistogram; pairs are recomputed
-  // directly from coords, so the before/after-move hooks are no-ops.
+  // Build/patch the raw pair-count histogram into computed_; before/after-move
+  // hooks are no-ops (pairs recomputed directly from coords).
   hist_.update(
       computed_, moved,
       [&](vec_t &h) {

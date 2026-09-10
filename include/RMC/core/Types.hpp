@@ -2,13 +2,8 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-// Eigen 5 moved the slicing placeholders out of the top-level Eigen namespace
-// into Eigen::placeholders, so the Eigen 3.x spelling `Eigen::all` (used as the
-// all-columns selector in coords(indices, Eigen::all) throughout the generators)
-// no longer resolves — worse, it silently binds to the unrelated internal
-// helper Eigen::internal::all(). Re-expose the placeholder under its historical
-// name once, here, so every call site keeps working without per-site edits.
-// (Guarded so it's a no-op on Eigen < 5, where Eigen::all already exists.)
+// Eigen 5 moved slicing placeholders into Eigen::placeholders; re-expose
+// Eigen::all under its historical name so call sites keep working.
 #if EIGEN_VERSION_AT_LEAST(5, 0, 0)
 namespace Eigen {
 using placeholders::all;
@@ -77,9 +72,7 @@ constexpr auto upper_triangle_pairs(auto &&N) {
          std::views::join;
 }
 
-// Reads an environment variable, returning nullopt when it is unset or empty.
-// std::getenv trips MSVC's C4996 ("unsafe"); _dupenv_s is the sanctioned
-// replacement there. Centralize the platform split so call sites stay clean.
+// Read env var, nullopt if unset/empty. _dupenv_s on MSVC (getenv trips C4996).
 inline std::optional<std::string> read_env(const char *name) {
 #if defined(_MSC_VER)
   char *raw = nullptr;

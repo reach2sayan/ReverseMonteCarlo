@@ -42,10 +42,8 @@ concept CMoveGeneratorWithSpeciesModification =
       { gen.modifies_species() } -> std::convertible_to<bool>;
     };
 
-// rejection_override() / modifies_species() are optional: a generator opts in
-// by satisfying the refining concept; otherwise the wrapper reports the default
-// (std::nullopt / false). Unlike generate(), the optionals forward without the
-// passkey token (the refining concepts require token-free calls).
+// rejection_override() / modifies_species() are optional; default to
+// std::nullopt / false. They forward without the passkey token.
 #define RMC_MOVEGENERATOR_METHODS                                              \
   ((0, void, generate,                                                         \
     (coords_t & coords, std::span<const std::size_t> indices), 2,              \
