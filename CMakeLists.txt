@@ -3,7 +3,7 @@ if (POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif ()
 
-project(ReverseMonteCarlo VERSION 1.0.0 LANGUAGES CXX)
+project(ReverseMonteCarlo VERSION 1.0.1 LANGUAGES CXX)
 
 option(ENABLE_LTO "Enable link-time optimization" ON)
 include(CheckIPOSupported)
