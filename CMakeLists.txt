@@ -256,6 +256,21 @@ elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     target_compile_options(RMC_run PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
 endif ()
 
+# Release tarballs are relocatable: bin/RMC_run finds lib/ relative to itself,
+# and lib/ carries every non-glibc dependency (seitz, Boost, TBB, spdlog, fmt,
+# and GCC 15's libstdc++, which stock distros do not ship yet). The RPATH is a
+# DT_RPATH (--disable-new-dtags above), so it also covers indirect deps and wins
+# over the system libstdc++.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    include(GNUInstallDirs)
+    set_target_properties(RMC PROPERTIES INSTALL_RPATH "$ORIGIN")
+    set_target_properties(RMC_run PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    install(TARGETS RMC RMC_run COMPONENT runtime RUNTIME_DEPENDENCY_SET rmc_runtime)
+    install(RUNTIME_DEPENDENCY_SET rmc_runtime COMPONENT runtime
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            PRE_EXCLUDE_REGEXES "^(ld-linux-x86-64|libc|libm|libdl|libpthread|librt)\\.so")
+endif ()
+
 option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
 if (RMC_BUILD_MCSQS)
     add_subdirectory(extensions/mcsqs)
