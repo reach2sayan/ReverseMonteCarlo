@@ -1,0 +1,168 @@
+# RMC_run and libRMC.so, built with GCC 15 and Clang 20, as self-contained
+# Linux tarballs attached to a GitHub Release. A tag `vX.Y.Z` builds and
+# publishes -- pushed by hand, or cut on Mondays by weekly-release.yml; a
+# workflow_dispatch run on a branch builds the same tarballs, leaves them on the
+# run page and publishes nothing, which is how a change to this pipeline is
+# tried before a version rides on it.
+#
+# The build is CI's: same dependencies, same Boost cache, same flags (MKL, LTO
+# and native-arch off), minus tests, examples and mcsqs. ENABLE_NATIVE_ARCH=OFF
+# means -march=x86-64-v3, so the binaries need an AVX2 CPU; building on
+# ubuntu-24.04 means they need glibc 2.39 or newer.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # First and cheap: a tag that does not name the CMake version stops here.
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          version=$(sed -nE 's/^project\(ReverseMonteCarlo VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          [[ -n "$version" ]] || { echo "::error::no project(ReverseMonteCarlo VERSION ...) in CMakeLists.txt"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "CMakeLists.txt says $version"
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not name CMakeLists.txt's version $version"
+            exit 1
+          fi
+
+  native:
+    name: ${{ matrix.compiler }} (linux-x86_64)
+    needs: version
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc-15
+            cxx: g++-15
+          - compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+    env:
+      ARCHIVE: ReverseMonteCarlo-${{ needs.version.outputs.version }}-linux-x86_64-${{ matrix.compiler }}.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      # seitz transcribes its data tables at configure time with Python.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # seitz needs GCC 15 (<generator>, std::from_range); clang uses its libstdc++.
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache \
+            libspdlog-dev libtbb-dev \
+            g++-15
+          pip install numpy pandas pygments
+
+      - name: Install clang 20
+        if: matrix.compiler == 'clang'
+        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
+
+      # Same key as ci.yml, so a release reuses the Boost CI already built.
+      - name: Cache Boost 1.89
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost
+          key: boost-1.89.0-fullheaders-graph-nowide-${{ matrix.cxx }}
+
+      - name: Build Boost 1.89
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          ver=1.89.0
+          us=${ver//./_}
+          curl -fsSL "https://archives.boost.io/release/${ver}/source/boost_${us}.tar.bz2" \
+            -o boost.tar.bz2
+          tar xf boost.tar.bz2
+          cd "boost_${us}"
+          toolset=${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+          echo "using ${toolset} : : ${{ matrix.cxx }} ;" > "${HOME}/user-config.jam"
+          ./bootstrap.sh \
+            --with-libraries=program_options,serialization,container,context,filesystem,process,graph,nowide
+          ./b2 -j"$(nproc)" \
+            toolset=${toolset} cxxstd=23 variant=release link=shared \
+            --user-config="${HOME}/user-config.jam" \
+            --prefix="${HOME}/boost" install
+          cp -af boost "${HOME}/boost/include/"
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: release-${{ matrix.compiler }}
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: >
+          cmake -S . -B build -G Ninja
+          -DBOOST_ROOT=$HOME/boost
+          -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
+          -DCMAKE_BUILD_TYPE=Release
+          -DENABLE_MKL=OFF
+          -DENABLE_LTO=OFF
+          -DENABLE_NATIVE_ARCH=OFF
+          -DRMC_BUILD_TESTS=OFF
+          -DRMC_BUILD_EXAMPLES=OFF
+          -DRMC_BUILD_MCSQS=OFF
+
+      - name: Build
+        run: cmake --build build --target RMC_run --parallel
+
+      # The `runtime` component is RMC_run, libRMC.so and their bundled
+      # dependencies -- not seitz's headers or CMake package.
+      - name: Stage and pack
+        run: |
+          cmake --install build --component runtime --prefix stage
+          ls -lR stage
+          mkdir -p dist
+          tar czf "dist/$ARCHIVE" -C stage .
+
+      # The assertion that the tarball is self-contained: a stock image with no
+      # Boost, TBB or spdlog, and only GCC 14's libstdc++.
+      - name: Runs on a stock Ubuntu 24.04
+        run: docker run --rm -v "$PWD/stage:/rmc:ro" ubuntu:24.04 /rmc/bin/RMC_run --help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.compiler }}
+          path: dist/*
+
+  # Only on a tag. A workflow_dispatch run stops before this, which is what
+  # makes a dispatch a rehearsal.
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [version, native]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: ls -l dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes

@@ -1,0 +1,78 @@
+# Every Monday, main becomes a release: the patch number in project() goes up by
+# one, the bump is committed and tagged, and Release builds and publishes the
+# artifacts for that tag. A week in which main did not move produces nothing --
+# the test is whether HEAD is already the commit the latest tag names -- and a
+# red main is never released. "Run workflow" is the same thing on demand.
+#
+# The bump is pushed over SSH with the release-agent deploy key
+# (RELEASE_DEPLOY_KEY holds the private half) rather than with GITHUB_TOKEN: a
+# token push does not fire release.yml's `push: tags` trigger, and main's
+# ruleset requires a pull request, which deploy keys bypass.
+#
+# Minor and major bumps are written into project() by hand and tagged the same
+# way; the next Monday finds HEAD already tagged and does nothing.
+name: Weekly release
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      # "Run workflow" offers a branch picker, and the push below is HEAD:main
+      # whatever was checked out.
+      - name: main only
+        if: github.ref_name != 'main'
+        run: |
+          echo "::error::releases are cut from main; this run is on ${{ github.ref_name }}"
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      - name: Anything since the last tag?
+        id: since
+        run: |
+          last=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          if [[ -z "$last" ]]; then
+            echo "no v* tag yet; this will be the first release"
+          elif [[ $(git rev-parse "$last^{commit}") == $(git rev-parse HEAD) ]]; then
+            echo "main is still $last; nothing to release"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$(git rev-list --count "$last"..HEAD) commits since $last"
+          fi
+
+      # CI covers both GCC and Clang, so one workflow is the whole check.
+      - name: Is main green?
+        if: steps.since.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          c=$(gh run list --workflow CI --commit "$GITHUB_SHA" --branch main \
+                --json conclusion --jq '.[0].conclusion')
+          [[ "$c" == success ]] || { echo "::error::CI on $GITHUB_SHA: ${c:-no run}"; exit 1; }
+
+      - name: Bump, commit, tag, push
+        if: steps.since.outputs.skip != 'true'
+        run: |
+          cur=$(sed -nE 's/^project\(ReverseMonteCarlo VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          [[ -n "$cur" ]] || { echo "::error::no project(ReverseMonteCarlo VERSION ...) in CMakeLists.txt"; exit 1; }
+          new="${cur%.*}.$(( ${cur##*.} + 1 ))"
+          sed -i -E "s/^(project\(ReverseMonteCarlo VERSION )$cur\b/\1$new/" CMakeLists.txt
+          grep -q "^project(ReverseMonteCarlo VERSION $new" CMakeLists.txt \
+            || { echo "::error::the version bump did not apply"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release $new"
+          git tag -a "v$new" -m "Release $new"
+          git push --follow-tags origin HEAD:main
