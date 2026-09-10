@@ -1,10 +1,10 @@
 #include <RMC/constraints/CoordinationConstraint.hpp>
 #include <RMC/core/Parallel.hpp>
+#include <RMC/core/SpeciesIndex.hpp>
 #include <algorithm>
 #include <limits>
 #include <numeric>
 #include <ranges>
-#include <unordered_map>
 
 namespace RMC {
 
@@ -24,7 +24,7 @@ void CoordinationConstraint::set_elements(
 }
 
 void CoordinationConstraint::compute_before_move(
-    Constraint::Token, const coords_t &coords,
+    const coords_t &coords,
     std::span<const std::size_t> moved) {
   if (!cn_ready_) {
     full_compute(coords);
@@ -40,15 +40,15 @@ void CoordinationConstraint::compute_before_move(
 }
 
 void CoordinationConstraint::compute_after_move(
-    Constraint::Token, const coords_t &coords,
+    const coords_t &coords,
     std::span<const std::size_t> moved) {
   cn_ = old_cn_;
   incremental_update(coords, moved);
   err_after_ = error_from_cn();
 }
 
-void CoordinationConstraint::reject(Constraint::Token tok) noexcept {
-  ConstraintBase::reject(tok);
+void CoordinationConstraint::reject() noexcept {
+  ConstraintBase::reject();
   cn_ = old_cn_;
 }
 
@@ -60,25 +60,14 @@ double CoordinationConstraint::compute_error(
 }
 
 void CoordinationConstraint::build_ids() const {
-  std::unordered_map<std::string, uint8_t> name_to_id;
-  uint8_t next_id = 0;
-
-  elem_id_.resize(elements_.size());
-  for (const auto [i, elem] : elements_ | std::views::enumerate) {
-    auto [it, ins] = name_to_id.try_emplace(elem, next_id);
-    if (ins) {
-      ++next_id;
-    }
-    elem_id_[i] = it->second;
-  }
-
-  shell_nb_id_.resize(shells_.size());
-  for (const auto [si, sh] : shells_ | std::views::enumerate) {
-    auto it = name_to_id.find(sh.neighbour_elem);
-    shell_nb_id_[si] = (it != name_to_id.end())
-                           ? it->second
-                           : std::numeric_limits<uint8_t>::max();
-  }
+  const SpeciesIndex sp(elements_);
+  elem_id_ = sp.id;
+  // A neighbour element absent from the structure gets an id no atom has.
+  shell_nb_id_ = shells_ | std::views::transform([&](const Shell &sh) {
+                   return sp.id_of(sh.neighbour_elem)
+                       .value_or(std::numeric_limits<uint8_t>::max());
+                 }) |
+                 std::ranges::to<std::vector>();
   ids_ready_ = true;
 }
 
@@ -146,7 +135,7 @@ void CoordinationConstraint::incremental_update(
       auto in_shell = [&](const vec3_t &pk) {
         vec3_t d = pk - j_pos;
         if (bc_) {
-          d = bc_min_image(*bc_, d);
+          d = bc_->min_image(d);
         }
         const double d2 = d.squaredNorm();
         return d2 >= r2_min && d2 <= r2_max;

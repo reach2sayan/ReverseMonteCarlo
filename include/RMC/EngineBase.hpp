@@ -7,12 +7,10 @@
 #include <RMC/core/Structure.hpp>
 #include <RMC/core/Types.hpp>
 #include <RMC/io/Checkpoint.hpp>
-#include <RMC/sampling/GreedySampler.hpp>
 #include <RMC/sampling/Sampler.hpp>
 
 #include <boost/assert.hpp>
 
-#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -27,9 +25,9 @@ using StepCallback = std::function<void(std::uint64_t, std::uint64_t,
                                         std::uint64_t, double,
                                         const AtomicStructure &)>;
 
-// CRTP base for the refinement engine. step() is the 4-stage MC pipeline
-// (choose/perturb/score/sample) plus three-tier acceptance (decide_rejection)
-// and settle(); per-engine specifics come from CRTP customization points:
+// CRTP base for the refinement engine. step() runs one trial (select, snapshot,
+// score before, propose, score after, settle) with three-tier acceptance
+// (decide_rejection); per-engine specifics come from CRTP customization points:
 //   select()                -> std::optional<TrialCtx>
 //   store()                 -> indexed frame storage (frame 0 = primary)
 //   species_policy() / feedback_policy() / collector_policy() /
@@ -39,7 +37,7 @@ using StepCallback = std::function<void(std::uint64_t, std::uint64_t,
 // Derived must `friend class EngineBase<Derived>;`.
 template <typename Derived> class EngineBase {
 public:
-  // Per-step context threaded through the and_then pipeline (single-frame fixes fi == 0).
+  // One trial's frame and group (single-frame fixes fi == 0).
   struct TrialCtx {
     std::size_t fi;
     std::size_t gi;
@@ -65,13 +63,10 @@ public:
   void run_until(double target_chi2, std::uint64_t max_steps = 0) {
     BOOST_ASSERT_MSG(!groups_.empty(), "no groups defined");
     ensure_initialised();
-    std::uint64_t s = 0;
-    while (constraints_.total_error() > target_chi2) {
+    for (std::uint64_t s = 0; constraints_.total_error() > target_chi2 &&
+                              (max_steps == 0 || s < max_steps);
+         ++s) {
       self().step();
-      ++s;
-      if (max_steps > 0 && s >= max_steps) {
-        break;
-      }
     }
   }
 
@@ -107,60 +102,60 @@ public:
   // distinct seed for independent streams.
   void set_sampler(Sampler s, std::uint32_t seed = 0xACCE55u) {
     sampler_ = std::move(s);
-    accept_rng_ = RngBuffer<>{seed};
+    accept_rng_ = Rng{seed};
   }
 
 protected:
   explicit EngineBase(BoundaryConditions bc)
       : bc_(std::make_unique<BoundaryConditions>(std::move(bc))) {}
 
-  // One trial step: select → snapshot/score-before → propose → score-after →
-  // settle, then log and checkpoint. select() short-circuits when no group is eligible.
+  // One step: a trial when select() finds an eligible group, then best-state
+  // tracking, logging and checkpointing.
   void step() {
     ++n_steps_total_;
-    auto ctx = self().select();
-    ctx.and_then(stage([&](TrialCtx &c) { snapshot_and_score_before(c); }))
-        .and_then(stage([&](TrialCtx &c) { propose_move(c); }))
-        .and_then(stage([&](TrialCtx &c) { score_after(c); }))
-        .and_then(stage([&](TrialCtx &c) { settle(c); }));
-    const AtomicStructure &cur = ctx ? *ctx->frame : self().store()[0];
+    const std::optional<TrialCtx> ctx = self().select();
+    if (ctx) {
+      trial(*ctx);
+    }
+    const AtomicStructure &cur = ctx ? *ctx->frame : self().store().front();
     self().best_policy().update(cur, constraints_.total_error());
     maybe_log(cur);
-    self().checkpoint_policy().maybe(self().store()[0], make_stats(),
+    self().checkpoint_policy().maybe(self().store().front(), make_stats(),
                                      n_steps_accepted_);
   }
 
-  void snapshot_and_score_before(TrialCtx &c) {
+  void trial(const TrialCtx &c) {
     ++n_steps_tried_;
+    const auto idx = c.group->span();
     constraints_.set_active_frame(c.fi); // no-op for non-frame constraints
-    c.frame->save_snapshot(c.group->span());
+    c.frame->save_snapshot(idx);
     self().species_policy().save_before(*c.frame, *c.group);
-    constraints_.compute_before_move(c.frame->coordinates, c.group->span());
-  }
-  void propose_move(TrialCtx &c) {
-    c.group->generator->generate(c.frame->coordinates, c.group->span());
-    apply_pbc_to(*c.frame, c.group->span());
-  }
-  void score_after(TrialCtx &c) {
-    constraints_.compute_after_move(c.frame->coordinates, c.group->span());
+    constraints_.compute_before_move(c.frame->coordinates, idx);
+    c.group->generator->generate(c.frame->coordinates, idx);
+    for (const auto i : idx) {
+      c.frame->coordinates.row(i) =
+          bc_->wrap(c.frame->coordinates.row(i).transpose()).transpose();
+    }
+    constraints_.compute_after_move(c.frame->coordinates, idx);
+    settle(c);
   }
 
-  [[nodiscard]] bool decide_rejection(TrialCtx &c) {
-    //gradient-based generators (HMC/leapfrog) own their accept/reject
+  [[nodiscard]] bool decide_rejection(const TrialCtx &c) {
+    // Gradient-based generators (HMC/leapfrog) own their accept/reject.
     if (auto override_rej = c.group->generator->rejection_override()) {
       return *override_rej;
     }
+    // Otherwise any RIGID constraint is a hard rejection...
     if (constraints_.rigid_should_reject()) {
-      //otherwise any  RIGID constraint is a hard rejection
       return true;
     }
-    //otherwise the Sampler decides
+    // ...and the Sampler decides the rest.
     return !sampler_.accept(constraints_.total_error_before(),
                             constraints_.total_error(), n_steps_total_,
                             accept_rng_.uniform());
   }
 
-  void settle(TrialCtx &c) {
+  void settle(const TrialCtx &c) {
     const bool rejected = decide_rejection(c);
     self().collector_policy().commit_or_rollback(!rejected);
     if (rejected) {
@@ -179,27 +174,10 @@ protected:
     if (initialised_) {
       return;
     }
-    constraints_.set_collector(self().collector_policy().collector_ptr());
+    constraints_.set_collector(self().collector_policy().collector());
     constraints_.initialise_all();
     self().do_initialise();
     initialised_ = true;
-  }
-
-  // Lifts void(T&) into optional<T>(T) for and_then chaining.
-  static constexpr auto stage(auto &&fn) {
-    return [fn = std::forward<decltype(fn)>(fn)](
-               auto c) -> std::optional<decltype(c)> {
-      std::invoke(fn, c);
-      return c;
-    };
-  }
-
-  void apply_pbc_to(AtomicStructure &s, std::span<const std::size_t> moved) {
-    std::ranges::for_each(moved, [&](auto i) {
-      vec3_t r = s.coordinates.row(static_cast<Eigen::Index>(i)).transpose();
-      r = bc_wrap(*bc_, r);
-      s.coordinates.row(static_cast<Eigen::Index>(i)) = r.transpose();
-    });
   }
 
   void maybe_log(const AtomicStructure &current) {
@@ -215,7 +193,7 @@ protected:
   std::vector<Group> groups_;
   ConstraintCollection constraints_;
   Sampler sampler_{GreedySampler{}};
-  RngBuffer<> accept_rng_{0xACCE55u};
+  Rng accept_rng_{0xACCE55u};
   std::uint64_t n_steps_total_{0};
   std::uint64_t n_steps_tried_{0};
   std::uint64_t n_steps_accepted_{0};

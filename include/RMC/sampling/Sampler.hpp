@@ -1,34 +1,22 @@
 #pragma once
-#include <RMC/core/TypeErasure.hpp>
-#include <concepts>
+#include <RMC/sampling/AnnealingSampler.hpp>
+#include <RMC/sampling/GreedySampler.hpp>
+#include <RMC/sampling/MetropolisSampler.hpp>
 #include <cstdint>
-#include <memory>
+#include <variant>
 
 namespace RMC {
 
-class Sampler;
-
-namespace detail {
-struct SamplerToken {
-private:
-  constexpr SamplerToken() = default;
-  friend class ::RMC::Sampler;
+// The move-acceptance policy: one of the samplers above, dispatched by value.
+struct Sampler
+    : std::variant<GreedySampler, MetropolisSampler, AnnealingSampler> {
+  using variant::variant;
+  [[nodiscard]] bool accept(double e_before, double e_after, std::uint64_t step,
+                            double u01) const {
+    return std::visit(
+        [&](const auto &s) { return s.accept(e_before, e_after, step, u01); },
+        *this);
+  }
 };
-} // namespace detail
-
-template <typename T>
-concept CSampler = requires(T &s, detail::SamplerToken tok, double e_before,
-                            double e_after, std::uint64_t step, double u01) {
-  { s.accept(tok, e_before, e_after, step, u01) } -> std::convertible_to<bool>;
-};
-
-#define RMC_SAMPLER_METHODS                                                    \
-  ((1, bool, accept,                                                           \
-    (double e_before, double e_after, std::uint64_t step, double u01), 4,      \
-    (e_before, e_after, step, u01), , , WITH_TOKEN))
-RMC_DEFINE_ERASED_TYPE(Sampler, RMC_SAMPLER_METHODS)
-#undef RMC_SAMPLER_METHODS
-
-template <typename Derived> struct SamplerBase {};
 
 } // namespace RMC

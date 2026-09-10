@@ -2,6 +2,7 @@
 #include <RMC/core/Types.hpp>
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 #if defined(RMC_USE_TBB)
 #include <execution>
@@ -29,14 +30,6 @@ template <class It, class F> void for_each(It first, It last, F &&f) {
   });
 }
 
-template <class F>
-void for_each(const std::ranges::input_range auto &&range, F &&f) {
-  arena().execute([&] {
-    std::for_each(std::execution::par_unseq, std::forward<F>(range).begin(),
-                  std::forward<F>(range).end(), std::forward<F>(f));
-  });
-}
-
 } // namespace RMC::parallel
 
 #else // !RMC_USE_TBB — serial fallbacks
@@ -54,3 +47,29 @@ constexpr FORCE_INLINE void for_each(It first, It last, F &&f) {
 } // namespace RMC::parallel
 
 #endif
+
+namespace RMC::parallel {
+
+// Σ over i in [0, n) of body(i, acc), with one accumulator per lane: indices
+// are dealt round-robin to default_concurrency() lanes (balancing triangular
+// loops), each lane folds into its own copy of `zero`, and the lanes are
+// summed at the end. Serial builds use a single lane.
+template <class Acc, class Body>
+Acc parallel_sum(std::size_t n, const Acc &zero, Body body) {
+  const auto lanes = std::clamp<std::size_t>(
+      static_cast<std::size_t>(default_concurrency()), 1, std::max<std::size_t>(n, 1));
+  std::vector<Acc> acc(lanes, zero);
+  const auto ids =
+      std::views::iota(std::size_t{0}, lanes) | std::ranges::to<std::vector>();
+  RMC::parallel::for_each(ids.begin(), ids.end(), [&](std::size_t lane) {
+    for (std::size_t i = lane; i < n; i += lanes) {
+      body(i, acc[lane]);
+    }
+  });
+  for (std::size_t lane = 1; lane < lanes; ++lane) {
+    acc[0] += acc[lane];
+  }
+  return std::move(acc[0]);
+}
+
+} // namespace RMC::parallel

@@ -1,6 +1,6 @@
 #include <RMC/selectors/OrderedSelector.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
-#include <RMC/selectors/RecursiveGroupSelector.hpp>
+#include <RMC/selectors/GroupSelector.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>

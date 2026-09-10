@@ -84,11 +84,11 @@ TEST_CASE("InfiniteBC - passthrough", "[bc]") {
   SECTION("volume") { REQUIRE_THAT(bc.volume(), WithinAbs(500.0, EPS)); }
 }
 
-TEST_CASE("BoundaryConditions variant dispatch", "[bc]") {
+TEST_CASE("BoundaryConditions value dispatch", "[bc]") {
   BoundaryConditions bc = PeriodicBC(mat3_t::Identity() * 10.0);
 
   vec3_t r(12.0, 3.0, 0.0);
-  vec3_t w = bc_wrap(bc, r);
+  vec3_t w = bc.wrap(r);
   REQUIRE_THAT(w(0), WithinAbs(2.0, EPS));
-  REQUIRE_THAT(bc_volume(bc), WithinAbs(1000.0, EPS));
+  REQUIRE_THAT(bc.volume(), WithinAbs(1000.0, EPS));
 }

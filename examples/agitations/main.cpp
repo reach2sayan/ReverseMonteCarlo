@@ -8,8 +8,7 @@
 //   Phase 3: all three agitations combined via MoveGeneratorCollector
 // BondConstraint and AngleConstraint keep the molecules chemically sane.
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Group.hpp>
 #include <RMC/core/Structure.hpp>

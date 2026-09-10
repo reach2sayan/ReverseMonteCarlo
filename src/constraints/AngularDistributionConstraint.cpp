@@ -1,20 +1,69 @@
 #include <RMC/constraints/AngularDistributionConstraint.hpp>
 #include <RMC/core/Parallel.hpp>
+#include <RMC/core/SpeciesIndex.hpp>
 
 #include <boost/assert.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <map>
 #include <numbers>
-#include <numeric>
 #include <ranges>
 #include <span>
 #include <utility>
 #include <vector>
 
 namespace RMC {
+
+namespace {
+
+// Minimum-image displacement r_to − r_from.
+FORCE_INLINE vec3_t displacement(const coords_t &c, const BoundaryConditions *bc,
+                                 Eigen::Index from, Eigen::Index to) {
+  vec3_t d = (c.row(to) - c.row(from)).transpose();
+  if (bc) {
+    d = bc->min_image(d);
+  }
+  return d;
+}
+
+// Adds 1 to `hist` for every angle j–i–k at apex i over the pairs (j before k)
+// of its neighbour list `nb` that `keep(j, k)` accepts. The flat index is
+// angle_bin·n_cols + (central=elem_id[i], legs=elem_id[j],elem_id[k]) column.
+template <class Keep>
+FORCE_INLINE void bin_apex_angles(vec_t &hist, const coords_t &coords,
+                                  const BoundaryConditions *bc,
+                                  const std::vector<uint8_t> &elem_id,
+                                  int n_types, int n_bins, Eigen::Index i,
+                                  std::span<const std::uint32_t> nb, Keep keep) {
+  const int n_leg_pairs = adf_n_leg_pairs(n_types);
+  const int n_cols = n_types * n_leg_pairs;
+  const double inv_bw = static_cast<double>(n_bins) / std::numbers::pi;
+  const int a = elem_id[static_cast<std::size_t>(i)];
+  for (std::size_t aa = 0; aa + 1 < nb.size(); ++aa) {
+    const std::uint32_t j = nb[aa];
+    const vec3_t v1 = displacement(coords, bc, i, j);
+    const double n1 = v1.norm();
+    for (std::size_t bb = aa + 1; bb < nb.size(); ++bb) {
+      const std::uint32_t k = nb[bb];
+      if (!keep(j, k)) {
+        continue;
+      }
+      const vec3_t v2 = displacement(coords, bc, i, k);
+      const double cos_a = v1.dot(v2) / (n1 * v2.norm() + 1e-30);
+      const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
+      // angle == π lands in the last bin.
+      const int bin = std::clamp(static_cast<int>(angle * inv_bw), 0, n_bins - 1);
+      // initializer_list overload: returns the pair by value (the two-argument
+      // form would bind references to these temporaries).
+      const auto [p, q] = std::minmax({int{elem_id[j]}, int{elem_id[k]}});
+      const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, n_types);
+      hist(static_cast<Eigen::Index>(bin) * n_cols + col) += 1.0;
+    }
+  }
+}
+
+} // namespace
 
 std::vector<AdfColumn> adf_columns(int n_types) {
   std::vector<AdfColumn> cols;
@@ -37,153 +86,40 @@ void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
                                 int n_types, double max_dis, int n_bins,
                                 const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
-  const int n_leg_pairs = adf_n_leg_pairs(n_types);
-  const int n_cols = n_types * n_leg_pairs;
   hist.setZero();
-  if (N < 3 || n_bins <= 0 || n_cols == 0) {
+  if (N < 3 || n_bins <= 0 || adf_n_cols(n_types) == 0) {
     return;
   }
   const double max2 = max_dis * max_dis;
-  const double inv_bw = static_cast<double>(n_bins) / std::numbers::pi;
+  const auto absent = [&](Eigen::Index a) {
+    return collector && collector->absent(static_cast<std::size_t>(a));
+  };
+  const auto rows =
+      std::views::iota(Eigen::Index{0}, N) | std::ranges::to<std::vector>();
 
-  // Neighbour adjacency within the cutoff (brute force, minimum image). O(N²);
-  // see the header note on the planned cell-list / incremental optimisation.
+  // Phase A: each row's neighbour list within the cutoff (brute force,
+  // minimum image), written privately per row in ascending index order.
   std::vector<std::vector<std::uint32_t>> adj(static_cast<std::size_t>(N));
-
-#if defined(RMC_USE_TBB)
-  // Row indices, reused by both parallel passes (mirrors
-  // accumulate_pair_histogram).
-  std::vector<Eigen::Index> rows(static_cast<std::size_t>(N));
-  std::ranges::iota(rows, Eigen::Index{0});
-
-  // Phase A: per-row adjacency. Each row scans ALL other atoms and pushes only
-  // into its own adj[i] — a full N² scan (vs the serial upper-triangular half),
-  // trading redundant distance work for a private write target (no race). The
-  // ascending inner loop keeps each adj[i] in index order, matching the serial
-  // build so Phase B's (j < k) pairing is identical.
   parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
-    if (collector && collector->absent(static_cast<std::size_t>(i))) {
+    if (absent(i)) {
       return; // a removed atom joins no neighbour list, so forms no angle
     }
-    auto &nbi = adj[static_cast<std::size_t>(i)];
     for (Eigen::Index j = 0; j < N; ++j) {
-      if (j == i) {
-        continue;
-      }
-      if (collector && collector->absent(static_cast<std::size_t>(j))) {
-        continue;
-      }
-      vec3_t d = (coords.row(j) - coords.row(i)).transpose();
-      if (bc) {
-        d = bc_min_image(*bc, d);
-      }
-      if (d.squaredNorm() <= max2) {
-        nbi.push_back(static_cast<std::uint32_t>(j));
+      if (j != i && !absent(j) &&
+          displacement(coords, bc, i, j).squaredNorm() <= max2) {
+        adj[static_cast<std::size_t>(i)].push_back(static_cast<std::uint32_t>(j));
       }
     }
   });
 
-  // Phase B: every angle j–i–k for apex i's neighbour pairs, binned into a
-  // private per-row histogram; summed into `hist` after the fan-out.
-  std::vector<vec_t> partial(
-      static_cast<std::size_t>(N),
-      vec_t::Zero(static_cast<Eigen::Index>(n_bins) * n_cols));
-  parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
-    const auto &nb = adj[static_cast<std::size_t>(i)];
-    const std::size_t deg = nb.size();
-    if (deg < 2) {
-      return;
-    }
-    vec_t &local = partial[static_cast<std::size_t>(i)];
-    const int a = elem_id[static_cast<std::size_t>(i)];
-    for (std::size_t aa = 0; aa + 1 < deg; ++aa) {
-      const std::uint32_t j = nb[aa];
-      vec3_t v1 = (coords.row(j) - coords.row(i)).transpose();
-      if (bc) {
-        v1 = bc_min_image(*bc, v1);
-      }
-      const double n1 = v1.norm();
-      for (std::size_t bb = aa + 1; bb < deg; ++bb) {
-        const std::uint32_t k = nb[bb];
-        vec3_t v2 = (coords.row(k) - coords.row(i)).transpose();
-        if (bc) {
-          v2 = bc_min_image(*bc, v2);
-        }
-        const double cos_a = v1.dot(v2) / (n1 * v2.norm() + 1e-30);
-        const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
-        int bin = static_cast<int>(angle * inv_bw);
-        bin =
-            std::clamp(bin, 0, n_bins - 1); // angle == π lands in the last bin
-        int p = elem_id[j];
-        int q = elem_id[k];
-        if (p > q) {
-          std::swap(p, q);
-        }
-        const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, n_types);
-        local(static_cast<Eigen::Index>(bin) * n_cols + col) += 1.0;
-      }
-    }
-  });
-  for (const vec_t &p : partial) {
-    hist += p;
-  }
-
-#else
-  for (Eigen::Index i = 0; i < N; ++i) {
-    if (collector && collector->absent(static_cast<std::size_t>(i))) {
-      continue; // a removed atom joins no neighbour list, so forms no angle
-    }
-    for (Eigen::Index j = i + 1; j < N; ++j) {
-      if (collector && collector->absent(static_cast<std::size_t>(j))) {
-        continue;
-      }
-      vec3_t d = (coords.row(j) - coords.row(i)).transpose();
-      if (bc) {
-        d = bc_min_image(*bc, d);
-      }
-      if (d.squaredNorm() <= max2) {
-        adj[static_cast<std::size_t>(i)].push_back(
-            static_cast<std::uint32_t>(j));
-        adj[static_cast<std::size_t>(j)].push_back(
-            static_cast<std::uint32_t>(i));
-      }
-    }
-  }
-
-  // Every angle j–i–k for atom i's neighbour pairs (j < k in the adjacency).
-  for (Eigen::Index i = 0; i < N; ++i) {
-    const auto &nb = adj[static_cast<std::size_t>(i)];
-    const int a = elem_id[static_cast<std::size_t>(i)];
-    const std::size_t deg = nb.size();
-    for (std::size_t aa = 0; aa + 1 < deg; ++aa) {
-      const std::uint32_t j = nb[aa];
-      vec3_t v1 = (coords.row(j) - coords.row(i)).transpose();
-      if (bc) {
-        v1 = bc_min_image(*bc, v1);
-      }
-      const double n1 = v1.norm();
-      for (std::size_t bb = aa + 1; bb < deg; ++bb) {
-        const std::uint32_t k = nb[bb];
-        vec3_t v2 = (coords.row(k) - coords.row(i)).transpose();
-        if (bc) {
-          v2 = bc_min_image(*bc, v2);
-        }
-        const double cos_a = v1.dot(v2) / (n1 * v2.norm() + 1e-30);
-        const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
-        int bin = static_cast<int>(angle * inv_bw);
-        bin =
-            std::clamp(bin, 0, n_bins - 1); // angle == π lands in the last bin
-        int p = elem_id[j];
-        int q = elem_id[k];
-        if (p > q) {
-          std::swap(p, q);
-        }
-        const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, n_types);
-        hist(static_cast<Eigen::Index>(bin) * n_cols + col) += 1.0;
-      }
-    }
-  }
-#endif
+  // Phase B: every angle at apex i, binned into per-lane histograms.
+  const vec_t zero = vec_t::Zero(hist.size());
+  hist = parallel::parallel_sum(
+      static_cast<std::size_t>(N), zero, [&](std::size_t i, vec_t &local) {
+        bin_apex_angles(local, coords, bc, elem_id, n_types, n_bins,
+                        static_cast<Eigen::Index>(i), adj[i],
+                        [](std::uint32_t, std::uint32_t) { return true; });
+      });
 }
 
 void accumulate_moved_angles(vec_t &hist, const coords_t &coords,
@@ -191,100 +127,80 @@ void accumulate_moved_angles(vec_t &hist, const coords_t &coords,
                              const std::vector<uint8_t> &elem_id, int n_types,
                              double max_dis, int n_bins,
                              std::span<const std::size_t> moved,
-                             const NeighborGrid &grid,
+                             const NeighborGrid &grid, AngleScratch &s,
                              const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
-  const int n_leg_pairs = adf_n_leg_pairs(n_types);
-  const int n_cols = n_types * n_leg_pairs;
   // `hist` is zeroed by the caller (matches accumulate_moved_pairs).
-  if (N < 1 || n_bins <= 0 || n_cols == 0 || moved.empty()) {
+  if (N < 1 || n_bins <= 0 || adf_n_cols(n_types) == 0 || moved.empty()) {
     return;
   }
-  const double inv_bw = static_cast<double>(n_bins) / std::numbers::pi;
 
-  // O(1) "is this atom in `moved`" test, sized to N and reset on touched slots
-  // only (same trick as moved_pos in accumulate_moved_pairs). Used both to seed
-  // the candidate-centre set and as the inclusion predicate.
-  thread_local std::vector<char> is_moved, center_seen;
-  if (is_moved.size() < static_cast<std::size_t>(N)) {
-    is_moved.assign(static_cast<std::size_t>(N), 0);
-    center_seen.assign(static_cast<std::size_t>(N), 0);
+  // O(1) membership masks sized to N; only touched slots are set and reset.
+  if (s.is_moved.size() < static_cast<std::size_t>(N)) {
+    s.is_moved.assign(static_cast<std::size_t>(N), 0);
+    s.center_seen.assign(static_cast<std::size_t>(N), 0);
   }
   for (const std::size_t m : moved) {
-    is_moved[m] = 1;
+    s.is_moved[m] = 1;
   }
 
-  // Candidate centres C = moved ∪ neighbours(moved). Iterating by apex over C
-  // visits every affected angle exactly once (the apex is its unique key).
-  thread_local std::vector<std::size_t> centers;
-  centers.clear();
-  thread_local std::vector<std::uint32_t> nbr;
+  // Candidate apexes C = moved ∪ neighbours(moved): iterating by apex visits
+  // every affected angle exactly once (the apex is its unique key).
+  s.centers.clear();
   const auto add_center = [&](std::size_t c) {
-    if (!center_seen[c]) {
-      center_seen[c] = 1;
-      centers.push_back(c);
+    if (!s.center_seen[c]) {
+      s.center_seen[c] = 1;
+      s.centers.push_back(c);
     }
   };
   for (const std::size_t m : moved) {
     add_center(m); // m as apex (skipped below if absent)
     // Seed from m's coordinate row even if m is absent — its former neighbours
     // must still be revisited so its angles get subtracted, not re-added.
-    grid.neighbors_of(m, coords, bc, max_dis, collector, nbr);
-    for (const std::uint32_t c : nbr) {
-      add_center(c);
-    }
+    grid.neighbors_of(m, coords, bc, max_dis, collector, s.nbr);
+    std::ranges::for_each(s.nbr, add_center);
   }
 
-  // Enumerate angles j–i–k by apex i, mirroring accumulate_angle_histogram, but
-  // counting a pair only when {i, j, k} ∩ moved ≠ ∅.
-  for (const std::size_t i : centers) {
+  // Angles by apex, counted only when {i, j, k} ∩ moved ≠ ∅.
+  for (const std::size_t i : s.centers) {
     if (collector && collector->absent(i)) {
       continue;
     }
-    grid.neighbors_of(i, coords, bc, max_dis, collector, nbr);
-    const int a = elem_id[i];
-    const std::size_t deg = nbr.size();
-    const bool apex_moved = is_moved[i] != 0;
-    for (std::size_t aa = 0; aa + 1 < deg; ++aa) {
-      const std::uint32_t j = nbr[aa];
-      vec3_t v1 = (coords.row(j) - coords.row(static_cast<Eigen::Index>(i)))
-                      .transpose();
-      if (bc) {
-        v1 = bc_min_image(*bc, v1);
-      }
-      const double n1 = v1.norm();
-      const bool j_moved = is_moved[j] != 0;
-      for (std::size_t bb = aa + 1; bb < deg; ++bb) {
-        const std::uint32_t k = nbr[bb];
-        if (!apex_moved && !j_moved && !is_moved[k]) {
-          continue; // angle untouched by the move — excluded from the delta
-        }
-        vec3_t v2 = (coords.row(k) - coords.row(static_cast<Eigen::Index>(i)))
-                        .transpose();
-        if (bc) {
-          v2 = bc_min_image(*bc, v2);
-        }
-        const double cos_a = v1.dot(v2) / (n1 * v2.norm() + 1e-30);
-        const double angle = std::acos(std::clamp(cos_a, -1.0, 1.0));
-        int bin = static_cast<int>(angle * inv_bw);
-        bin = std::clamp(bin, 0, n_bins - 1);
-        int p = elem_id[j];
-        int q = elem_id[k];
-        if (p > q) {
-          std::swap(p, q);
-        }
-        const int col = a * n_leg_pairs + adf_leg_pair_index(p, q, n_types);
-        hist(static_cast<Eigen::Index>(bin) * n_cols + col) += 1.0;
-      }
-    }
+    grid.neighbors_of(i, coords, bc, max_dis, collector, s.nbr);
+    const bool apex_moved = s.is_moved[i] != 0;
+    bin_apex_angles(hist, coords, bc, elem_id, n_types, n_bins,
+                    static_cast<Eigen::Index>(i), s.nbr,
+                    [&](std::uint32_t j, std::uint32_t k) {
+                      return apex_moved || s.is_moved[j] || s.is_moved[k];
+                    });
   }
 
-  // Reset the touched mask slots, keeping the thread_local clear for next call.
   for (const std::size_t m : moved) {
-    is_moved[m] = 0;
+    s.is_moved[m] = 0;
   }
-  for (const std::size_t c : centers) {
-    center_seen[c] = 0;
+  for (const std::size_t c : s.centers) {
+    s.center_seen[c] = 0;
+  }
+}
+
+void adf_smooth(vec_t &hist, vec_t &scratch, int n_bins, int n_cols,
+                int range) {
+  if (range <= 0 || n_bins <= 1) {
+    return;
+  }
+  using RowMajMat =
+      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+  scratch.resize(hist.size());
+  for (int pass = 0; pass < 2; ++pass) {
+    Eigen::Map<const RowMajMat> H(hist.data(), n_bins, n_cols);
+    Eigen::Map<RowMajMat> Hs(scratch.data(), n_bins, n_cols);
+    for (int b = 0; b < n_bins; ++b) {
+      const int lo = std::max(0, b - range);
+      const int hi = std::min(n_bins - 1, b + range);
+      Hs.row(b) = H.middleRows(lo, hi - lo + 1).colwise().sum() /
+                  static_cast<double>(hi - lo + 1);
+    }
+    hist.swap(scratch);
   }
 }
 
@@ -304,31 +220,14 @@ void AngularDistributionConstraint::initialise() {
 
   // Species ids by *sorted* symbol — canonical and independent of atom order,
   // so a target written by --adf-compute lines up column-for-column here.
-  std::map<std::string, std::uint8_t> id_of;
-  for (const auto &e : elements_) {
-    id_of.emplace(e, 0);
-  }
-  std::uint8_t next = 0;
-  for (auto &kv : id_of) {
-    kv.second = next++;
-  }
-  n_types_ = static_cast<int>(id_of.size());
+  const SpeciesIndex sp(elements_);
+  species_ = sp.symbols;
+  elem_id_ = sp.id;
+  const auto &count = sp.count;
+  n_types_ = static_cast<int>(sp.size());
   n_leg_pairs_ = adf_n_leg_pairs(n_types_);
   n_cols_ = n_types_ * n_leg_pairs_;
   hist_len_ = n_bins_ * n_cols_;
-
-  species_.assign(static_cast<std::size_t>(n_types_), {});
-  for (const auto &[sym, id] : id_of) {
-    species_[id] = sym;
-  }
-
-  elem_id_.resize(elements_.size());
-  std::vector<int> count(static_cast<std::size_t>(n_types_), 0);
-  for (const auto [i, e] : std::views::enumerate(elements_)) {
-    const std::uint8_t id = id_of.at(e);
-    elem_id_[static_cast<std::size_t>(i)] = id;
-    ++count[id];
-  }
 
   // Per-column 1/(N_a·N_p·N_q) per-triplet divisor weight. A column with
   // an absent species gets 0 so it never contributes.
@@ -392,33 +291,13 @@ void AngularDistributionConstraint::normalise_and_smooth(
   const double Nat = static_cast<double>(coords.rows());
   const double inc = scale_invariant_
                          ? 1.0
-                         : (bc_ ? bc_volume(*bc_) : 1.0) * Nat /
+                         : (bc_ ? bc_->volume() : 1.0) * Nat /
                                std::numbers::pi * static_cast<double>(n_bins_);
   // Per-column scaling: `computed_` is a row-major (bin × column) matrix in a
   // flat vector, so a column-tiled copy of the per-column weight aligns
   // element-for-element with it.
   computed_.array() *= inc * col_inv_count_.replicate(n_bins_, 1).array();
-
-  // Per-column boxcar smoothing (shrinking window at the edges), 2 passes.
-  // Never bleeds across column boundaries.
-  if (smooth_range_ > 0 && n_bins_ > 1) {
-    using RowMajMat =
-        Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    const int range = smooth_range_;
-    for (int pass = 0; pass < 2; ++pass) {
-      Eigen::Map<const RowMajMat> C(computed_.data(), n_bins_, n_cols_);
-      Eigen::Map<RowMajMat> Cs(smooth_scratch_.data(), n_bins_, n_cols_);
-      for (int c = 0; c < n_cols_; ++c) {
-        for (int b = 0; b < n_bins_; ++b) {
-          const int lo = std::max(0, b - range);
-          const int hi = std::min(n_bins_ - 1, b + range);
-          Cs(b, c) = C.col(c).segment(lo, hi - lo + 1).sum() /
-                     static_cast<double>(hi - lo + 1);
-        }
-      }
-      computed_.swap(smooth_scratch_);
-    }
-  }
+  adf_smooth(computed_, smooth_scratch_, n_bins_, n_cols_, smooth_range_);
 }
 
 double AngularDistributionConstraint::compute_error(
@@ -437,7 +316,7 @@ double AngularDistributionConstraint::compute_error(
       },
       [&](vec_t &delta, std::span<const std::size_t> mv) {
         accumulate_moved_angles(delta, coords, bc_, elem_id_, n_types_,
-                                max_dis_, n_bins_, mv, active_grid(),
+                                max_dis_, n_bins_, mv, active_grid(), scratch_,
                                 collector_);
       },
       [&](std::span<const std::size_t> mv) { active_grid().save_cells(mv); },

@@ -1,22 +1,27 @@
 #pragma once
 #include <RMC/constraints/Constraint.hpp>
+#include <algorithm>
 #include <boost/stl_interfaces/view_interface.hpp>
-#include <optional>
+#include <functional>
+#include <ranges>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace RMC {
 
+// A cost-ordered, read-only range of the engine's constraints.
 class ConstraintCollection
     : public boost::stl_interfaces::view_interface<
           ConstraintCollection,
           boost::stl_interfaces::element_layout::contiguous> {
 public:
+  [[nodiscard]] auto begin() const noexcept { return constraints_.cbegin(); }
+  [[nodiscard]] auto end() const noexcept { return constraints_.cend(); }
+
   // Insert in ascending computation_cost() order so cheap constraints
   // (bonds, angles) run before expensive O(N²) ones (PDF, S(Q)).
   void add(Constraint c);
-  void set_boundary_conditions(const BoundaryConditions &bc) noexcept;
   void set_collector(const AtomsCollector *c) noexcept;
   void compute_before_move(const coords_t &coords,
                            std::span<const std::size_t> moved);
@@ -47,16 +52,15 @@ public:
 
   void set_n_frames(std::size_t n) noexcept;
   void set_active_frame(std::size_t k) noexcept;
-  [[nodiscard]] constexpr auto begin() const noexcept {
-    return constraints_.cbegin();
-  }
-  [[nodiscard]] constexpr auto end() const noexcept {
-    return constraints_.cend();
-  }
 
 private:
+  template <class F> void each(F f) { std::ranges::for_each(constraints_, f); }
+  template <class F> [[nodiscard]] double sum(F f) const {
+    return std::ranges::fold_left(constraints_ | std::views::transform(f), 0.0,
+                                  std::plus{});
+  }
+
   std::vector<Constraint> constraints_;
-  std::optional<BoundaryConditions> bc_{std::nullopt};
   const AtomsCollector *collector_{nullptr};
 };
 

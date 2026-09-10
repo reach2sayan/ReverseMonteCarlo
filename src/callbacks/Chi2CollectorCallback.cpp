@@ -4,7 +4,9 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <ranges>
 #include <string>
+#include <string_view>
 
 namespace RMC::callbacks {
 
@@ -40,11 +42,8 @@ void Chi2CollectorCallback::print_ascii() const {
   for (auto [step, chi2] : history_) {
     const int bars =
         (chi2_max > 0.0) ? static_cast<int>(bar_width * chi2 / chi2_max) : 0;
-    std::string blocks;
-    blocks.reserve(static_cast<std::size_t>(bars) * 3);
-    for (int i = 0; i < bars; ++i) {
-      blocks += "\xe2\x96\x88"; // U+2588 FULL BLOCK
-    }
+    const auto blocks = std::views::repeat(std::string_view{"\xe2\x96\x88"}, bars) |
+                        std::views::join | std::ranges::to<std::string>(); // U+2588 FULL BLOCK
     std::cout << std::format("step {:>10}  {:.4f}  {}\n", step, chi2, blocks);
   }
   std::cout << '\n';

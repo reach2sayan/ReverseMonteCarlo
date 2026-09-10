@@ -1,11 +1,10 @@
 #pragma once
 #include <RMC/EngineBase.hpp>
-#include <RMC/FrameStore.hpp>
 #include <RMC/selectors/GroupSelector.hpp>
 
 #include <cstdint>
+#include <deque>
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -31,7 +30,7 @@ public:
 
   // Add an additional structural frame (frame 0 is the ctor structure). All
   // frames are refined against the averaged computed profile.
-  void add_frame(AtomicStructure s) { store_.add(std::move(s)); }
+  void add_frame(AtomicStructure s) { frames_.push_back(std::move(s)); }
   void set_frame_selector(GroupSelector s) { frame_selector_ = std::move(s); }
 
   void build_atomic_groups(double min_amp = 0.0, double max_amp = 0.2,
@@ -49,10 +48,10 @@ public:
   // collector, so settle() commits/rolls back the staged removal.
   void add_removal_group(std::string name, std::vector<std::size_t> indices);
 
-  // The engine's shared removal collector. Bind your own RemoveGenerator to it
+  // The engine's removal collector. Bind your own RemoveGenerator to it
   // (RemoveGenerator{engine.collector()}) when building groups by hand.
-  [[nodiscard]] std::shared_ptr<AtomsCollector> collector() noexcept {
-    return col_.shared_collector();
+  [[nodiscard]] AtomsCollector *collector() const noexcept {
+    return col_.collector();
   }
 
   void set_selector(GroupSelector s) { selector_ = std::move(s); }
@@ -61,11 +60,9 @@ public:
   void set_checkpoint(std::filesystem::path path, std::uint64_t every = 5000);
 
   [[nodiscard]] const AtomicStructure &structure() const noexcept {
-    return store_.primary();
+    return frames_.front();
   }
-  [[nodiscard]] AtomicStructure &structure() noexcept {
-    return store_.primary();
-  }
+  [[nodiscard]] AtomicStructure &structure() noexcept { return frames_.front(); }
 
   // Track the lowest-error configuration seen during the run (see
   // WithBestTracking). Off by default.
@@ -74,7 +71,7 @@ public:
     return best_.best_error(constraints_.total_error());
   }
   [[nodiscard]] const AtomicStructure &best_structure() const noexcept {
-    return best_.best_structure(store_.primary());
+    return best_.best_structure(frames_.front());
   }
 
   [[nodiscard]] io::EngineStats stats() const noexcept { return make_stats(); }
@@ -84,21 +81,24 @@ private:
 
   // CRTP customization points called by EngineBase.
   std::optional<TrialCtx> select() {
-    // Single-frame: skip the frame draw and fix fi = 0 to keep the group RNG
-    // stream identical to the pre-multi-frame engine.
-    const std::size_t fi =
-        store_.size() == 1 ? std::size_t{0} : frame_selector_.select(store_.size());
+    // Single-frame: skip the frame draw so the group RNG stream is unaffected.
+    const std::size_t fi = frames_.size() == 1
+                               ? std::size_t{0}
+                               : frame_selector_.select(frames_.size());
     const std::size_t gi = selector_.select(groups_.size());
     Group &g = groups_[gi];
     if (!g.refine || g.empty() || !g.generator) {
       return std::nullopt;
     }
-    return TrialCtx{fi, gi, &store_[fi], &g};
+    return TrialCtx{fi, gi, &frames_[fi], &g};
   }
   // Prime constraint frame count + each frame's histogram. Defined in Engine.cpp.
   void do_initialise();
+  // One group per atom, its generator made by make(seed + atom index).
+  template <class MakeGen>
+  void build_per_atom_groups(std::uint32_t seed, MakeGen make);
 
-  [[nodiscard]] constexpr FrameStore &store() noexcept { return store_; }
+  [[nodiscard]] std::deque<AtomicStructure> &store() noexcept { return frames_; }
   [[nodiscard]] constexpr WithSpecies &species_policy() noexcept { return sp_; }
   [[nodiscard]] constexpr WithFeedback &feedback_policy() noexcept {
     return fb_;
@@ -116,12 +116,14 @@ private:
     return selector_;
   }
 
-  FrameStore store_;
+  // A deque keeps every frame at a stable address across add_frame and engine
+  // moves, so references held by constraints/generators stay valid.
+  std::deque<AtomicStructure> frames_;
   GroupSelector selector_;
   GroupSelector frame_selector_;
   [[no_unique_address]] WithSpecies sp_;
   [[no_unique_address]] WithFeedback fb_;
-  [[no_unique_address]] WithCollector col_;
+  WithCollector col_;
   WithBestTracking best_;
   WithCheckpoint ckpt_;
 };

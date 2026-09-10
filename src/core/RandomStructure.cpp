@@ -1,15 +1,16 @@
 #include <RMC/core/RandomStructure.hpp>
 #include <RMC/core/RngGenerator.hpp>
-#include <RMC/io/AtomicNumbers.hpp>
 
 #include <boost/leaf/result.hpp>
+#include <seitz/data/element_data.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
-#include <numeric>
+#include <functional>
+#include <ranges>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace RMC {
@@ -28,72 +29,51 @@ make_random_amorphous(std::span<const std::string> elements,
   }
 
   const std::size_t total =
-      std::accumulate(counts.begin(), counts.end(), std::size_t{0});
+      std::ranges::fold_left(counts, std::size_t{0}, std::plus{});
   if (total == 0) {
     return boost::leaf::new_error(
         std::string{"make_random_amorphous: total atom count is zero"});
   }
-  // Flat list of species indices, shuffled: random per-site species, exact counts.
-  std::vector<std::size_t> species;
-  species.reserve(total);
-  for (auto [e, count] : counts | std::views::enumerate) {
-    species.insert(species.end(), count, e);
-  }
-  RngBuffer<> rng(seed);
-  auto &eng = rng.engine();
-  for (std::size_t i = species.size(); i-- > 1;) {
-    const std::size_t j = static_cast<std::size_t>(eng()) % (i + 1);
-    std::swap(species[i], species[j]);
-  }
+  // Species index per site, shuffled: random per-site species, exact counts.
+  auto species = counts | std::views::enumerate |
+                 std::views::transform([](auto ec) {
+                   const auto [e, count] = ec;
+                   return std::views::repeat(static_cast<std::size_t>(e), count);
+                 }) |
+                 std::views::join | std::ranges::to<std::vector>();
+  Rng rng(seed);
+  std::ranges::shuffle(species, rng.engine());
 
-  // Body-centred grid: two sites per cell (corner + centre).
-  const int n =
-      std::max(1, static_cast<int>(std::ceil(std::cbrt(
-                      static_cast<double>(total) / 2.0))));
-  const double cell = static_cast<double>(n) * spacing;
-
-  std::vector<vec3_t> frac;
-  frac.reserve(total);
-  const double inv_n = 1.0 / static_cast<double>(n);
-  for (int i = 0; i < n && frac.size() < total; ++i)
-    for (int j = 0; j < n && frac.size() < total; ++j)
-      for (int k = 0; k < n && frac.size() < total; ++k) {
-
-        frac.emplace_back(i * inv_n, j * inv_n, k * inv_n);
-        if (frac.size() >= total) {
-          break;
-        }
-        frac.emplace_back((i + 0.5) * inv_n, (j + 0.5) * inv_n,
-                          (k + 0.5) * inv_n);
-      }
+  // Body-centred grid in lattice units: two sites per cell (corner + centre).
+  const int n = std::max(
+      1, static_cast<int>(std::ceil(std::cbrt(static_cast<double>(total) / 2.0))));
+  const auto axis = std::views::iota(0, n);
+  auto sites = std::views::cartesian_product(axis, axis, axis) |
+               std::views::transform([](auto ijk) {
+                 const auto [i, j, k] = ijk;
+                 const vec3_t corner = Eigen::Vector3i(i, j, k).cast<double>();
+                 return std::array{corner, vec3_t(corner.array() + 0.5)};
+               }) |
+               std::views::join | std::views::take(total);
 
   RandomStructure out;
-  out.box = mat3_t::Zero();
-  out.box(0, 0) = cell;
-  out.box(1, 1) = cell;
-  out.box(2, 2) = cell;
-
+  out.box = mat3_t::Identity() * (n * spacing);
   AtomicStructure &s = out.structure;
   s.coordinates.resize(static_cast<Eigen::Index>(total), 3);
-  s.elements.resize(total);
-  s.names.resize(total);
-  s.residues.resize(total);
-  s.molecule_ids.assign(total, 1);
-  std::vector<int> anum(total);
-
-  for (std::size_t a = 0; a < total; ++a) {
-    const std::size_t e = species[a];
-    const std::string &sym = elements[e];
-    s.coordinates.row(static_cast<Eigen::Index>(a)) =
-        (frac[a] * cell).transpose();
-    s.elements[a] = sym;
-    s.names[a] = sym;
-    s.residues[a] = sym;
-    anum[a] = io::atomic_number(sym);
+  for (const auto [a, site] : sites | std::views::enumerate) {
+    s.coordinates.row(a) = spacing * site.transpose();
   }
-  s.atomic_numbers = Eigen::Map<const ivec_t>(
-      anum.data(), static_cast<Eigen::Index>(anum.size()));
-
+  s.elements = species |
+               std::views::transform([&](std::size_t e) { return elements[e]; }) |
+               std::ranges::to<std::vector>();
+  s.names = s.elements;
+  s.residues = s.elements;
+  s.molecule_ids.assign(total, 1);
+  s.atomic_numbers = ivec_t::NullaryExpr(
+      static_cast<Eigen::Index>(total), [&](Eigen::Index a) {
+        return seitz::data::atomic_number(s.elements[static_cast<std::size_t>(a)])
+            .value_or(0);
+      });
   return out;
 }
 

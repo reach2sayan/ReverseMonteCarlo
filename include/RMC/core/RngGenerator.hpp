@@ -1,50 +1,29 @@
 #pragma once
-#include <array>
-#include <boost/random/mersenne_twister.hpp>
 #include <boost/random/normal_distribution.hpp>
-#include <boost/random/uniform_real_distribution.hpp>
+#include <boost/random/taus88.hpp>
+#include <boost/random/uniform_01.hpp>
+#include <boost/random/uniform_int_distribution.hpp>
 #include <cstddef>
 #include <cstdint>
 
 namespace RMC {
 
-template <typename Dist, std::size_t N = 1024> class RngBatchBuffer {
-  using T = typename Dist::result_type;
-
-  boost::random::mt19937 eng_;
-  Dist dist_{};
-  std::array<T, N> buf_;
-  std::size_t pos_{N}; // start "empty" -> refill on first next()
-
+// A per-object random stream: one small-state engine (taus88, three words)
+// with on-demand distributions, so every generator/selector owns one cheaply.
+class Rng {
 public:
-  explicit RngBatchBuffer(std::uint32_t seed) : eng_(seed) {}
-  T next() {
-    if (pos_ == N) {
-      for (auto &v : buf_) {
-        v = dist_(eng_);
-      }
-      pos_ = 0;
-    }
-    return buf_[pos_++];
+  explicit Rng(std::uint32_t seed = 42) : engine_(seed) {}
+  double uniform() { return boost::random::uniform_01<double>{}(engine_); }
+  double uniform(double lo, double hi) { return lo + (hi - lo) * uniform(); }
+  double normal() { return boost::random::normal_distribution<double>{}(engine_); }
+  // Uniform index in [0, n).
+  std::size_t index(std::size_t n) {
+    return boost::random::uniform_int_distribution<std::size_t>{0, n - 1}(engine_);
   }
-};
-
-template <std::size_t N = 1024> class RngBuffer {
-public:
-  explicit RngBuffer(std::uint32_t seed = 42)
-      : uniform_buf_(seed), normal_buf_(seed + 1), engine_(seed + 2) {}
-  double uniform() { return uniform_buf_.next(); }
-  double uniform(double lo, double hi) {
-    return lo + (hi - lo) * uniform_buf_.next();
-  }
-  double normal() { return normal_buf_.next(); }
-  boost::random::mt19937 &engine() noexcept { return engine_; }
+  boost::random::taus88 &engine() noexcept { return engine_; }
 
 private:
-  RngBatchBuffer<boost::random::uniform_real_distribution<double>, N>
-      uniform_buf_;
-  RngBatchBuffer<boost::random::normal_distribution<double>, N> normal_buf_;
-  boost::random::mt19937 engine_;
+  boost::random::taus88 engine_;
 };
 
 } // namespace RMC

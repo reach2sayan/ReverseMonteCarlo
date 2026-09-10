@@ -1,3 +1,4 @@
+#include <RMC/selectors/GroupSelector.hpp>
 #include <RMC/generators/Agitations.hpp>
 #include <RMC/generators/Combined.hpp>
 #include <RMC/generators/Path.hpp>

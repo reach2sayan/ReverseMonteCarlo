@@ -4,8 +4,7 @@
 // Phase 2: ±30°      — loosened, more freedom.
 // Phase 3: ±2°       — restored tight.
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
-#include <RMC/constraints/ImproperAngleConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Structure.hpp>
 

@@ -13,17 +13,14 @@ flowchart TD
     Q -->|fit a structure to data| R[RMC_run<br/>refine]
     Q -->|inspect a structure| A[RMC_run --gr / --adf-compute]
     Q -->|make a starting structure| G[RMC_run --gen-random]
-    Q -->|generate an SQS| S{corrdump available?}
+    Q -->|generate an SQS| S[mcsqs_rmc --lattice]
 
     G -->|seeds| R
     R --> V[RMC_run --gr<br/>verify fit vs target]
-
-    S -->|yes| SC[mcsqs_rmc --lattice]
-    S -->|no| SL[mcsqs_rmc --structure/--clusters/--species]
 ```
 
 The refine path is the core loop; analysis, generation and verification wrap
-around it. The two SQS paths are mutually exclusive — pick one.
+around it.
 
 ## 1. Refine a structure against a PDF
 
@@ -123,11 +120,12 @@ uses `--seed + i`.
     --out     refined.pdb
 ```
 
-## 7. SQS search via corrdump (`mcsqs_rmc`)
+## 7. SQS search (`mcsqs_rmc`)
 
 Generate a Special Quasirandom Structure from an ATAT `rndstr.in` primitive
-lattice. `corrdump` enumerates the cluster orbits; the orbits are expanded over
-the supercell and the engine swaps occupancies to match disordered targets.
+lattice. seitz enumerates the cluster orbits from the lattice's symmetry; the
+orbits are mapped onto the supercell and the engine swaps occupancies to match
+the disordered targets. No ATAT tool is needed.
 
 ```bash
 mcsqs_rmc --lattice rndstr.in --supercell "2 2 2" \
@@ -137,23 +135,9 @@ mcsqs_rmc --lattice rndstr.in --supercell "2 2 2" \
           --out bestsqs.pdb
 ```
 
-Writes `bestsqs.pdb` and an ATAT `bestsqs.out`, and prints the result's
-correlations recomputed by `corrdump` as an independent cross-check.
-
-## 8. SQS search without corrdump (legacy)
-
-When `corrdump` is unavailable, supply a fixed-site structure, a pre-enumerated
-cluster-orbit file, and a species map directly. No cross-check is emitted.
-
-```bash
-mcsqs_rmc --structure rndstr.pdb \
-          --clusters  clusters.out \
-          --species   "Cu:+1,Au:-1" \
-          --replicas  8 --steps 500000 \
-          --out bestsqs.pdb
-```
-
-`--lattice` and `--structure` are mutually exclusive — pick one pipeline.
+Writes `bestsqs.pdb` and an ATAT `bestsqs.out` (`str.out`). The order in which
+`rndstr.in` lists a site's species fixes the sign of odd-body correlations, as
+in ATAT.
 
 ## Typical end-to-end sequence
 

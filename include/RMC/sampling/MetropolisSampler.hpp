@@ -1,6 +1,6 @@
 #pragma once
-#include <RMC/sampling/Sampler.hpp>
 #include <cmath>
+#include <cstdint>
 
 namespace RMC {
 
@@ -12,11 +12,11 @@ namespace RMC {
 // recover the McGreevy–Pusztai exp(-Δχ²/2) rule; T then plays the role of the
 // statistical "temperature" that lets the walker sample the data-consistent
 // ensemble rather than greedily quenching into a single best-fit.
-class MetropolisSampler : public SamplerBase<MetropolisSampler> {
+class MetropolisSampler {
 public:
   constexpr explicit MetropolisSampler(double temperature) noexcept
       : t_(temperature) {}
-  [[nodiscard]] bool accept(Sampler::Token, double e_before, double e_after,
+  [[nodiscard]] bool accept(double e_before, double e_after,
                             std::uint64_t /*step*/, double u01) const noexcept {
     const double dE = e_after - e_before;
     if (dE <= 0.0) {
@@ -29,6 +29,7 @@ public:
   }
 
   [[nodiscard]] constexpr double temperature() const noexcept { return t_; }
+
 private:
   double t_;
 };

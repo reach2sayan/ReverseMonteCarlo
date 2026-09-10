@@ -8,8 +8,7 @@
 
 #include <RMC/Engine.hpp>
 #include <RMC/Ensemble.hpp>
-#include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/constraints/CoordinationConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairCorrelationConstraint.hpp>
@@ -21,7 +20,7 @@
 #include <RMC/generators/Translations.hpp>
 #include <RMC/selectors/OrderedSelector.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
-#include <RMC/selectors/RecursiveGroupSelector.hpp>
+#include <RMC/selectors/GroupSelector.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
 #include <numeric>

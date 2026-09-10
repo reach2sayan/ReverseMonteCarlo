@@ -1,13 +1,13 @@
 #pragma once
 #include <RMC/core/Types.hpp>
-#include <RMC/selectors/GroupSelector.hpp>
+#include <algorithm>
+#include <ranges>
 #include <vector>
 
 namespace RMC {
 
-// Cycles through groups in order of increasing or decreasing distance from a
-// fixed reference point. Order is computed once at construction from the
-// supplied group centroids and then cycled indefinitely.
+// Cycles through groups in order of increasing (nearest_first) or decreasing
+// distance of their centroids from a fixed reference point.
 //
 // Useful for directional refinement (e.g. nearest-to-surface first).
 //
@@ -17,23 +17,26 @@ namespace RMC {
 //       cents.push_back(structure.coordinates(g.indices, Eigen::all)
 //                           .colwise().mean().transpose());
 //   engine.set_selector(DirectionalOrderSelector{origin, cents});
-struct DirectionalOrderSelector : SelectorBase<DirectionalOrderSelector> {
+struct DirectionalOrderSelector {
   bool nearest_first = true;
 
   DirectionalOrderSelector() = default;
-  DirectionalOrderSelector(vec3_t ref, std::vector<vec3_t> centroids,
-                           bool nf = true);
-
-  std::size_t select(GroupSelector::Token, std::size_t n_groups) {
-    if (order_.size() != n_groups) {
-      return current_++ % n_groups;
-    }
-    const std::size_t idx = order_[current_ % n_groups];
-    ++current_;
-    return idx;
+  DirectionalOrderSelector(const vec3_t &ref,
+                           const std::vector<vec3_t> &centroids, bool nf = true)
+      : nearest_first(nf),
+        order_(std::views::iota(std::size_t{0}, centroids.size()) |
+               std::ranges::to<std::vector>()) {
+    // Descending order sorts on the negated distance.
+    std::ranges::sort(order_, {}, [&](std::size_t i) {
+      const double d = (centroids[i] - ref).squaredNorm();
+      return nearest_first ? d : -d;
+    });
   }
 
-  constexpr void feedback(GroupSelector::Token, std::size_t, bool) noexcept {}
+  std::size_t select(std::size_t n_groups) {
+    const std::size_t k = current_++ % n_groups;
+    return order_.size() == n_groups ? order_[k] : k;
+  }
 
 private:
   std::vector<std::size_t> order_;

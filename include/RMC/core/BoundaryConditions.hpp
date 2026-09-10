@@ -1,66 +1,50 @@
 #pragma once
 #include <RMC/core/Types.hpp>
-#include <cmath>
-#include <variant>
+#include <seitz/core/lattice.hpp>
+#include <seitz/core/periodicity.hpp>
 
 namespace RMC {
 
-class PeriodicBC {
+// A periodic cell over a seitz::Lattice (box columns are the cell vectors), or
+// open space with a caller-supplied volume. PeriodicBC / InfiniteBC name the
+// two constructors; they add no state and slice to this type on copy.
+class BoundaryConditions {
 public:
-  explicit PeriodicBC(const mat3_t &box) { set_box(box); }
-  void set_box(const mat3_t &box);
+  explicit BoundaryConditions(const mat3_t &box)
+      : lattice_{box}, inv_box_{box.inverse()},
+        periodicity_{seitz::all_periodic()}, volume_{lattice_.volume()} {}
+  explicit BoundaryConditions(double volume = 1.0)
+      : periodicity_{seitz::none_periodic()}, volume_{volume} {}
 
-  [[nodiscard]] constexpr const mat3_t &box() const noexcept { return box_; }
-  [[nodiscard]] constexpr const mat3_t &inv_box() const noexcept {
-    return inv_box_;
+  [[nodiscard]] bool periodic() const noexcept {
+    return periodicity_ != seitz::none_periodic();
   }
+  [[nodiscard]] const mat3_t &box() const noexcept { return lattice_.matrix(); }
+  [[nodiscard]] const mat3_t &inv_box() const noexcept { return inv_box_; }
+  [[nodiscard]] double volume() const noexcept { return volume_; }
 
-  // Wrap a Cartesian position back into the unit cell [0,1)^3 in fractional
-  // coords.
+  // Fold a Cartesian position into the cell ([0,1) fractional).
   [[nodiscard]] vec3_t wrap(const vec3_t &r) const noexcept {
-    vec3_t frac = inv_box_ * r;
-    frac = frac.array() - frac.array().floor(); // [0,1)
-    return box_ * frac;
+    return periodic() ? box() * seitz::wrap(inv_box_ * r, periodicity_) : r;
   }
-
-  [[nodiscard]] vec3_t min_image(const vec3_t &delta) const noexcept {
-    vec3_t frac = inv_box_ * delta;
-    frac = frac.array() - frac.array().round(); // [-0.5, 0.5)
-    return box_ * frac;
+  // Minimum-image displacement.
+  [[nodiscard]] vec3_t min_image(const vec3_t &d) const noexcept {
+    return periodic() ? box() * seitz::minimal_image(inv_box_ * d, periodicity_)
+                      : d;
   }
-
-  [[nodiscard]] constexpr double volume() const noexcept { return volume_; }
 
 private:
-  mat3_t box_;
-  mat3_t inv_box_;
-  double volume_{0.0};
-};
-
-class InfiniteBC {
-public:
-  constexpr explicit InfiniteBC(double volume = 1.0) : volume_(volume) {}
-  [[nodiscard]] vec3_t wrap(const vec3_t &r) const noexcept { return r; }
-  [[nodiscard]] vec3_t min_image(const vec3_t &delta) const noexcept {
-    return delta;
-  }
-  [[nodiscard]] constexpr double volume() const noexcept { return volume_; }
-  constexpr void set_volume(double v) noexcept { volume_ = v; }
-
-private:
+  seitz::Lattice lattice_;
+  mat3_t inv_box_{mat3_t::Identity()};
+  seitz::CellPeriodicity periodicity_;
   double volume_;
 };
 
-using BoundaryConditions = std::variant<PeriodicBC, InfiniteBC>;
-FORCE_INLINE vec3_t bc_wrap(const BoundaryConditions &bc, const vec3_t &r) {
-  return std::visit([&](const auto &b) { return b.wrap(r); }, bc);
-}
-FORCE_INLINE vec3_t bc_min_image(const BoundaryConditions &bc,
-                                 const vec3_t &d) {
-  return std::visit([&](const auto &b) { return b.min_image(d); }, bc);
-}
-FORCE_INLINE double bc_volume(const BoundaryConditions &bc) {
-  return std::visit([](const auto &b) { return b.volume(); }, bc);
-}
+struct PeriodicBC : BoundaryConditions {
+  explicit PeriodicBC(const mat3_t &box) : BoundaryConditions{box} {}
+};
+struct InfiniteBC : BoundaryConditions {
+  explicit InfiniteBC(double volume = 1.0) : BoundaryConditions{volume} {}
+};
 
 } // namespace RMC

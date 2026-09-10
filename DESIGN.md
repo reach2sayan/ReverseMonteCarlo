@@ -3,10 +3,11 @@
 This document describes how RMC is put together: the data that flows through a
 refinement, the engine's step pipeline, and the four extension contracts
 (constraints, generators, samplers, selectors). It deliberately stops at the
-*contracts* — the public, stable surface each component must honour. It does not
-explain how the type-erasure machinery in `core/TypeErasure.hpp` is implemented;
-treat each `Constraint`, `MoveGenerator`, `Sampler` and `GroupSelector` as a
-value-semantic handle that holds any type satisfying the matching concept.
+*contracts* — the public, stable surface each component must honour. Each
+`Constraint`, `MoveGenerator`, `Sampler` and `GroupSelector` is a value-semantic
+handle: the first two are `boost::type_erasure::any` over the contract methods
+(open sets — any type satisfying the concept), the last two are `std::variant`s
+of the built-ins (closed sets).
 
 For build instructions and the user-facing API, see [README.md](README.md).
 
@@ -27,7 +28,8 @@ are species swaps and the target is the set of disordered cluster correlations.
 
 ```
 AtomicStructure   coordinates (N×3) + elements / names / residues / molecule_ids
-BoundaryConditions  PeriodicBC(box) | InfiniteBC(volume)   — variant
+BoundaryConditions  one value type: a periodic cell over a seitz::Lattice, or
+                    open space with a volume — PeriodicBC(box) / InfiniteBC(volume)
 Group             a set of atom indices + the MoveGenerator that perturbs them
 Constraint        scores one term of χ²; caches before/after error
 Sampler           the accept/reject rule given (χ²_before, χ²_after)
@@ -52,31 +54,30 @@ supplies the per-engine specifics (frame storage and selection) through CRTP
 customization points. Knowing the pipeline is enough to reason about every
 component's contract — each contract method is called at a known stage.
 
-One `step()` runs four stages, then settles, then logs:
+One `step()` selects a frame and a group and, when one is eligible, runs a
+trial; best-state tracking, logging and checkpointing follow every step:
 
 ```
-select()                  → pick a frame + group         → TrialCtx (or skip)
-snapshot_and_score_before → save state; χ²_before for every constraint
-propose_move              → group.generator.generate(...) ; wrap into the box
-score_after               → χ²_after for the affected constraints
-settle                    → decide accept/reject; commit or roll back
+select()  → pick a frame + group            → TrialCtx (or skip the trial)
+trial()   → save snapshot; χ²_before for every constraint;
+            group.generator.generate(...); wrap into the box;
+            χ²_after for the affected constraints
+settle()  → decide accept/reject; commit or roll back
 ```
 
-The stages are chained monadically (`std::optional::and_then`): if `select()`
-returns no group (nothing eligible), the chain short-circuits and the step is a
-no-op.
+If `select()` finds no eligible group, the step skips the trial.
 
 ```mermaid
 flowchart TD
     A([step]) --> B[select<br/>pick frame + group]
-    B -->|no eligible group| Z[no-op]
-    B -->|TrialCtx| C[snapshot_and_score_before<br/>save state · χ²_before]
-    C --> D[propose_move<br/>generator.generate · wrap into box]
-    D --> E[score_after<br/>χ²_after for affected constraints]
+    B -->|no eligible group| Z[skip the trial]
+    B -->|TrialCtx| C[trial: save snapshot · χ²_before]
+    C --> D[generator.generate · wrap into box]
+    D --> E[χ²_after for affected constraints]
     E --> F[settle<br/>decide accept / reject]
     F -->|accept| G[commit: after → before]
     F -->|reject| H[restore snapshot · reset constraints]
-    G --> L[log every log_every steps]
+    G --> L[track best · log · checkpoint]
     H --> L
     Z --> L
     L --> A
@@ -126,8 +127,8 @@ discard the cached state, they don't recompute.
 | `WithBestTracking` | keep the lowest-χ² configuration seen |
 | `WithCheckpoint` | periodically serialise state to disk |
 
-A policy hooks into a specific pipeline point (e.g. species save in
-`snapshot_and_score_before`, feedback at the end of `settle`). Adding a feature
+A policy hooks into a specific pipeline point (e.g. species save before the
+move in `trial`, feedback at the end of `settle`). Adding a feature
 means adding a policy and its hook, not editing the hot loop.
 
 ### Multi-frame
@@ -138,18 +139,19 @@ across frames, so χ² is the error of the *averaged* curve — this damps
 over-fitting to a single configuration. Single-frame refinement is just the
 N = 1 case; the averaging lives in the constraints, not the loop. Per-step
 histogram updates are incremental (O(K·N) for a K-atom group) rather than a full
-O(N²) rebuild.
+O(N²) rebuild. Full rebuilds (initialisation, periodic resync) run through
+`parallel::parallel_sum` (`core/Parallel.hpp`): round-robin lanes, each with its
+own accumulator, summed at the end — a single lane when TBB is off.
 
 ## The four contracts
 
-Each extension point is a concept. A type satisfying the concept can be wrapped
-in the matching value-semantic handle and handed to the engine. All interface
-methods take a **passkey token** as their first argument — a private tag only the
-wrapper can construct — so the methods are callable only through the wrapper, not
-directly. When you write a component you accept the token but ignore it (or
-inherit a base that does); you never construct one.
-
-In the contract tables below the token argument is omitted for readability.
+Constraints and move generators are **open** extension points: each is a
+concept (`CConstraint`, `CMoveGenerator`), and any type satisfying it converts
+to the matching handle — a `boost::type_erasure::any` with one
+`BOOST_TYPE_ERASURE_MEMBER` per contract method. Samplers and selectors are
+**closed**: `Sampler` and `GroupSelector` are `std::variant`s of the built-ins,
+dispatched with `std::visit`, so adding one means adding an alternative to the
+variant.
 
 ### Constraint — `constraints/Constraint.hpp`
 
@@ -165,7 +167,7 @@ A constraint owns one additive term of χ² and caches its before/after error.
 | `is_rigid()` | If true, any worsening is an immediate hard rejection and the term is excluded from χ². |
 | `is_singular()` | If true, at most one instance of this type may be added. |
 | `computation_cost()` | Relative cost hint (O(1), O(N), O(N²)); cheaper constraints are evaluated first so an early rigid rejection can skip expensive ones. |
-| `name()` | Human label. **The only method called without the token.** |
+| `name()` | Human label. |
 | `set_boundary_conditions(bc)` / `set_collector(col)` | Engine wiring, called at registration. |
 | `set_n_frames(n)` / `set_active_frame(k)` | Multi-frame support; no-ops for single-frame constraints. |
 | `initialise()` | One-time setup (build target tables, prime histograms), called from `Engine::initialise()`. |
@@ -191,8 +193,8 @@ A generator perturbs the coordinates of one group in place.
 | `rejection_override()` *(opt)* | Return `std::optional<bool>` to own the accept/reject decision (gradient movers). Defaults to `nullopt` — defer to the engine. |
 | `modifies_species()` *(opt)* | Return true if the move changes element labels, not just positions, so the engine snapshots species. Defaults to false. |
 
-The two optional methods are opt-in: implement them and the wrapper exposes
-them; omit them and the wrapper reports the safe default. The engine wraps moved
+Derive from `MoveGeneratorBase<Derived>`, which supplies the safe defaults for
+the two optional methods; override them to opt in. The engine wraps moved
 atoms back into the periodic box after `generate()`, so a generator works in
 unwrapped Cartesian space.
 
@@ -206,8 +208,9 @@ The soft accept/reject rule.
 
 Built-ins: `GreedySampler` (strict downhill, the default — RMC's historical
 behaviour), `MetropolisSampler` (fixed-T), `AnnealingSampler` (geometric
-cooling). Because the sampler receives `u01` rather than its own RNG, the engine
-controls the stochastic stream and ensemble replicas stay reproducible.
+cooling); `Sampler` is the `std::variant` of the three. Because the sampler
+receives `u01` rather than its own RNG, the engine controls the stochastic
+stream and ensemble replicas stay reproducible.
 
 ### GroupSelector — `selectors/GroupSelector.hpp`
 
@@ -220,8 +223,9 @@ Chooses which group moves each step and may learn from outcomes.
 
 Built-ins: `RandomSelector`, `OrderedSelector`, `WeightedRandomSelector`,
 `SmartRandomSelector` (biases toward groups with a higher acceptance rate),
-`RecursiveGroupSelector`, `DirectionalOrderSelector`. Feedback only flows when
-the `WithFeedback` policy is active.
+`RecursiveGroupSelector`, `DirectionalOrderSelector`; `GroupSelector` is the
+`std::variant` of these, and `feedback` reaches only the alternatives that
+define it. Feedback only flows when the `WithFeedback` policy is active.
 
 ## I/O and analysis
 
@@ -240,28 +244,31 @@ the `WithFeedback` policy is active.
 `mcsqs_rmc` reuses the engine with two pieces swapped in:
 
 - **Generator:** `SpeciesSwapGenerator` exchanges occupancies *within a
-  sublattice* (sublattices inferred from PDB residue names), keeping site
-  positions fixed.
+  sublattice* (residue `SL<id>`), keeping site positions fixed.
 - **Constraint:** `ClusterCorrelationConstraint` scores the weighted χ²
   deviation of multi-body cluster correlations from their disordered targets.
 
-The ATAT pipeline reads a `rndstr.in` primitive lattice, drives the vendored
-`corrdump` (via `boost::process`) to enumerate cluster orbits, expands them over
-the supercell, and runs the search. See the README's *SQS search* section for
-the CLI.
+`atat::enumerate` (`SeitzClusters.cpp`) builds the problem on seitz: the
+`rndstr.in` lattice becomes a `seitz::alloy::ParentLattice` (sites with equal
+species sets form one sublattice), `ClustersPool::generate` enumerates the
+symmetry-distinct orbits up to the `--dN` diameters, and `Cell::transformed`
+builds the supercell. Every orbit image at every supercell lattice point is
+mapped onto supercell sites, and the trigonometric site basis becomes one
+`CorrFuncTable` block per sublattice, indexed by global label rank, with each
+site's species numbered in the order `rndstr.in` lists them (ATAT's
+convention). See the README's *SQS search* section for the CLI.
 
 ```mermaid
 flowchart TD
-    L[rndstr.in lattice] --> CD[corrdump<br/>enumerate cluster orbits]
-    CD --> EX[expand over supercell<br/>+ build cluster basis]
+    L[rndstr.in lattice] --> PL[seitz ParentLattice<br/>sublattices + space group]
+    PL --> CP[ClustersPool<br/>orbits up to d2/d3/d4]
+    CP --> EX[map orbit images onto the supercell<br/>+ per-sublattice site basis]
     EX --> EN[engine: SpeciesSwap moves<br/>vs ClusterCorrelation targets]
-    EN --> OUT[bestsqs.pdb + str.out]
-    OUT --> CK[corrdump cross-check]
+    EN --> OUT[bestsqs.pdb + bestsqs.out]
 ```
 
-The legacy pipeline replaces the lattice + `corrdump` stages with a fixed-site
-structure and a pre-enumerated cluster-orbit file, feeding the same engine stage
-(no cross-check). Both build the same cluster basis the engine consumes.
+ATAT's `corrdump` appears only in an optional test that cross-checks the
+correlations (`RMC_CORRDUMP`).
 
 ## Extending RMC
 
@@ -281,33 +288,40 @@ write a type, satisfy a concept, register it — and never touches the engine lo
 4. For experimental-data constraints, add a setter (e.g. `set_experimental_data`)
    and do table setup in an `initialise()` override.
 5. Register at runtime: `engine.add_constraint(MyConstraint{...})`. To expose it
-   on the CLI, add an entry to the `experimental_targets()` table and an
+   on the CLI, add an entry to the `kExperimentalTargets` table and an
    `attach_constraint<…>` call in `src/RMCRunner.cpp` — both are data-driven, so
    it's one row each.
 
 ### Add a move generator
 
-1. Create `generators/MyGenerator.hpp` with
+1. Create `generators/MyGenerator.hpp`: derive from
+   `MoveGeneratorBase<MyGenerator>` and implement
    `void generate(coords_t&, std::span<const std::size_t>)`.
-2. To own accept/reject (e.g. a Hamiltonian/gradient move), add
-   `std::optional<bool> rejection_override() const`. To mutate species, add
+2. To own accept/reject (e.g. a Hamiltonian/gradient move), override
+   `std::optional<bool> rejection_override() const`. To mutate species, override
    `bool modifies_species() const`.
 3. Attach to a group: `g.generator.emplace(MyGenerator{...})`.
 
 ### Add a sampler or selector
 
+Both are closed sets, so a new one is a new variant alternative:
+
 - **Sampler:** implement `bool accept(double before, double after, uint64_t
-  step, double u01)`. Keep it a pure function of its arguments — draw no RNG of
-  your own. Register with `engine.set_sampler(MySampler{...}, seed)`.
-- **Selector:** implement `size_t select(size_t n_groups)` and `void
-  feedback(size_t, bool)`. Register with `engine.set_selector(MySelector{...})`.
+  step, double u01) const` — a pure function of its arguments, drawing no RNG
+  of its own — and add the type to `Sampler` in `sampling/Sampler.hpp`. Use it
+  with `engine.set_sampler(MySampler{...}, seed)`.
+- **Selector:** implement `size_t select(size_t n_groups)` (plus `void
+  feedback(size_t, bool)` if it adapts) and add it to `GroupSelector` in
+  `selectors/GroupSelector.hpp`. Use it with
+  `engine.set_selector(MySelector{...})`.
 
 ### Add an input/output format
 
 Add a reader returning `Result<AtomicStructure>` (plus a cell if the format
-carries one) under `io/`, then a case in `RMCRunner`'s input variant
-(`select_input` / `load_*`) and the extension dispatch in
-`write_structure_by_ext`.
+carries one) under `io/`, a `StructFormat` value with its extensions in
+`classify_structure_format`'s table, a case in `io::read_structure`, and the
+extension dispatch in `write_structure_by_ext`. For a new CLI input option, add
+a row to `RMCRunner`'s `kInputs` table.
 
 ### Add a feature policy
 
@@ -317,10 +331,10 @@ stage, exposed through a CRTP accessor on `Engine`. Use this only when a
 constraint/generator can't express the feature locally — most extensions
 shouldn't need it.
 
-### A note on the passkey token
+### When a component does not convert
 
-Every contract method takes a leading passkey token. You accept it in your
-signature (the bases handle this for you) but never construct or inspect one —
-its only purpose is to ensure components are called through their wrapper. If a
-concept check fails to compile, the usual cause is a missing token parameter or a
-`const`/`noexcept` qualifier that doesn't match the contract table above.
+If wrapping your type in `Constraint` or `MoveGenerator` fails to compile, the
+concept check or the type-erasure binding found a method whose signature,
+`const` or `noexcept` does not match the contract tables above. Deriving from the
+matching base (`ConstraintBase`, `MoveGeneratorBase`, …) supplies everything but
+the one method you write.

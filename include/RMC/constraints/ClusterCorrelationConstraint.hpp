@@ -65,65 +65,11 @@ struct ClusterOrbit {
   }
 };
 
-// ATAT trigonometric site-basis table, addressed by (site_type, func, occ),
-// where site_type = (#components − 2); binary reduces to {occ 0→−1, occ 1→+1}.
-// Port of TrigoCorrFuncTable::init (atat/src/calccorr.c++:163-180). Flat storage:
-// one (n_func × n_occ) block per site_type, accessed via table[site_type, func, occ].
-class CorrFuncTable {
-public:
-  // Append a zero-initialised (n_func × n_occ) block; returns its site_type
-  // index. Call once per site_type, in order.
-  std::size_t add_site_type(int n_func, int n_occ) {
-    blocks_.push_back({data_.size(), n_occ});
-    data_.resize(data_.size() + static_cast<std::size_t>(n_func) *
-                                    static_cast<std::size_t>(n_occ));
-    return blocks_.size() - 1;
-  }
-
-  // Portable accessors: value() reads, at() returns a mutable cell.
-  [[nodiscard]] constexpr double value(int site_type, int func,
-                                       int occ) const {
-    return data_[flat_index(site_type, func, occ)];
-  }
-  [[nodiscard]] constexpr double &at(int site_type, int func, int occ) {
-    return data_[flat_index(site_type, func, occ)];
-  }
-
-  // C++23 multidimensional subscript: table[site_type, func, occ]. Guarded by
-  // its feature-test macro (P2128); value()/at() are the fallback.
-#ifdef __cpp_multidimensional_subscript
-  [[nodiscard]] constexpr double operator[](int site_type, int func,
-                                            int occ) const {
-    return value(site_type, func, occ);
-  }
-  [[nodiscard]] constexpr double &operator[](int site_type, int func, int occ) {
-    return at(site_type, func, occ);
-  }
-#endif
-
-  [[nodiscard]] constexpr std::size_t site_type_count() const noexcept {
-    return blocks_.size();
-  }
-
-  [[nodiscard]] static CorrFuncTable trigonometric(int max_components);
-
-private:
-  // One site_type's block: offset into data_ and row stride (n_occ).
-  struct Block {
-    std::size_t offset;
-    int n_occ;
-  };
-  [[nodiscard]] constexpr std::size_t flat_index(int site_type, int func,
-                                                 int occ) const {
-    const Block &b = blocks_[static_cast<std::size_t>(site_type)];
-    return b.offset +
-           static_cast<std::size_t>(func) * static_cast<std::size_t>(b.n_occ) +
-           static_cast<std::size_t>(occ);
-  }
-
-  std::vector<Block> blocks_; // per site_type
-  std::vector<double> data_;  // flat (n_func × n_occ) blocks, concatenated
-};
+// Site-basis table: one dense (n_func × n_occ) block per site type, read as
+// table[site_type](func, occ). The ATAT pipeline keys blocks by sublattice id
+// and addresses occupations by global label rank (zero outside the
+// sublattice); the binary/linear setup is a single (1 × n) block of σ values.
+using CorrFuncTable = std::vector<mat_t>;
 
 // SQS-search constraint: weighted χ² deviation of multi-body cluster correlations
 // from target. Reads only structure.elements (coordinates ignored). Site basis is
@@ -155,12 +101,12 @@ public:
   // --- Incremental interface (overrides ConstraintBase defaults) -----------
   // Maintains a running per-orbit raw sum + total error, updating only instances
   // touching a changed site. Float drift bounded by periodic full resync on accept().
-  void compute_before_move(Constraint::Token, const coords_t &,
+  void compute_before_move(const coords_t &,
                            std::span<const std::size_t>);
-  void compute_after_move(Constraint::Token, const coords_t &,
+  void compute_after_move(const coords_t &,
                           std::span<const std::size_t>);
-  void accept(Constraint::Token) noexcept;
-  void reject(Constraint::Token) noexcept;
+  void accept() noexcept;
+  void reject() noexcept;
 
   [[nodiscard]] static constexpr std::string_view name() noexcept {
     return "ClusterCorrelation";
@@ -168,7 +114,7 @@ public:
 
   // More expensive than cheap geometric constraints.
   [[nodiscard]] constexpr double
-  computation_cost(Constraint::Token) const noexcept {
+  computation_cost() const noexcept {
     return static_cast<double>(total_instances_) * 10.0;
   }
 
@@ -208,16 +154,15 @@ private:
     }
   };
 
-  // Per-move pipeline context threaded through the apply_move_update() and_then
-  // chain; carries the changed-site view that seeds later steps.
-  struct MoveCtx {
-    std::span<const std::size_t> changed; // view into changed_sites_
-  };
-
   void build_occ_of_code();
   void refresh_site_occ() const;
   [[nodiscard]] double orbit_correlation(const ClusterOrbit &orbit) const;
   [[nodiscard]] int current_occ(std::size_t k) const;
+  // Product of the basis values over one instance's sites, reading each site's
+  // occupation from `occ` (an unknown species, -1, zeroes the product).
+  [[nodiscard]] double product(const ClusterOrbit &orb,
+                               std::span<const std::size_t> sites,
+                               std::span<const int> occ) const;
   [[nodiscard]] double instance_product(std::uint32_t gid) const;
   // Sites of one instance (global id) as a view into its orbit's flat buffer.
   [[nodiscard]] std::span<const std::size_t> sites_of(std::uint32_t gid) const;
@@ -225,15 +170,14 @@ private:
   void resync_full();
   void ensure_built();
   [[nodiscard]] constexpr bool occ_mismatch() const;
-  // Incremental move application as an and_then pipeline of the steps below;
-  // diff_changed_sites() seeds it and short-circuits when no occupation changed.
+  // Incremental move application: diff the changed sites, then (if any)
+  // collect the touched instances/orbits, log undo info, commit the new
+  // occupations and patch the affected orbit sums and the total error.
   void apply_move_update();
-  [[nodiscard]] std::optional<MoveCtx> diff_changed_sites();
-  void collect_affected(MoveCtx &c);   // touched instances/orbits (epoch dedup)
-  void save_undo(MoveCtx &c);          // undo log + pre-move per-instance prods
-  void commit_occupations(MoveCtx &c); // write new occ_ for changed sites
-  void apply_product_deltas(const MoveCtx &); // patch affected orbit sums
-  void patch_orbit_errors(const MoveCtx &);   // patch total_err_ for those orbits
+  void collect_affected();     // touched instances/orbits (epoch dedup)
+  void save_undo();            // undo log + pre-move per-instance prods
+  void apply_product_deltas(); // patch affected orbit sums
+  void patch_orbit_errors();   // patch total_err_ for those orbits
   void rollback_move() noexcept;
 
   const AtomicStructure &structure_;
@@ -273,9 +217,5 @@ private:
   std::size_t accepted_since_resync_ = 0;
   static constexpr std::size_t kResyncInterval = 4096;
 };
-
-static_assert(
-    CConstraint<ClusterCorrelationConstraint>,
-    "ClusterCorrelationConstraint must satisfy the CConstraint concept");
 
 } // namespace RMC

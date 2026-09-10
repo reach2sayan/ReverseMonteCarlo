@@ -4,13 +4,10 @@
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/parser/parser.hpp>
-#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <iomanip>
-#include <iterator>
-#include <optional>
 #include <ranges>
 #include <set>
 #include <numbers>
@@ -33,12 +30,6 @@ bool next_nonempty_line(std::istream &in, std::string &line) {
     }
   }
   return false;
-}
-
-// Slurp an entire stream into a string.
-std::string slurp(std::istream &in) {
-  return std::string((std::istreambuf_iterator<char>(in)),
-                     std::istreambuf_iterator<char>());
 }
 
 // Parse exactly three reals from one line into an Eigen column.
@@ -72,7 +63,7 @@ mat3_t lattice_vectors(double a, double b, double c, double alpha, double beta,
 } // namespace
 
 int AtatLattice::occupation_index(const std::string &species) const {
-  const auto it = std::lower_bound(labels.begin(), labels.end(), species);
+  const auto it = std::ranges::lower_bound(labels, species);
   if (it == labels.end() || *it != species) {
     return -1;
   }
@@ -159,119 +150,6 @@ AtatLattice parse_lattice(const std::filesystem::path &path) {
     throw std::runtime_error("Cannot open lattice file: " + path.string());
   }
   return parse_lattice(f);
-}
-
-std::vector<SymOp> parse_sym(std::istream &in) {
-  const std::string text = slurp(in);
-  auto it = text.begin();
-  const auto end = text.end();
-
-  const auto n =
-      bp::prefix_parse(it, end, bp::uint_, bp::ws)
-          .or_else([]() -> std::optional<unsigned> {
-            throw std::runtime_error("sym.out: missing operation count");
-          })
-          .value();
-
-  std::vector<SymOp> ops;
-  ops.reserve(n);
-  std::ranges::transform(
-      std::views::iota(0u, n), std::back_inserter(ops), [&](unsigned) {
-        SymOp op;
-
-        const auto rot =
-            bp::prefix_parse(it, end, bp::repeat(9)[bp::double_], bp::ws)
-                .or_else([]() -> std::optional<std::vector<double>> {
-                  throw std::runtime_error(
-                      "sym.out: truncated point operation");
-                });
-
-        std::ranges::for_each(std::views::iota(0, 9), [&](int k) {
-          op.rot(k / 3, k % 3) = (*rot)[static_cast<std::size_t>(k)];
-        });
-
-        const auto tr =
-            bp::prefix_parse(it, end, bp::repeat(3)[bp::double_], bp::ws)
-                .or_else([]() -> std::optional<std::vector<double>> {
-                  throw std::runtime_error("sym.out: truncated translation");
-                });
-
-        op.trans = Eigen::Map<const Eigen::Vector3d>(tr->data());
-        return op;
-      });
-  return ops;
-}
-
-std::vector<SymOp> parse_sym(const std::filesystem::path &path) {
-  std::ifstream f(path);
-  if (!f) {
-    throw std::runtime_error("Cannot open sym file: " + path.string());
-  }
-  return parse_sym(f);
-}
-
-std::vector<RawOrbit> parse_clusters(std::istream &in) {
-  // Block layout (whitespace/newline separated; blank lines are incidental):
-  //   multiplicity  length  n_points  then n_points × (x y z site_type func)
-  const std::string text = slurp(in);
-  auto it = text.begin();
-  const auto end = text.end();
-
-  // Advance past whitespace; report whether the stream is exhausted.
-  const auto at_end = [&] {
-    it = std::ranges::find_if(
-        it, end, [](unsigned char c) { return std::isspace(c) == 0; });
-    return it == end;
-  };
-
-  // header: multiplicity length n_points ; point: x y z site_type func
-  const auto header_p = bp::double_ >> bp::double_ >> bp::uint_;
-  const auto point_p =
-      bp::double_ >> bp::double_ >> bp::double_ >> bp::int_ >> bp::int_;
-
-  std::vector<RawOrbit> orbits;
-  while (!at_end()) {
-    const auto hdr = bp::prefix_parse(it, end, header_p, bp::ws);
-    if (!hdr) {
-      throw std::runtime_error("clusters.out: malformed orbit header");
-    }
-    const auto &[mult, length, npts] = *hdr;
-
-    RawOrbit o{.multiplicity = mult, .length = length, .points = {}};
-    const auto pts =
-        bp::prefix_parse(it, end, bp::repeat(npts)[point_p], bp::ws);
-    if (!pts) {
-      throw std::runtime_error("clusters.out: malformed point");
-    }
-
-    for (const auto &[x, y, z, site_type, func] : *pts) {
-      ClusterPoint cp{
-          .coord = vec3_t(x, y, z), .site_type = site_type, .func = func};
-      o.points.push_back(cp);
-    }
-    orbits.push_back(std::move(o));
-  }
-  return orbits;
-}
-
-std::vector<RawOrbit> parse_clusters(const std::filesystem::path &path) {
-  std::ifstream f(path);
-  if (!f) {
-    throw std::runtime_error("Cannot open clusters file: " + path.string());
-  }
-  return parse_clusters(f);
-}
-
-std::vector<double> parse_correlations(std::istream &in) {
-  std::string line;
-  if (!next_nonempty_line(in, line)) {
-    throw std::runtime_error("corrdump: empty correlation output");
-  }
-  const auto out = bp::parse(line, +bp::double_, bp::ws);
-  if (!out || out->empty()) {
-    throw std::runtime_error("corrdump: no correlations parsed");
-  }
-  return *out;
 }
 
 void write_str_out(const std::filesystem::path &path, const mat3_t &axes,

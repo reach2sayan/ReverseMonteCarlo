@@ -59,13 +59,24 @@ void accumulate_angle_histogram(vec_t &hist, const coords_t &coords,
 // intersects `moved`, once each, same layout. `grid` must be synced to `coords`.
 // Used for: new_hist = saved − accumulate_moved_angles(old) + accumulate_moved_angles(new).
 // Iterating by apex over {moved ∪ neighbours(moved)} keys each angle uniquely.
+// Reused buffers of accumulate_moved_angles, one per constraint.
+struct AngleScratch {
+  std::vector<char> is_moved, center_seen; // O(1) membership masks, sized to N
+  std::vector<std::size_t> centers;        // candidate apexes
+  std::vector<std::uint32_t> nbr;          // neighbour list of the current apex
+};
 void accumulate_moved_angles(vec_t &hist, const coords_t &coords,
                              const BoundaryConditions *bc,
                              const std::vector<uint8_t> &elem_id, int n_types,
                              double max_dis, int n_bins,
                              std::span<const std::size_t> moved,
-                             const NeighborGrid &grid,
+                             const NeighborGrid &grid, AngleScratch &scratch,
                              const AtomsCollector *collector = nullptr);
+
+// Per-column boxcar smoothing of a row-major (n_bins × n_cols) flat histogram:
+// window half-width `range` (shrinking at the edges), two passes; `scratch` is
+// reused. Never bleeds across columns. No-op for range ≤ 0 or n_bins ≤ 1.
+void adf_smooth(vec_t &hist, vec_t &scratch, int n_bins, int n_cols, int range);
 
 // Soft constraint fitting the bond-angle distribution function (ADF), per element
 // triplet, against a target (contributes to total chi²). Histogram is one flat
@@ -105,7 +116,7 @@ public:
   }
   // Between PDF (1e6) and S(Q) (2e6); full ADF recompute is O(N·⟨n⟩²).
   [[nodiscard]] static constexpr double
-  computation_cost(Constraint::Token) noexcept {
+  computation_cost() noexcept {
     return 1.5e6;
   }
 
@@ -121,18 +132,14 @@ public:
   void rollback_frame() noexcept;
   void commit_frame() noexcept;
 
-  // Token-gated wrappers (CConstraint).
-  void set_n_frames(Constraint::Token, std::size_t n) { set_n_frames(n); }
-  void set_active_frame(Constraint::Token, std::size_t k) noexcept {
-    set_active_frame_idx(k);
-  }
-  void initialise(Constraint::Token) { initialise(); }
-  void reject(Constraint::Token tok) noexcept {
-    SingularConstraintBase<AngularDistributionConstraint>::reject(tok);
+  // Constraint-interface hooks.
+  void set_active_frame(std::size_t k) noexcept { set_active_frame_idx(k); }
+  void reject() noexcept {
+    SingularConstraintBase::reject();
     rollback_frame();
   }
-  void accept(Constraint::Token tok) noexcept {
-    SingularConstraintBase<AngularDistributionConstraint>::accept(tok);
+  void accept() noexcept {
+    SingularConstraintBase::accept();
     commit_frame();
   }
 
@@ -174,6 +181,7 @@ private:
 
   // Single-/multi-frame incremental histogram engine (shared with pair constraints).
   mutable IncrementalHistogram hist_;
+  mutable AngleScratch scratch_; // reused buffers of accumulate_moved_angles
 
   // One neighbour grid per frame (single-frame holds one); driven via update() hooks.
   mutable std::vector<NeighborGrid> frame_grids_;
@@ -182,9 +190,5 @@ private:
   unsigned resync_every_{0};            // 0 = off; full rebuild every N accepts
   unsigned accepts_since_resync_{0};
 };
-
-static_assert(CConstraint<AngularDistributionConstraint>,
-              "AngularDistributionConstraint must satisfy the CConstraint "
-              "concept");
 
 } // namespace RMC

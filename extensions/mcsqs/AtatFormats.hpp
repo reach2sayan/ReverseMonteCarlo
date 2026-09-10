@@ -1,8 +1,8 @@
 #pragma once
-// Parsers and writers for the ATAT text formats consumed/produced by corrdump.
-// Convention: all coordinates here are in the lat.in "axes" frame (fractional
-// w.r.t. the coordinate-system vectors), matching clusters.out / sym.out. The
-// Cartesian `axes` matrix is only for emitting physical (Å) coordinates.
+// Reader/writer for ATAT's lattice (rndstr.in / lat.in) and structure
+// (str.out) text formats. Coordinates are in the lattice's "axes" frame
+// (fractional w.r.t. the coordinate-system vectors); the Cartesian `axes`
+// matrix is only for emitting physical (Å) coordinates.
 #include <RMC/core/Types.hpp>
 
 #include <filesystem>
@@ -28,42 +28,15 @@ struct AtatLattice {
   std::vector<std::string> labels; // global species labels, alphabetical
 
   // Occupation index of a species (its position in `labels`); -1 if absent.
-  // Matches ATAT's atom_type convention for single-sublattice systems.
   [[nodiscard]] int occupation_index(const std::string &species) const;
 };
 
-// One space-group operation, in the axes frame (as stored in sym.out).
-struct SymOp {
-  mat3_t rot{mat3_t::Identity()};
-  vec3_t trans{vec3_t::Zero()};
-};
-
-// One point of a cluster representative.
-struct ClusterPoint {
-  vec3_t coord{vec3_t::Zero()}; // axes coords
-  int site_type = 0;            // (#species on the site) - 2  (0 for binary)
-  int func = 0;                 // cluster-function index (0..site_type)
-};
-
-// One cluster orbit representative (clusters.out block).
-struct RawOrbit {
-  double multiplicity = 0.0;
-  double length = 0.0; // longest pair distance (Cartesian); unused until C1
-  std::vector<ClusterPoint> points;
-};
-
-// ---- parsers (throw std::runtime_error on malformed input) ----
+// ---- lattice parser (throws std::runtime_error on malformed input) ----
 AtatLattice parse_lattice(std::istream &in);
 AtatLattice parse_lattice(const std::filesystem::path &path);
 
-std::vector<SymOp> parse_sym(std::istream &in);
-std::vector<SymOp> parse_sym(const std::filesystem::path &path);
-
-std::vector<RawOrbit> parse_clusters(std::istream &in);
-std::vector<RawOrbit> parse_clusters(const std::filesystem::path &path);
-
-std::vector<double> parse_correlations(std::istream &in);
-
+// ATAT str.out: axes rows, supercell rows (axes coords), then one
+// "x y z species" line per atom (axes coords).
 void write_str_out(const std::filesystem::path &path, const mat3_t &axes,
                    const mat3_t &supercell,
                    const std::vector<vec3_t> &positions,

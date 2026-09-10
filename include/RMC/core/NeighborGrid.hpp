@@ -3,6 +3,7 @@
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Types.hpp>
 
+#include <boost/container/small_vector.hpp>
 #include <cstdint>
 #include <span>
 #include <utility>
@@ -61,7 +62,8 @@ private:
   Eigen::Vector3i n_{1, 1, 1};           // cells per axis
 
   std::vector<std::int32_t> cell_of_;                  // flat cell per atom
-  std::vector<std::vector<std::uint32_t>> cell_atoms_; // atoms per cell
+  std::vector<boost::container::small_vector<std::uint32_t, 8>>
+      cell_atoms_; // atoms per cell
   std::vector<std::pair<std::size_t, std::int32_t>>
       saved_; // (atom, prior cell)
 };

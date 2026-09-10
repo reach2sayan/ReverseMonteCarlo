@@ -29,7 +29,7 @@ struct VaspData {
 //
 // VASP4 files (no element-symbol line) are rejected with a clear error, since
 // the species cannot be recovered. Element symbols are mapped to atomic numbers
-// via AtomicNumbers.hpp; an unrecognised symbol keeps atomic_number 0.
+// via seitz::data; an unrecognised symbol keeps atomic_number 0.
 [[nodiscard]] Result<VaspData> read_vasp(const std::filesystem::path &path);
 
 // Write a VASP5 POSCAR (scaling factor 1.0, Direct coordinates). Atoms are

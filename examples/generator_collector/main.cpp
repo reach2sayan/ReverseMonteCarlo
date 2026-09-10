@@ -5,8 +5,7 @@
 // Compared against CombinedMoveGenerator which applies all three every step.
 // BondConstraint, AngleConstraint, and InterMolecularDistanceConstraint active.
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Group.hpp>

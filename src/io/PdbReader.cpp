@@ -1,16 +1,20 @@
-#include <RMC/io/AtomicNumbers.hpp>
+#include "TextParse.hpp"
+
+#include <seitz/data/element_data.hpp>
 #include <RMC/io/PdbReader.hpp>
 #include <algorithm>
-#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/case_conv.hpp>
 #include <boost/leaf/result.hpp>
 #include <cctype>
 #include <charconv>
 #include <format>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace RMC::io {
 
@@ -19,53 +23,27 @@ namespace {
 // ATOM/HETATM field offsets (PDB fixed-format columns, 0-based).
 // See:
 // https://www.wwpdb.org/documentation/file-format-content/format33/sect9.html
-constexpr int NAME_START = 12;
-constexpr int NAME_LEN = 4;
-constexpr int RESNAME_START = 17;
-constexpr int RESNAME_LEN = 3;
-constexpr int CHAINID = 21;
-constexpr int RESSEQ_START = 22;
-constexpr int RESSEQ_LEN = 4;
-constexpr int X_START = 30;
-constexpr int Y_START = 38;
-constexpr int Z_START = 46;
-constexpr int COORD_LEN = 8;
-constexpr int ELEMENT_START = 76;
-constexpr int ELEMENT_LEN = 2;
+constexpr std::size_t NAME_START = 12;
+constexpr std::size_t NAME_LEN = 4;
+constexpr std::size_t RESNAME_START = 17;
+constexpr std::size_t RESNAME_LEN = 3;
+constexpr std::size_t CHAINID = 21;
+constexpr std::size_t RESSEQ_START = 22;
+constexpr std::size_t RESSEQ_LEN = 4;
+constexpr std::size_t X_START = 30;
+constexpr std::size_t Y_START = 38;
+constexpr std::size_t Z_START = 46;
+constexpr std::size_t COORD_LEN = 8;
+constexpr std::size_t ELEMENT_START = 76;
+constexpr std::size_t ELEMENT_LEN = 2;
 
-std::string trim(std::string_view sv) {
-  auto b = sv.find_first_not_of(' ');
-  if (b == std::string_view::npos) {
-    return "";
-  }
-  auto e = sv.find_last_not_of(' ');
-  return std::string(sv.substr(b, e - b + 1));
-}
-
-// PDB numeric fields are blank-padded and right-justified; std::from_chars
-// won't skip leading whitespace, so advance past it first. Throws on a missing
-// or malformed number, which read_pdb maps to a leaf error.
-std::string_view lstrip(std::string_view sv) {
-  const auto b = sv.find_first_not_of(' ');
-  return (b == std::string_view::npos) ? std::string_view{} : sv.substr(b);
-}
-
-double parse_real(std::string_view sv) {
-  const auto s = lstrip(sv);
-  double v = 0.0;
-  const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
-  if (ec != std::errc{} || ptr == s.data()) {
-    throw std::runtime_error("invalid real in PDB numeric field");
-  }
-  return v;
-}
-
-int parse_int(std::string_view sv) {
-  const auto s = lstrip(sv);
-  int v = 0;
-  const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
-  if (ec != std::errc{} || ptr == s.data()) {
-    throw std::runtime_error("invalid integer in PDB numeric field");
+// A blank-padded numeric field. Throws on a missing or malformed number, which
+// read_pdb maps to a leaf error.
+template <class T> T parse_field(std::string_view sv) {
+  const auto s = detail::trim(sv);
+  T v{};
+  if (std::from_chars(s.data(), s.data() + s.size(), v).ec != std::errc{}) {
+    throw std::runtime_error("invalid number in PDB numeric field");
   }
   return v;
 }
@@ -78,95 +56,60 @@ Result<AtomicStructure> read_pdb(const std::filesystem::path &path) {
     return boost::leaf::new_error(
         std::string{"Cannot open PDB file: " + path.string()});
   }
-  AtomicStructure s;
-  std::vector<std::array<double, 3>> xyz;
-  std::vector<int> atom_numbers; // assigned to s.atomic_numbers once
-
-  std::string line;
+  detail::StructureBuilder atoms;
   std::size_t mol_id = 0;
-  std::size_t prev_resseq = -1;
-  std::string prev_chain;
+  std::optional<std::pair<char, int>> prev_residue; // (chain, resSeq)
 
-  while (std::getline(file, line)) {
-    if (line.size() < 54) {
+  for (std::string line; std::getline(file, line);) {
+    if (line.size() < 54 ||
+        !(line.starts_with("ATOM") || line.starts_with("HETATM"))) {
       continue;
     }
-    bool is_atom = (line.substr(0, 4) == "ATOM");
-    bool is_het = (line.substr(0, 6) == "HETATM");
-    if (!is_atom && !is_het) {
-      continue;
-    }
-
     const std::string_view sv(line);
     try {
-      double x = parse_real(sv.substr(X_START, COORD_LEN));
-      double y = parse_real(sv.substr(Y_START, COORD_LEN));
-      double z = parse_real(sv.substr(Z_START, COORD_LEN));
-      xyz.push_back({x, y, z});
+      const std::array<double, 3> xyz{
+          parse_field<double>(sv.substr(X_START, COORD_LEN)),
+          parse_field<double>(sv.substr(Y_START, COORD_LEN)),
+          parse_field<double>(sv.substr(Z_START, COORD_LEN))};
+      const std::string_view atom_name =
+          detail::trim(sv.substr(NAME_START, NAME_LEN));
 
-      std::string atom_name = trim(sv.substr(NAME_START, NAME_LEN));
-      std::string resname = trim(sv.substr(RESNAME_START, RESNAME_LEN));
-
-      // Derive element: prefer column 77-78, fall back to first char of name.
-      std::string element;
-      if (line.size() >= static_cast<std::size_t>(ELEMENT_START + ELEMENT_LEN))
-        element = trim(sv.substr(ELEMENT_START, ELEMENT_LEN));
-      if (element.empty() && !atom_name.empty()) {
-        // Strip leading digits (e.g. "1HB" → "H").
-        const auto it = std::ranges::find_if(atom_name, [](unsigned char c) {
-          return std::isalpha(c);
-        });
+      // Element: columns 77-78, else the name's first letter ("1HB" → "H");
+      // capitalised as "Xx".
+      std::string element{sv.size() > ELEMENT_START
+                              ? detail::trim(sv.substr(ELEMENT_START, ELEMENT_LEN))
+                              : std::string_view{}};
+      if (element.empty()) {
+        const auto it = std::ranges::find_if(
+            atom_name, [](unsigned char c) { return std::isalpha(c); });
         if (it != atom_name.end()) {
-          element = std::string(1, *it);
+          element = *it;
         }
       }
-      // Capitalize first letter, lowercase rest.
+      boost::algorithm::to_lower(element);
       if (!element.empty()) {
-        boost::algorithm::to_lower(element);
-        if (!element.empty()) {
-          element[0] = static_cast<char>(
-              std::toupper(static_cast<unsigned char>(element[0])));
-        }
+        element[0] = static_cast<char>(
+            std::toupper(static_cast<unsigned char>(element[0])));
       }
 
-      std::string chain(1, line[CHAINID]);
-      std::size_t resseq = 0;
-      if (line.size() >= static_cast<std::size_t>(RESSEQ_START + RESSEQ_LEN)) {
-        resseq = static_cast<std::size_t>(
-            parse_int(sv.substr(RESSEQ_START, RESSEQ_LEN)));
-      }
-
-      if (chain != prev_chain || resseq != prev_resseq) {
+      // A new (chain, resSeq) pair starts a new molecule.
+      const std::pair residue{
+          line[CHAINID], parse_field<int>(sv.substr(RESSEQ_START, RESSEQ_LEN))};
+      if (residue != prev_residue) {
         ++mol_id;
-        prev_chain = chain;
-        prev_resseq = resseq;
+        prev_residue = residue;
       }
 
-      s.names.push_back(atom_name);
-      s.residues.push_back(resname);
-      s.elements.push_back(element);
-      s.molecule_ids.push_back(mol_id);
-
-      // Accumulate in a std::vector (amortised O(1) push_back); assign to the
-      // Eigen vector once below. conservativeResize per atom was O(N²).
-      atom_numbers.push_back(atomic_number(element));
-
+      const int z = seitz::data::atomic_number(element).value_or(0);
+      atoms.add(xyz, z, element, std::string(atom_name),
+                std::string(detail::trim(sv.substr(RESNAME_START, RESNAME_LEN))),
+                mol_id);
     } catch (const std::exception &e) {
       return boost::leaf::new_error(std::string{"PDB parse error: "} +
                                     e.what());
     }
   }
-
-  const std::size_t N = xyz.size();
-  // xyz is a contiguous std::vector<std::array<double,3>>; map it directly into
-  // the row-major coordinate matrix instead of copying component by component.
-  s.coordinates = Eigen::Map<const coords_t>(
-      reinterpret_cast<const double *>(xyz.data()),
-      static_cast<Eigen::Index>(N), 3);
-  s.atomic_numbers = Eigen::Map<const ivec_t>(
-      atom_numbers.data(), static_cast<Eigen::Index>(atom_numbers.size()));
-
-  return s;
+  return std::move(atoms).finish();
 }
 
 Result<void> write_pdb(const AtomicStructure &s,
@@ -176,25 +119,16 @@ Result<void> write_pdb(const AtomicStructure &s,
     return boost::leaf::new_error(
         std::string{"Cannot write PDB: " + path.string()});
   }
-  for (Eigen::Index i = 0; i < s.coordinates.rows(); ++i) {
-    const std::string &name = (i < static_cast<Eigen::Index>(s.names.size()))
-                                  ? s.names[static_cast<std::size_t>(i)]
-                                  : "X";
-    const std::string &res = (i < static_cast<Eigen::Index>(s.residues.size()))
-                                 ? s.residues[static_cast<std::size_t>(i)]
-                                 : "UNK";
-    const std::string &elem = (i < static_cast<Eigen::Index>(s.elements.size()))
-                                  ? s.elements[static_cast<std::size_t>(i)]
-                                  : "";
-    std::size_t mol = (i < static_cast<Eigen::Index>(s.molecule_ids.size()))
-                          ? s.molecule_ids[static_cast<std::size_t>(i)]
-                          : 1;
-
+  for (std::size_t i = 0; i < s.size(); ++i) {
+    const auto r = static_cast<Eigen::Index>(i);
     f << std::format(
         "ATOM  {:5d} {:<4.4} {:<3.3} A{:4d}    {:8.3f}{:8.3f}{:8.3f}"
         "  1.00  0.00          {:>2.2}\n",
-        static_cast<int>(i + 1), name, res, static_cast<int>(mol),
-        s.coordinates(i, 0), s.coordinates(i, 1), s.coordinates(i, 2), elem);
+        i + 1, detail::at_or(s.names, i, "X"),
+        detail::at_or(s.residues, i, "UNK"),
+        detail::at_or(s.molecule_ids, i, 1), s.coordinates(r, 0),
+        s.coordinates(r, 1), s.coordinates(r, 2),
+        detail::at_or(s.elements, i, ""));
   }
   f << "END\n";
   return {};

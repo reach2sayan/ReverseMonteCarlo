@@ -45,19 +45,27 @@ Special Quasirandom Structures (mcsqs_rmc):
 Third-party components
 ================================================================================
 
+seitz — crystallography library (lattices, periodicity, element data, and the
+  cluster orbits used by mcsqs_rmc)
+  License: BSD 3-Clause License
+  Copyright (c) 2026, Sayan Samanta
+  Source:  https://github.com/reach2sayan/Seitz — fetched at build time and
+           linked into libRMC; not redistributed in source form here.
+
 ATAT — Alloy Theoretic Automated Toolkit
   License: Creative Commons Attribution-NoDerivatives 4.0 International
            (CC BY-ND 4.0), https://creativecommons.org/licenses/by-nd/4.0/
   Author:  Axel van de Walle and contributors
-  Usage:   The mcsqs_rmc extension uses ATAT's `corrdump` tool as a separate
-           executable, invoked over a process boundary. No ATAT source is
-           compiled or linked into this project's binaries. ATAT is installed
-           separately by the user (https://axelvdw.github.io/atat/) rather than
-           bundled with this project.
+  Usage:   Not used by the shipped binaries: mcsqs_rmc enumerates cluster
+           orbits with seitz. One optional test runs ATAT's `corrdump` as a
+           separate executable (when RMC_CORRDUMP names it) to cross-check
+           correlations. No ATAT source is compiled, linked or bundled; ATAT is
+           installed separately by the user (https://axelvdw.github.io/atat/).
 
 The following are obtained at build time and are not redistributed in source
 form by this project; each is governed by its own license:
 
+  seitz            — BSD 3-Clause
   Boost            — Boost Software License 1.0
   Eigen            — MPL 2.0
   spdlog           — MIT

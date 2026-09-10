@@ -1,7 +1,6 @@
 #pragma once
-#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
-#include <algorithm>
+#include <boost/random/discrete_distribution.hpp>
 #include <tuple>
 #include <vector>
 
@@ -10,7 +9,7 @@ namespace RMC {
 // Applies a sequence of generators to the same group in order.
 template <CMoveGenerator... TMoveGenerators>
 class CombinedMoveGenerator
-    : MoveGeneratorBase<CombinedMoveGenerator<TMoveGenerators...>> {
+    : public MoveGeneratorBase<CombinedMoveGenerator<TMoveGenerators...>> {
   std::tuple<TMoveGenerators...> generators_;
 
 public:
@@ -19,9 +18,9 @@ public:
     requires(sizeof...(Gs) > 0) && (CMoveGenerator<std::decay_t<Gs>> && ...)
   constexpr explicit CombinedMoveGenerator(Gs &&...gens)
       : generators_(std::forward<Gs>(gens)...) {}
-  void generate(MoveGenerator::Token tok, coords_t &coords,
+  void generate(coords_t &coords,
                 std::span<const std::size_t> indices) {
-    std::apply([&](auto &...g) { (g.generate(tok, coords, indices), ...); },
+    std::apply([&](auto &...g) { (g.generate(coords, indices), ...); },
                generators_);
   }
 };
@@ -29,39 +28,28 @@ public:
 template <CMoveGenerator... Gs>
 CombinedMoveGenerator(Gs &&...) -> CombinedMoveGenerator<std::decay_t<Gs>...>;
 
-// Randomly selects ONE generator from a runtime collection and applies it.
-// Unlike CombinedMoveGenerator (which applies all), this picks one per step.
-class MoveGeneratorCollector : MoveGeneratorBase<MoveGeneratorCollector> {
+// Applies ONE generator per step, picked by weight from a runtime collection
+// (CombinedMoveGenerator applies all of them).
+class MoveGeneratorCollector : public MoveGeneratorBase<MoveGeneratorCollector> {
   std::vector<MoveGenerator> generators_;
-  std::vector<double> cumulative_weights_;
-  mutable RngBuffer<> rng_;
+  std::vector<double> weights_;
+  boost::random::discrete_distribution<std::size_t> pick_;
+  Rng rng_;
 
 public:
   MoveGeneratorCollector() = default;
   explicit MoveGeneratorCollector(std::uint32_t seed) : rng_(seed) {}
   void add(MoveGenerator gen, double weight = 1.0) {
-    if (weight <= 0.0) {
-      weight = 1.0;
-    }
     generators_.push_back(std::move(gen));
-    double prev =
-        cumulative_weights_.empty() ? 0.0 : cumulative_weights_.back();
-    cumulative_weights_.push_back(prev + weight);
+    weights_.push_back(weight > 0.0 ? weight : 1.0);
+    pick_ = boost::random::discrete_distribution<std::size_t>(weights_);
   }
 
-  void generate(MoveGenerator::Token, coords_t &coords,
+  void generate(coords_t &coords,
                 std::span<const std::size_t> indices) {
-    if (generators_.empty()) {
-      return;
+    if (!generators_.empty()) {
+      generators_[pick_(rng_.engine())].generate(coords, indices);
     }
-    double r = rng_.uniform(0.0, cumulative_weights_.back());
-    auto it = std::ranges::lower_bound(cumulative_weights_, r);
-    std::size_t idx =
-        static_cast<std::size_t>(it - cumulative_weights_.begin());
-    if (idx >= generators_.size()) {
-      idx = generators_.size() - 1;
-    }
-    generators_[idx].generate(coords, indices);
   }
 };
 

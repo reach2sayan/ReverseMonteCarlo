@@ -112,17 +112,30 @@ endif ()
 
 include(FetchContent)
 
-FetchContent_Declare(eigen
+# Eigen3 and Boost are declared before seitz, so its own FetchContent_Declare
+# calls for them are ignored (first declaration wins) and it links these.
+# Eigen3::Eigen is IMPORTED so seitz's install(EXPORT) accepts it.
+FetchContent_Declare(Eigen3
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
         GIT_TAG 5.0.0
         GIT_SHALLOW TRUE
         SOURCE_SUBDIR _headers_only_no_cmake)
-FetchContent_MakeAvailable(eigen)
-add_library(eigen_fetched INTERFACE)
-target_include_directories(eigen_fetched SYSTEM INTERFACE "${eigen_SOURCE_DIR}")
-add_library(Eigen3::Eigen ALIAS eigen_fetched)
-message(STATUS "Eigen: fetched 5.0.0 source at ${eigen_SOURCE_DIR}")
-find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS  program_options  serialization   container)
+FetchContent_MakeAvailable(Eigen3)
+add_library(Eigen3::Eigen INTERFACE IMPORTED GLOBAL)
+set_target_properties(Eigen3::Eigen PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${eigen3_SOURCE_DIR}")
+message(STATUS "Eigen: fetched 5.0.0 source at ${eigen3_SOURCE_DIR}")
+
+# A b2-installed Boost ships CMake configs only for compiled libraries; the
+# header-only ones seitz names get interface targets over Boost::headers.
+FetchContent_Declare(Boost FIND_PACKAGE_ARGS 1.88 REQUIRED CONFIG COMPONENTS
+        program_options serialization container graph nowide)
+FetchContent_MakeAvailable(Boost)
+foreach (lib leaf flyweight parser algorithm range)
+    if (NOT TARGET Boost::${lib})
+        add_library(Boost::${lib} INTERFACE IMPORTED GLOBAL)
+        target_link_libraries(Boost::${lib} INTERFACE Boost::headers)
+    endif ()
+endforeach ()
 find_package(spdlog REQUIRED)
 
 add_library(eigen_backend INTERFACE)
@@ -162,26 +175,28 @@ endif ()
 
 find_package(Threads REQUIRED)
 
+# seitz (crystallography), linked against the Eigen3 and Boost declared above.
+set(SEITZ_EXTERNAL_EIGEN_AND_BOOST ON)
+set(SEITZ_BUILD_TESTS OFF)
+set(SEITZ_BUILD_DEMO OFF)
+FetchContent_Declare(Seitz
+        GIT_REPOSITORY https://github.com/reach2sayan/Seitz.git
+        GIT_TAG de0851f6d6b08eec1979365cd4079b3ba1b8cd1f # v0.1.2+5
+        SYSTEM)
+FetchContent_MakeAvailable(Seitz)
+
 add_library(RMC SHARED
         src/core/Structure.cpp
-        src/core/BoundaryConditions.cpp
         src/core/NeighborGrid.cpp
         src/core/Parallel.cpp
         src/constraints/PairConstraintBase.cpp
-        src/constraints/StructureFactorConstraint.cpp
-        src/constraints/ReducedStructureFactorConstraint.cpp
         src/constraints/ConstraintCollection.cpp
         src/constraints/CoordinationConstraint.cpp
         src/constraints/ClusterCorrelationConstraint.cpp
-        src/constraints/AngleConstraint.cpp
         src/constraints/AngularDistributionConstraint.cpp
-        src/constraints/BondConstraint.cpp
-        src/constraints/DihedralAngleConstraint.cpp
-        src/constraints/ImproperAngleConstraint.cpp
         src/callbacks/Chi2CollectorCallback.cpp
         src/callbacks/PDBSnapshotCallback.cpp
         src/callbacks/HistogramCallback.cpp
-        src/selectors/DirectionalOrderSelector.cpp
         src/io/PdbReader.cpp
         src/io/DataReader.cpp
         src/io/LammpsReader.cpp
@@ -192,7 +207,6 @@ add_library(RMC SHARED
         src/analysis/AngularDistribution.cpp
         src/core/RandomStructure.cpp
         src/Engine.cpp
-        src/Ensemble.cpp
         src/RMCRunner.cpp
 )
 target_include_directories(RMC PUBLIC
@@ -207,7 +221,9 @@ target_link_libraries(RMC PUBLIC
         Boost::program_options
         Boost::serialization
         Boost::container
+        Boost::nowide
         Threads::Threads
+        seitz::seitz
 )
 
 option(RMC_USE_TBB "Use Intel TBB for parallel kernels (par_unseq) inside a shared task arena" ON)
@@ -242,7 +258,6 @@ endif ()
 
 option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
 if (RMC_BUILD_MCSQS)
-    include(${CMAKE_SOURCE_DIR}/cmake/Atat.cmake)
     add_subdirectory(extensions/mcsqs)
 endif ()
 
@@ -263,18 +278,18 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             tests/test_examples.cpp
             tests/test_species_swap.cpp
             tests/test_sampler.cpp
-            tests/test_atat_pipeline.cpp
             tests/test_io_readers.cpp
             tests/test_radial_distribution.cpp
             tests/test_angular_distribution.cpp
             tests/test_callbacks.cpp
             tests/bench_scaling.cpp
             tests/bench_thf.cpp
-            # ATAT pipeline sources under test (corrdump-free: no boost::process).
-            extensions/mcsqs/AtatFormats.cpp
-            extensions/mcsqs/ClusterEnumerator.cpp
+            tests/bench_adf.cpp
     )
-    target_include_directories(RMC_tests PRIVATE extensions/mcsqs)
+    if (TARGET mcsqs_core) # the SQS lattice/cluster pipeline under test
+        target_sources(RMC_tests PRIVATE tests/test_atat_pipeline.cpp)
+        target_link_libraries(RMC_tests PRIVATE mcsqs_core)
+    endif ()
     target_compile_definitions(RMC_tests PRIVATE
             THF_BENCHMARK_DATA_DIR="${CMAKE_SOURCE_DIR}/examples/benchmark/data")
     target_link_libraries(RMC_tests PRIVATE RMC Catch2::Catch2WithMain)

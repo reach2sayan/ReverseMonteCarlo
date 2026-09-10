@@ -62,7 +62,16 @@ Result<LoadedStructure>
 read_structure_by_ext(const std::filesystem::path &path,
                       const BoundaryConditions &default_bc,
                       const std::vector<std::string> &type_to_element) {
-  switch (classify_structure_format(path).value_or(StructFormat::Lammps)) {
+  return read_structure(
+      path, classify_structure_format(path).value_or(StructFormat::Lammps),
+      default_bc, type_to_element);
+}
+
+Result<LoadedStructure>
+read_structure(const std::filesystem::path &path, StructFormat fmt,
+               const BoundaryConditions &default_bc,
+               const std::vector<std::string> &type_to_element) {
+  switch (fmt) {
   case StructFormat::Pdb: {
     BOOST_LEAF_AUTO(s, read_pdb(path));
     return LoadedStructure{std::move(s), default_bc};

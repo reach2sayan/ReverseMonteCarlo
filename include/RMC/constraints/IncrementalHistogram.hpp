@@ -26,6 +26,11 @@ struct IncrementalHistogram {
   mutable vec_t scratch_delta_;     // reused after-move delta buffer
   mutable bool incremental_ready_{false}; // set by before-move, cleared after
 
+  // No-op before/after-move hook (the pair path needs none).
+  struct NoHook {
+    void operator()(std::span<const std::size_t>) const noexcept {}
+  };
+
   // Pre-size the per-step scratch buffers. Call once the bin count is known.
   void set_length(int len) {
     len_ = len;
@@ -53,22 +58,22 @@ struct IncrementalHistogram {
     }
   }
 
-  template <class BuildFull, class AccumMoved, class BeforeMove,
-            class AfterMove>
+  template <class BuildFull, class AccumMoved, class BeforeMove = NoHook,
+            class AfterMove = NoHook>
   void update(vec_t &out, std::span<const std::size_t> moved,
               BuildFull &&build_full, AccumMoved &&accum_moved,
-              BeforeMove &&before_move, AfterMove &&after_move) const {
+              BeforeMove &&before_move = {}, AfterMove &&after_move = {}) const {
     auto &slot = frame_hists_[active_frame_];
     if (incremental_ready_ && !moved.empty()) {
-      // after-move: patch new = saved − D_old + D_new (delta at NEW coords).
+      // after-move: patch new = saved − D_old + D_new (delta at NEW coords),
+      // built in the reused delta buffer and swapped into the slot.
       BOOST_ASSERT_MSG(slot.has_value(), "Slot is Disengaged");
       after_move(moved);
       scratch_delta_.setZero();
       accum_moved(scratch_delta_, moved);
-      vec_t new_frame_hist =
-          saved_frame_hist_ - saved_moved_delta_ + scratch_delta_;
-      sum_hist_ += new_frame_hist - slot.value();
-      slot = std::move(new_frame_hist);
+      scratch_delta_ += saved_frame_hist_ - saved_moved_delta_;
+      sum_hist_ += scratch_delta_ - *slot;
+      slot->swap(scratch_delta_);
       incremental_ready_ = false;
     } else {
       // before-move (or full eval when `moved` empty): snapshot, lazily full-build

@@ -1,14 +1,17 @@
-#include <RMC/io/AtomicNumbers.hpp>
+#include "TextParse.hpp"
+
+#include <seitz/data/element_data.hpp>
 #include <RMC/io/LammpsReader.hpp>
 #include <algorithm>
-#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
+#include <array>
 #include <boost/leaf/result.hpp>
 #include <boost/parser/parser.hpp>
 #include <format>
 #include <fstream>
+#include <functional>
+#include <ranges>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace RMC::io {
@@ -16,46 +19,24 @@ namespace RMC::io {
 namespace {
 
 namespace bp = boost::parser;
+using detail::strip_comment;
+using detail::trim;
 
-// Trim ASCII whitespace from both ends, returning a sub-view (no allocation).
-std::string_view trim(std::string_view sv) {
-  static const auto is_ws = boost::is_any_of(" \t\r\n");
-  while (!sv.empty() && is_ws(sv.front())) {
-    sv.remove_prefix(1);
-  }
-  while (!sv.empty() && is_ws(sv.back())) {
-    sv.remove_suffix(1);
-  }
-  return sv;
-}
+// Atoms-section layout per atom_style (indexed by LammpsAtomStyle): the
+// 0-based column of the atom type and of x (y and z follow).
+struct StyleColumns {
+  std::size_t type, x;
+};
+constexpr std::array<StyleColumns, 4> kColumns{{
+    {1, 2}, // Atomic    : id type x y z
+    {1, 3}, // Charge    : id type q x y z
+    {2, 3}, // Molecular : id mol type x y z
+    {2, 4}, // Full      : id mol type q x y z
+}};
 
-// Strip an inline `# ...` comment (LAMMPS allows them on most lines).
-std::string_view strip_comment(std::string_view sv) {
-  const auto h = sv.find('#');
-  return (h == std::string_view::npos) ? sv : sv.substr(0, h);
-}
-
-// Number of columns before x,y,z for each atom_style.
-int coord_offset(LammpsAtomStyle style) {
-  switch (style) {
-  case LammpsAtomStyle::Atomic:
-    return 2; // id type
-  case LammpsAtomStyle::Charge:
-    return 3; // id type q
-  case LammpsAtomStyle::Molecular:
-    return 3; // id mol type
-  case LammpsAtomStyle::Full:
-    return 4; // id mol type q
-  }
-  return 2;
-}
-
-// Column index (0-based) holding the atom type for each style.
-int type_column(LammpsAtomStyle style) {
-  return (style == LammpsAtomStyle::Molecular || style == LammpsAtomStyle::Full)
-             ? 2
-             : 1;
-}
+// "<lo> <hi> xlo xhi" etc.: the header datum that bounds each box axis.
+constexpr std::array<std::string_view, 3> kAxisKeys{"xlo xhi", "ylo yhi",
+                                                    "zlo zhi"};
 
 // The recognised body-section keywords. Hitting any of these ends the header
 // and starts (or skips) a data block.
@@ -76,187 +57,105 @@ read_lammps_data(const std::filesystem::path &path,
                  const std::vector<std::string> &type_to_element,
                  LammpsAtomStyle style) {
   std::ifstream file(path);
-  if (!file)
+  if (!file) {
     return boost::leaf::new_error(
         std::string{"Cannot open LAMMPS data file: " + path.string()});
+  }
 
   LammpsData out;
   std::size_t declared_atoms = 0;
-  bool have_box[3] = {false, false, false};
-  double lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
-  double tilt[3] = {0, 0, 0}; // xy, xz, yz
-  bool have_tilt = false;
+  vec3_t lo = vec3_t::Zero(), hi = vec3_t::Zero();
+  std::array<bool, 3> have_axis{};
+  detail::StructureBuilder atoms;
+  const auto [tcol, xcol] = kColumns[static_cast<std::size_t>(style)];
 
+  // Header datum: numbers, then keywords ("0.0 10.0 xlo xhi", "3 atoms").
+  const auto word_p = bp::lexeme[+(bp::char_ - bp::char_(" \t\r\n"))];
+  const auto header_p = +bp::double_ >> +word_p;
+  std::vector<double> cols; // one Atoms line, reused
+
+  // Line 1 is a free-form comment; then the header, then sections. Only the
+  // Atoms section is read; the data of every other section is skipped.
+  enum class Block { Header, Atoms, Other } block = Block::Header;
   std::string line;
-  bool first = true;
-
-  // Header-datum grammars. Each consumes the WHOLE line, so the trailing keyword
-  // disambiguates. Lines matching none (atom types, bonds, ...) are ignored.
-  const auto atoms_p = bp::ulong_ >> "atoms";                     // -> count
-  const auto xlo_p = bp::double_ >> bp::double_ >> "xlo" >> "xhi"; // -> (lo,hi)
-  const auto ylo_p = bp::double_ >> bp::double_ >> "ylo" >> "yhi";
-  const auto zlo_p = bp::double_ >> bp::double_ >> "zlo" >> "zhi";
-  const auto tilt_p = bp::double_ >> bp::double_ >> bp::double_ >> "xy" >>
-                      "xz" >> "yz"; // -> (xy,xz,yz)
-
-  // --- Header: keyword lines until the first section keyword ---
-  std::string section;
-  while (std::getline(file, line)) {
-    if (first) { // line 1 is always a free-form comment
-      first = false;
-      continue;
-    }
-    const std::string_view content = trim(strip_comment(line));
-    if (content.empty())
-      continue;
-
-    // A line whose trailing words are a section keyword starts the body.
-    if (is_section_keyword(content)) {
-      section = std::string(content);
-      break;
-    }
-
-    // The first grammar that consumes the whole line wins.
-    if (const auto n = bp::parse(content, atoms_p, bp::ws)) {
-      declared_atoms = static_cast<std::size_t>(*n);
-    } else if (const auto bx = bp::parse(content, xlo_p, bp::ws)) {
-      const auto &[l, h] = *bx;
-      lo[0] = l;
-      hi[0] = h;
-      have_box[0] = true;
-    } else if (const auto by = bp::parse(content, ylo_p, bp::ws)) {
-      const auto &[l, h] = *by;
-      lo[1] = l;
-      hi[1] = h;
-      have_box[1] = true;
-    } else if (const auto bz = bp::parse(content, zlo_p, bp::ws)) {
-      const auto &[l, h] = *bz;
-      lo[2] = l;
-      hi[2] = h;
-      have_box[2] = true;
-    } else if (const auto t = bp::parse(content, tilt_p, bp::ws)) {
-      const auto &[xy, xz, yz] = *t;
-      tilt[0] = xy;
-      tilt[1] = xz;
-      tilt[2] = yz;
-      have_tilt = true;
-    }
-  }
-
-  if (!have_box[0] || !have_box[1] || !have_box[2])
-    return boost::leaf::new_error(
-        std::string{"LAMMPS data file missing box bounds: " + path.string()});
-
-  // Build the box matrix (columns = cell edge vectors).
-  const double lx = hi[0] - lo[0];
-  const double ly = hi[1] - lo[1];
-  const double lz = hi[2] - lo[2];
-  out.box.setZero();
-  out.box(0, 0) = lx;
-  out.box(1, 1) = ly;
-  out.box(2, 2) = lz;
-  if (have_tilt) {
-    out.box(0, 1) = tilt[0]; // xy
-    out.box(0, 2) = tilt[1]; // xz
-    out.box(1, 2) = tilt[2]; // yz
-  }
-  out.origin = vec3_t{lo[0], lo[1], lo[2]};
-
-  // --- Locate the Atoms section, skipping the data of any section before it
-  while (!section.empty() && section.rfind("Atoms", 0) != 0) {
-    // Consume this section's data block until the next keyword (or EOF).
-    section.clear();
-    while (std::getline(file, line)) {
-      const std::string_view t = trim(strip_comment(line));
-      if (t.empty()) {
-        continue;
-      }
-      if (is_section_keyword(t)) {
-        section = std::string(t); // next header found
-        break;
-      }
-      // otherwise a data line of the section being skipped: ignore it
-    }
-  }
-
-  if (section.rfind("Atoms", 0) != 0) {
-    return boost::leaf::new_error(
-        std::string{"LAMMPS data file has no Atoms section: " + path.string()});
-  }
-
-  // --- Parse the Atoms block ---
-  AtomicStructure &s = out.structure;
-  std::vector<std::array<double, 3>> xyz;
-  std::vector<int> atom_numbers;
-  const int off = coord_offset(style);
-  const int tcol = type_column(style);
-  std::unordered_map<int, std::string> type_symbol; // type -> element symbol
-
-  auto element_for_type = [&](int type) -> const std::string & {
-    auto it = type_symbol.find(type);
-    if (it != type_symbol.end()) {
-      return it->second;
-    }
-
-    const std::size_t idx = static_cast<std::size_t>(type) - 1;
-    std::string sym = (type >= 1 && idx < type_to_element.size() &&
-           !type_to_element[idx].empty())
-              ? type_to_element[idx]
-              : std::format("X{}", type);
-
-    return type_symbol.emplace(type, std::move(sym)).first->second;
-  };
-
-  // Every column is numeric: parse the line as a run of reals, then index by atom_style.
+  std::getline(file, line);
   while (std::getline(file, line)) {
     const std::string_view content = trim(strip_comment(line));
     if (content.empty()) {
       continue;
     }
     if (is_section_keyword(content)) {
-      break; // reached the next section
+      if (block == Block::Atoms) {
+        break;
+      }
+      block = content == "Atoms" ? Block::Atoms : Block::Other;
+      continue;
     }
 
-    const auto cols = bp::parse(content, +bp::double_, bp::ws);
-    if (!cols) {
-      return boost::leaf::new_error(
-          std::format("LAMMPS Atoms line parse error: {}", content));
+    if (block == Block::Header) {
+      const auto datum = bp::parse(content, header_p, bp::ws);
+      if (!datum) {
+        continue; // not a header datum we use
+      }
+      const auto &[nums, words] = *datum;
+      const auto key = words | std::views::join_with(' ') |
+                       std::ranges::to<std::string>();
+      const auto axis = std::ranges::find(kAxisKeys, key);
+      if (key == "atoms") {
+        declared_atoms = static_cast<std::size_t>(nums[0]);
+      } else if (axis != kAxisKeys.end() && nums.size() == 2) {
+        const auto d = axis - kAxisKeys.begin();
+        lo[d] = nums[0];
+        hi[d] = nums[1];
+        have_axis[static_cast<std::size_t>(d)] = true;
+      } else if (key == "xy xz yz" && nums.size() == 3) {
+        out.box(0, 1) = nums[0];
+        out.box(0, 2) = nums[1];
+        out.box(1, 2) = nums[2];
+      }
+    } else if (block == Block::Atoms) {
+      // Every column is numeric; index the run of reals by atom_style.
+      cols.clear();
+      if (!bp::parse(content, +bp::double_, bp::ws, cols)) {
+        return boost::leaf::new_error(
+            std::format("LAMMPS Atoms line parse error: {}", content));
+      }
+      if (cols.size() < xcol + 3) {
+        return boost::leaf::new_error(
+            std::format("LAMMPS Atoms line has too few columns ({}, need {}): {}",
+                        cols.size(), xcol + 3, content));
+      }
+      const int type = static_cast<int>(cols[tcol]);
+      const auto idx = static_cast<std::size_t>(type - 1);
+      const std::string sym =
+          type >= 1 && idx < type_to_element.size() &&
+                  !type_to_element[idx].empty()
+              ? type_to_element[idx]
+              : std::format("X{}", type);
+      const int z = seitz::data::atomic_number(sym).value_or(0);
+      atoms.add({cols[xcol], cols[xcol + 1], cols[xcol + 2]}, z != 0 ? z : type,
+                sym);
     }
-    if (static_cast<int>(cols->size()) < off + 3) {
-      return boost::leaf::new_error(
-          std::format("LAMMPS Atoms line has too few columns ({}, need {}): {}",
-                      cols->size(), off + 3, content));
-    }
-
-    const int type = static_cast<int>((*cols)[static_cast<std::size_t>(tcol)]);
-    const double x = (*cols)[static_cast<std::size_t>(off)];
-    const double y = (*cols)[static_cast<std::size_t>(off) + 1];
-    const double z = (*cols)[static_cast<std::size_t>(off) + 2];
-    const std::string &sym = element_for_type(type);
-
-    xyz.push_back({x, y, z});
-    s.names.push_back(sym);
-    s.elements.push_back(sym);
-    s.residues.push_back(sym);
-    s.molecule_ids.push_back(1);
-
-    const int anum = atomic_number(sym);
-    atom_numbers.push_back(anum != 0 ? anum : type);
   }
 
-  if (declared_atoms != 0 && xyz.size() != declared_atoms)
+  if (!std::ranges::all_of(have_axis, std::identity{})) {
+    return boost::leaf::new_error(
+        std::string{"LAMMPS data file missing box bounds: " + path.string()});
+  }
+  if (block != Block::Atoms) {
+    return boost::leaf::new_error(
+        std::string{"LAMMPS data file has no Atoms section: " + path.string()});
+  }
+  if (declared_atoms != 0 && atoms.size() != declared_atoms) {
     return boost::leaf::new_error(std::format(
         "LAMMPS data file declared {} atoms but Atoms section has {}",
-        declared_atoms, xyz.size()));
+        declared_atoms, atoms.size()));
+  }
 
-  const std::size_t N = xyz.size();
-  // Map the contiguous xyz buffer directly into the row-major coordinate matrix.
-  s.coordinates = Eigen::Map<const coords_t>(
-      reinterpret_cast<const double *>(xyz.data()),
-      static_cast<Eigen::Index>(N), 3);
-  s.atomic_numbers = Eigen::Map<const ivec_t>(
-      atom_numbers.data(), static_cast<Eigen::Index>(atom_numbers.size()));
-
+  // Box columns are the cell edge vectors; tilts were stored above.
+  out.box.diagonal() = hi - lo;
+  out.origin = lo;
+  out.structure = std::move(atoms).finish();
   return out;
 }
 
@@ -269,50 +168,40 @@ Result<void> write_lammps_data(const AtomicStructure &s, const mat3_t &box,
         std::string{"Cannot write LAMMPS data file: " + path.string()});
   }
 
-  // Assign integer types by first appearance of each element symbol.
-  std::unordered_map<std::string, int> sym_to_type;
-  std::vector<std::string> legend; // type i -> legend[i-1]
-  std::vector<int> types;
-  types.reserve(s.size());
-  for (std::size_t i = 0; i < s.size(); ++i) {
-    const std::string sym =
-        (i < s.elements.size() && !s.elements[i].empty()) ? s.elements[i] : "X";
-    auto [it, inserted] =
-        sym_to_type.try_emplace(sym, static_cast<int>(legend.size()) + 1);
-    if (inserted) {
-      legend.push_back(sym);
+  // Integer types by first appearance of each element symbol.
+  const auto groups = detail::group_by_element(s);
+  std::vector<std::size_t> types(s.size());
+  for (const auto &[t, g] : groups | std::views::enumerate) {
+    for (const std::size_t i : g.atoms) {
+      types[i] = static_cast<std::size_t>(t) + 1;
     }
-    types.push_back(it->second);
   }
 
   f << "LAMMPS data file written by RMC\n\n";
-  f << std::format("{} atoms\n", s.size());
-  f << std::format("{} atom types\n\n", legend.size());
-  f << std::format("{:.8f} {:.8f} xlo xhi\n", origin.x(),
-                   origin.x() + box(0, 0));
-  f << std::format("{:.8f} {:.8f} ylo yhi\n", origin.y(),
-                   origin.y() + box(1, 1));
-  f << std::format("{:.8f} {:.8f} zlo zhi\n", origin.z(),
-                   origin.z() + box(2, 2));
-  if (box(0, 1) != 0.0 || box(0, 2) != 0.0 || box(1, 2) != 0.0)
+  f << std::format("{} atoms\n{} atom types\n\n", s.size(), groups.size());
+  for (int d = 0; d < 3; ++d) {
+    f << std::format("{:.8f} {:.8f} {}\n", origin[d], origin[d] + box(d, d),
+                     kAxisKeys[static_cast<std::size_t>(d)]);
+  }
+  if (box(0, 1) != 0.0 || box(0, 2) != 0.0 || box(1, 2) != 0.0) {
     f << std::format("{:.8f} {:.8f} {:.8f} xy xz yz\n", box(0, 1), box(0, 2),
                      box(1, 2));
+  }
 
   f << "\nAtoms # atomic\n\n";
   for (std::size_t i = 0; i < s.size(); ++i) {
+    const auto r = static_cast<Eigen::Index>(i);
     f << std::format("{} {} {:.8f} {:.8f} {:.8f}\n", i + 1, types[i],
-                     s.coordinates(static_cast<Eigen::Index>(i), 0),
-                     s.coordinates(static_cast<Eigen::Index>(i), 1),
-                     s.coordinates(static_cast<Eigen::Index>(i), 2));
+                     s.coordinates(r, 0), s.coordinates(r, 1),
+                     s.coordinates(r, 2));
   }
 
   // Legend so the file round-trips through read_lammps_data(type_to_element).
   f << "\n# type -> element:";
-  for (std::size_t t = 0; t < legend.size(); ++t) {
-    f << std::format(" {}={}", t + 1, legend[t]);
+  for (const auto &[t, g] : groups | std::views::enumerate) {
+    f << std::format(" {}={}", t + 1, g.symbol);
   }
   f << "\n";
-
   return {};
 }
 

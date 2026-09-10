@@ -6,7 +6,8 @@ cmake_minimum_required(VERSION 3.28)
 #   Included automatically from the main RMC project when RMC_BUILD_MCSQS=ON.
 #   The RMC target is already defined; nothing extra is needed.
 #
-# Standalone (building against a separately built libRMC):
+# Standalone (building against a separately built libRMC and an installed
+# seitz):
 #   cmake -S extensions/mcsqs -B build/mcsqs \
 #         -DRMC_SOURCE_DIR=/path/to/RMC \
 #         -DRMC_BUILD_DIR=/path/to/RMC/build
@@ -50,20 +51,18 @@ if (NOT TARGET RMC)
     add_library(eigen_fetched INTERFACE)
     target_include_directories(eigen_fetched SYSTEM INTERFACE "${eigen_SOURCE_DIR}")
     add_library(Eigen3::Eigen ALIAS eigen_fetched)
-    # 1.88: Process v2 was promoted to <boost/process.hpp> (see AtatRunner.cpp).
     find_package(Boost 1.88 REQUIRED CONFIG COMPONENTS
-            serialization
-            container context program_options
-            process filesystem)
+            serialization container context program_options)
     find_package(spdlog REQUIRED)
     find_package(Threads REQUIRED)
+    find_package(Seitz REQUIRED CONFIG)
 
     add_library(_rmc_imported SHARED IMPORTED)
     set_target_properties(_rmc_imported PROPERTIES
             IMPORTED_LOCATION "${RMC_LIB}"
             INTERFACE_INCLUDE_DIRECTORIES "${RMC_SOURCE_DIR}/include"
             INTERFACE_LINK_LIBRARIES
-            "Eigen3::Eigen;spdlog::spdlog;\
+            "Eigen3::Eigen;spdlog::spdlog;seitz::seitz;\
 Boost::serialization;\
 Boost::container;Boost::context;\
 Threads::Threads")
@@ -72,33 +71,23 @@ Threads::Threads")
 else ()
     # In-tree: use the already-defined RMC target directly.
     set(_rmc_target RMC)
-    find_package(Boost REQUIRED CONFIG COMPONENTS
-            program_options process filesystem)
+    find_package(Boost REQUIRED CONFIG COMPONENTS program_options)
 endif ()
 
-add_executable(mcsqs_rmc
-        mcsqs_rmc.cpp
-        McsqsRunner.cpp
-        AtatFormats.cpp
-        ClusterEnumerator.cpp
-        AtatRunner.cpp)
-target_link_libraries(mcsqs_rmc PRIVATE ${_rmc_target}
-        Boost::program_options
-        Boost::process
-        Boost::filesystem)
-target_compile_features(mcsqs_rmc PRIVATE cxx_std_23)
+# Lattice I/O + seitz cluster enumeration, shared by mcsqs_rmc and RMC_tests.
+add_library(mcsqs_core STATIC AtatFormats.cpp SeitzClusters.cpp)
+target_include_directories(mcsqs_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(mcsqs_core PUBLIC ${_rmc_target})
 
-# Wire in the vendored corrdump built by cmake/Atat.cmake (ExternalProject).
-if (TARGET atat_ext)
-    add_dependencies(mcsqs_rmc atat_ext)
-endif ()
-if (ATAT_CORRDUMP_PATH)
-    target_compile_definitions(mcsqs_rmc PRIVATE RMC_CORRDUMP_PATH="${ATAT_CORRDUMP_PATH}")
-endif ()
+add_executable(mcsqs_rmc mcsqs_rmc.cpp McsqsRunner.cpp)
+target_link_libraries(mcsqs_rmc PRIVATE mcsqs_core Boost::program_options)
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(mcsqs_rmc PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
-endif ()
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(mcsqs_rmc PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
-endif ()
+foreach (tgt mcsqs_core mcsqs_rmc)
+    target_compile_features(${tgt} PRIVATE cxx_std_23)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${tgt} PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
+    endif ()
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(${tgt} PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
+    endif ()
+endforeach ()

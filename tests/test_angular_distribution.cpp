@@ -57,7 +57,7 @@ std::vector<std::uint32_t> brute_neighbors(const coords_t &coords,
     vec3_t d =
         (coords.row(j) - coords.row(static_cast<Eigen::Index>(i))).transpose();
     if (bc) {
-      d = bc_min_image(*bc, d);
+      d = bc->min_image(d);
     }
     if (d.squaredNorm() <= c2) {
       out.push_back(static_cast<std::uint32_t>(j));

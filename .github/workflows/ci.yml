@@ -21,22 +21,34 @@ jobs:
       matrix:
         include:
           - compiler: gcc
-            cc: gcc-14
-            cxx: g++-14
+            cc: gcc-15
+            cxx: g++-15
           - compiler: clang
-            cc: clang-18
-            cxx: clang++-18
+            cc: clang-20
+            cxx: clang++-20
 
     steps:
       - uses: actions/checkout@v4
 
+      # seitz transcribes its data tables at configure time with Python.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # seitz needs GCC 15 (<generator>, std::from_range); clang uses its libstdc++.
       - name: Install dependencies
         run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build ccache \
             libspdlog-dev libtbb-dev catch2 \
-            ${{ matrix.cc }}
+            g++-15
+          pip install numpy pandas pygments
+
+      - name: Install clang 20
+        if: matrix.compiler == 'clang'
+        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
 
       # ubuntu-24.04's libboost-all-dev is 1.83, which lacks Boost.Parser
       # (1.87+) and Boost.Process v2's compiled library (1.86+). Build the
@@ -47,7 +59,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/boost
-          key: boost-1.89.0-fullheaders-${{ matrix.compiler }}
+          key: boost-1.89.0-fullheaders-graph-nowide-${{ matrix.cxx }}
 
       - name: Build Boost 1.89
         if: steps.cache-boost.outputs.cache-hit != 'true'
@@ -62,7 +74,7 @@ jobs:
           toolset=${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
           echo "using ${toolset} : : ${{ matrix.cxx }} ;" > "${HOME}/user-config.jam"
           ./bootstrap.sh \
-            --with-libraries=program_options,serialization,container,context,filesystem,process
+            --with-libraries=program_options,serialization,container,context,filesystem,process,graph,nowide
           ./b2 -j"$(nproc)" \
             toolset=${toolset} cxxstd=23 variant=release link=shared \
             --user-config="${HOME}/user-config.jam" \
@@ -87,6 +99,7 @@ jobs:
         run: >
           cmake -S . -B build -G Ninja
           -DBOOST_ROOT=$HOME/boost
+          -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
           -DCMAKE_BUILD_TYPE=Release
           -DENABLE_MKL=OFF
           -DENABLE_LTO=OFF

@@ -22,7 +22,7 @@ namespace RMC::callbacks {
 class Chi2CollectorCallback {
 public:
   explicit Chi2CollectorCallback(std::filesystem::path csv_path = "chi2.csv")
-      : csv_path_(std::move(csv_path)) {}
+      : csv_path_{std::move(csv_path)} {}
 
   void operator()(std::uint64_t step, std::uint64_t /*acc*/,
                   std::uint64_t /*tried*/, double chi2,

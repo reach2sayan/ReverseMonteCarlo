@@ -1,95 +1,65 @@
+#include "TextParse.hpp"
+
 #include <RMC/io/DataReader.hpp>
-#include <algorithm>
-#include <array>
 #include <boost/leaf/result.hpp>
 #include <boost/parser/parser.hpp>
 #include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
 
 namespace RMC::io {
 
+namespace {
+
 namespace bp = boost::parser;
 
-Result<mat_t> read_xy_data(const std::filesystem::path &path) {
+// Numeric table: the numeric prefix of each line (whitespace or comma
+// separated; '#' starts a comment) as an N × ncol matrix. With ncol fixed,
+// extra columns are dropped and shorter rows skipped; with ncol == 0 the first
+// row sets the width and a ragged row is an error.
+Result<mat_t> read_table(const std::filesystem::path &path, std::size_t ncol) {
   std::ifstream f(path);
   if (!f) {
-    return boost::leaf::new_error(
-        std::string{"Cannot open data file: " + path.string()});
+    return boost::leaf::new_error("Cannot open data file: " + path.string());
   }
-  // Two reals per row; columns separated by whitespace OR commas. Any trailing
-  // columns are ignored (prefix_parse stops after the second number), matching
-  // the historic `ss >> x >> y` leniency while honoring the documented comma
-  // support.
-  const auto row_p = bp::double_ >> bp::double_;
-  const auto sep = bp::char_(" \t,\r");
-
-  std::vector<std::array<double, 2>> rows;
-  std::string line;
-  while (std::getline(f, line)) {
-    if (line.empty() || line[0] == '#') {
-      continue;
-    }
-    auto it = line.begin();
-    if (const auto xy = bp::prefix_parse(it, line.end(), row_p, sep)) {
-      const auto &[x, y] = *xy;
-      rows.push_back({x, y});
-    }
-    // Lines with fewer than two numbers are silently skipped, as before.
-  }
-
-  Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor>>
-      rows_map(reinterpret_cast<const double *>(rows.data()),
-               static_cast<Eigen::Index>(rows.size()), 2);
-
-  mat_t m = rows_map;
-  return m;
-}
-
-Result<mat_t> read_columns(const std::filesystem::path &path) {
-  std::ifstream f(path);
-  if (!f) {
-    return boost::leaf::new_error(
-        std::string{"Cannot open data file: " + path.string()});
-  }
-
-  std::vector<std::vector<double>> rows;
-  std::size_t ncol = 0;
-  std::string line;
-  while (std::getline(f, line)) {
-    if (const auto h = line.find('#'); h != std::string::npos) {
-      line.resize(h); // strip inline/whole-line comments
-    }
-    std::replace(line.begin(), line.end(), ',', ' ');
-    std::istringstream ss{line};
-    std::vector<double> row;
-    for (double v; ss >> v;) {
-      row.push_back(v);
-    }
-    if (row.empty()) {
+  const bool fixed = ncol != 0;
+  std::vector<double> values, row;
+  for (std::string line; std::getline(f, line);) {
+    const std::string_view content = detail::strip_comment(line);
+    auto it = content.begin();
+    row.clear();
+    bp::prefix_parse(it, content.end(), *bp::double_, bp::char_(" \t,\r"), row);
+    if (row.empty() || (fixed && row.size() < ncol)) {
       continue;
     }
     if (ncol == 0) {
       ncol = row.size();
-    } else if (row.size() != ncol) {
-      return boost::leaf::new_error(
-          std::string{"read_columns: ragged rows in " + path.string()});
+    } else if (!fixed && row.size() != ncol) {
+      return boost::leaf::new_error("read_columns: ragged rows in " +
+                                    path.string());
     }
-    rows.push_back(std::move(row));
+    values.insert(values.end(), row.begin(),
+                  row.begin() + static_cast<std::ptrdiff_t>(ncol));
   }
-  if (rows.empty()) {
-    return boost::leaf::new_error(
-        std::string{"read_columns: no numeric data in " + path.string()});
+  if (ncol == 0) {
+    return boost::leaf::new_error("read_columns: no numeric data in " +
+                                  path.string());
   }
+  using RowMajor =
+      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+  return mat_t(Eigen::Map<const RowMajor>(
+      values.data(), static_cast<Eigen::Index>(values.size() / ncol),
+      static_cast<Eigen::Index>(ncol)));
+}
 
-  mat_t m(static_cast<Eigen::Index>(rows.size()),
-          static_cast<Eigen::Index>(ncol));
-  for (std::size_t i = 0; i < rows.size(); ++i) {
-    m.row(static_cast<Eigen::Index>(i)) = Eigen::Map<const Eigen::RowVectorXd>(
-        rows[i].data(), static_cast<Eigen::Index>(ncol));
-  }
-  return m;
+} // namespace
+
+Result<mat_t> read_xy_data(const std::filesystem::path &path) {
+  return read_table(path, 2);
+}
+
+Result<mat_t> read_columns(const std::filesystem::path &path) {
+  return read_table(path, 0);
 }
 
 } // namespace RMC::io

@@ -1,5 +1,5 @@
 #include "AtatFormats.hpp"
-#include "ClusterEnumerator.hpp"
+#include "SeitzClusters.hpp"
 
 #include <RMC/constraints/ClusterCorrelationConstraint.hpp>
 
@@ -7,6 +7,13 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -18,27 +25,8 @@ using RMC::vec3_t;
 namespace atat = RMC::atat;
 
 // ============================================================
-// Format parsers
+// Lattice parser
 // ============================================================
-
-TEST_CASE("parse_sym - identity operation", "[atat]") {
-  std::istringstream in("1\n1 0 0\n0 1 0\n0 0 1\n0 0 0\n");
-  const auto ops = atat::parse_sym(in);
-  REQUIRE(ops.size() == 1);
-  REQUIRE(ops[0].rot.isApprox(mat3_t::Identity()));
-  REQUIRE(ops[0].trans.isApprox(vec3_t::Zero()));
-}
-
-TEST_CASE("parse_clusters - one pair orbit", "[atat]") {
-  std::istringstream in("6\n1.0\n2\n0 0 0 0 0\n0.5 0.5 0 0 0\n");
-  const auto orbits = atat::parse_clusters(in);
-  REQUIRE(orbits.size() == 1);
-  REQUIRE(orbits[0].multiplicity == 6.0);
-  REQUIRE(orbits[0].points.size() == 2);
-  REQUIRE(orbits[0].points[1].coord.isApprox(vec3_t(0.5, 0.5, 0.0)));
-  REQUIRE(orbits[0].points[0].site_type == 0);
-  REQUIRE(orbits[0].points[0].func == 0);
-}
 
 TEST_CASE("parse_lattice - cubic binary rndstr", "[atat]") {
   std::istringstream in(
@@ -102,139 +90,138 @@ TEST_CASE("parse_lattice - malformed site line throws", "[atat]") {
   REQUIRE_THROWS_AS(atat::parse_lattice(in), std::runtime_error);
 }
 
-TEST_CASE("parse_sym - multiple ops with rotation and translation", "[atat]") {
-  // Op 0: identity, zero shift. Op 1: 90deg about z, shift (0.5,0.5,0.5).
-  std::istringstream in("2\n"
-                        "1 0 0\n0 1 0\n0 0 1\n0 0 0\n"
-                        "0 -1 0\n1 0 0\n0 0 1\n0.5 0.5 0.5\n");
-  const auto ops = atat::parse_sym(in);
-  REQUIRE(ops.size() == 2);
-  REQUIRE(ops[0].rot.isApprox(mat3_t::Identity()));
-  mat3_t rz;
-  rz << 0, -1, 0, 1, 0, 0, 0, 0, 1; // row-major, as stored in sym.out
-  REQUIRE(ops[1].rot.isApprox(rz));
-  REQUIRE(ops[1].trans.isApprox(vec3_t(0.5, 0.5, 0.5)));
-}
-
-TEST_CASE("parse_sym - truncated operation throws", "[atat]") {
-  std::istringstream in("2\n1 0 0\n0 1 0\n0 0 1\n0 0 0\n"); // only 1 of 2 ops
-  REQUIRE_THROWS_AS(atat::parse_sym(in), std::runtime_error);
-}
-
-TEST_CASE("parse_clusters - multiple orbits incl. point orbit", "[atat]") {
-  // Orbit 0: a single-point orbit with nonzero site_type/func.
-  // Orbit 1: a 2-point pair orbit.
-  std::istringstream in("1\n0.0\n1\n0 0 0 1 2\n"
-                        "6\n1.0\n2\n0 0 0 0 0\n0.5 0.5 0 0 0\n");
-  const auto orbits = atat::parse_clusters(in);
-  REQUIRE(orbits.size() == 2);
-  REQUIRE_THAT(orbits[0].multiplicity, WithinAbs(1.0, 1e-12));
-  REQUIRE(orbits[0].points.size() == 1);
-  REQUIRE(orbits[0].points[0].site_type == 1);
-  REQUIRE(orbits[0].points[0].func == 2);
-  REQUIRE_THAT(orbits[1].length, WithinAbs(1.0, 1e-12));
-  REQUIRE(orbits[1].points.size() == 2);
-}
-
-TEST_CASE("parse_clusters - truncated point block throws", "[atat]") {
-  std::istringstream in("6\n1.0\n2\n0 0 0 0 0\n"); // header says 2, only 1 point
-  REQUIRE_THROWS_AS(atat::parse_clusters(in), std::runtime_error);
-}
-
-TEST_CASE("parse_correlations - reads first line of doubles", "[atat]") {
-  std::istringstream in("1.0\t-0.5  0.25\n2.0 3.0\n");
-  const auto corr = atat::parse_correlations(in);
-  REQUIRE(corr.size() == 3);
-  REQUIRE_THAT(corr[0], WithinAbs(1.0, 1e-12));
-  REQUIRE_THAT(corr[1], WithinAbs(-0.5, 1e-12));
-  REQUIRE_THAT(corr[2], WithinAbs(0.25, 1e-12));
-}
-
-TEST_CASE("parse_correlations - empty input throws", "[atat]") {
-  std::istringstream in("   \n\n");
-  REQUIRE_THROWS_AS(atat::parse_correlations(in), std::runtime_error);
-}
-
 // ============================================================
-// Trigonometric basis
+// Enumeration on seitz
 // ============================================================
 
-TEST_CASE("CorrFuncTable - binary trig basis", "[atat]") {
-  const auto t = RMC::CorrFuncTable::trigonometric(2);
-  REQUIRE_THAT(t.value(0, 0, 0), WithinAbs(-1.0, 1e-12)); // s=0: -cos(0)
-  REQUIRE_THAT(t.value(0, 0, 1), WithinAbs(1.0, 1e-12));  // s=1: -cos(pi)
+namespace {
+
+// rndstr.in texts. The chain's cell is 1 × 5 × 5, so a 1.1 Å pair cutoff keeps
+// only the x-neighbours (multiplicity 1). fcc is the primitive cell of the
+// unit cube (NN distance √2/2). The CsCl-type parent has two binary
+// sublattices, NN (√3/2) only between them.
+constexpr const char *kChain =
+    "1 0 0\n0 1 0\n0 0 1\n1 0 0\n0 5 0\n0 0 5\n0 0 0 Cu=0.5,Au=0.5\n";
+constexpr const char *kFcc = "1 0 0\n0 1 0\n0 0 1\n0 0.5 0.5\n0.5 0 0.5\n"
+                             "0.5 0.5 0\n0 0 0 Cu=0.5,Au=0.5\n";
+constexpr const char *kTwoSublattices =
+    "1 0 0\n0 1 0\n0 0 1\n1 0 0\n0 1 0\n0 0 1\n"
+    "0 0 0 Cu=0.5,Au=0.5\n0.5 0.5 0.5 Ni=0.5,Ti=0.5\n";
+
+atat::AtatLattice lattice(const char *rndstr) {
+  std::istringstream in(rndstr);
+  return atat::parse_lattice(in);
 }
 
-// ============================================================
-// Enumerator (the symmetry-faithful port)
-// ============================================================
-
-// A 1D chain (simple-cubic primitive, one binary site) with identity+inversion
-// symmetry. NN-pair orbit multiplicity = 1, so a 4× supercell has 4 instances:
-// {0,1},{1,2},{2,3},{3,0}.
-static atat::AtatLattice chain_lattice() {
-  atat::AtatLattice lat;
-  lat.axes = mat3_t::Identity();
-  lat.cell = mat3_t::Identity();
-  atat::LatticeSite site;
-  site.frac = vec3_t::Zero();
-  site.occ = {{"Cu", 0.5}, {"Au", 0.5}};
-  lat.sites = {site};
-  lat.labels = {"Au", "Cu"};
-  return lat;
+Eigen::Matrix3i diag(int a, int b, int c) {
+  return Eigen::Vector3i(a, b, c).asDiagonal();
 }
+
+} // namespace
 
 TEST_CASE("enumerate - NN pair instance count on a 1D chain", "[atat]") {
-  const auto lat = chain_lattice();
-  std::vector<atat::SymOp> sym(2);
-  sym[0].rot = mat3_t::Identity();
-  sym[1].rot = -mat3_t::Identity(); // inversion
-  atat::RawOrbit orbit;
-  orbit.multiplicity = 1.0;
-  orbit.length = 1.0;
-  orbit.points = {{vec3_t(0, 0, 0), 0, 0}, {vec3_t(1, 0, 0), 0, 0}};
-
-  Eigen::Matrix3i sc = Eigen::Matrix3i::Zero();
-  sc(0, 0) = 4;
-  sc(1, 1) = 1;
-  sc(2, 2) = 1;
-
-  auto e = atat::enumerate(lat, sym, {orbit}, sc, /*seed=*/1);
+  const auto e = atat::enumerate(lattice(kChain), diag(4, 1, 1), {{2, 1.1}}, 1);
   REQUIRE(e.structure.size() == 4);
   REQUIRE(e.orbits.size() == 1);
-  REQUIRE(e.orbits[0].instance_count() == 4); // multiplicity(1) × n_cells(4)
-  // Random equiatomic target: point correlation = 0 ⇒ orbit target = 0.
+  REQUIRE(e.orbits[0].instance_count() == 4); // multiplicity 1 × 4 cells
+  // Random equiatomic state: point correlation 0 ⇒ pair target 0.
   REQUIRE_THAT(e.orbits[0].target, WithinAbs(0.0, 1e-9));
 }
 
 TEST_CASE("enumerate - correlation matches the trig basis", "[atat]") {
-  const auto lat = chain_lattice();
-  std::vector<atat::SymOp> sym(2);
-  sym[0].rot = mat3_t::Identity();
-  sym[1].rot = -mat3_t::Identity();
-  atat::RawOrbit orbit;
-  orbit.multiplicity = 1.0;
-  orbit.length = 1.0;
-  orbit.points = {{vec3_t(0, 0, 0), 0, 0}, {vec3_t(1, 0, 0), 0, 0}};
-  Eigen::Matrix3i sc = Eigen::Matrix3i::Zero();
-  sc(0, 0) = 4;
-  sc(1, 1) = 1;
-  sc(2, 2) = 1;
-
-  auto e = atat::enumerate(lat, sym, {orbit}, sc, 1);
-  // Deterministic alternating occupation: Cu(+1) Au(-1) Cu(+1) Au(-1).
-  // Sites are generated in chain order (atom i at x=i). atomic_numbers is the
-  // authoritative occupation field the constraint reads (set here to the
-  // occupation index, as ClusterEnumerator does: atomic_numbers = occ_index[el]).
-  e.structure.elements = {"Cu", "Au", "Cu", "Au"};
-  for (Eigen::Index i = 0; i < 4; ++i) {
-    e.structure.atomic_numbers[i] =
-        e.occ_index.at(e.structure.elements[static_cast<std::size_t>(i)]);
+  auto e = atat::enumerate(lattice(kChain), diag(4, 1, 1), {{2, 1.1}}, 1);
+  // Alternate Cu (θ = +1) and Au (θ = −1) along x: every NN pair is (Cu, Au).
+  // atomic_numbers carry the occupation index the constraint reads.
+  for (std::size_t i = 0; i < e.structure.size(); ++i) {
+    const auto r = static_cast<Eigen::Index>(i);
+    e.structure.elements[i] =
+        std::lround(e.structure.coordinates(r, 0)) % 2 == 0 ? "Cu" : "Au";
+    e.structure.atomic_numbers[r] = e.occ_index.at(e.structure.elements[i]);
   }
   RMC::ClusterCorrelationConstraint cc{e.structure, e.occ_index, e.table,
                                        e.orbits};
   const auto corr = cc.current_correlations();
   REQUIRE(corr.size() == 1);
-  // Every NN pair is (Cu,Au) ⇒ sigma product −1 ⇒ mean −1.
   REQUIRE_THAT(corr[0], WithinAbs(-1.0, 1e-9));
+}
+
+TEST_CASE("enumerate - fcc 2x2x2 first pair orbit", "[atat]") {
+  const auto e = atat::enumerate(lattice(kFcc), diag(2, 2, 2), {{2, 0.75}}, 3);
+  REQUIRE(e.structure.size() == 8);
+  REQUIRE(e.orbits.size() == 1);
+  REQUIRE(e.orbits[0].instance_count() == 48); // 6 NN pairs per cell × 8 cells
+  REQUIRE(std::ranges::count(e.structure.elements, "Cu") == 4);
+}
+
+TEST_CASE("enumerate - two sublattices", "[atat]") {
+  const auto e = atat::enumerate(lattice(kTwoSublattices), diag(2, 2, 2),
+                                 {{2, 0.9}}, 5);
+  REQUIRE(e.structure.size() == 16);
+  REQUIRE(e.table.size() == 2);
+  REQUIRE(std::ranges::count(e.structure.residues, "SL0") == 8);
+  REQUIRE(std::ranges::count(e.structure.residues, "SL1") == 8);
+  for (std::size_t i = 0; i < e.structure.size(); ++i) {
+    // Each sublattice holds only its own species.
+    const auto &el = e.structure.elements[i];
+    REQUIRE((el == "Cu" || el == "Au") == (e.structure.residues[i] == "SL0"));
+  }
+  REQUIRE(e.orbits.size() == 1); // the Cu/Au–Ni/Ti nearest-neighbour pair
+  REQUIRE(e.orbits[0].instance_count() == 8 * 8);
+}
+
+// Cross-check against ATAT corrdump when RMC_CORRDUMP names its binary: the
+// correlations of a random supercell must match corrdump's for the same
+// structure (both sorted: the orbit orders differ only in ties).
+TEST_CASE("enumerate - correlations match corrdump", "[atat][corrdump]") {
+  const char *corrdump = std::getenv("RMC_CORRDUMP");
+  if (corrdump == nullptr) {
+    SKIP("RMC_CORRDUMP not set");
+  }
+  struct Case {
+    const char *name;
+    const char *rndstr;
+    Eigen::Matrix3i sc;
+    atat::Diameters diameters;
+  };
+  const std::vector<Case> cases{
+      {"chain", kChain, diag(4, 1, 1), {{2, 1.1}}},
+      {"fcc pairs", kFcc, diag(2, 2, 2), {{2, 1.1}}},
+      {"fcc pairs + triplets", kFcc, diag(2, 2, 2), {{2, 1.1}, {3, 0.75}}},
+      {"fcc 3x3x3 pairs + triplets", kFcc, diag(3, 3, 3), {{2, 1.1}, {3, 1.1}}},
+      {"two sublattices", kTwoSublattices, diag(2, 2, 2), {{2, 1.1}}},
+  };
+  const auto dir = std::filesystem::temp_directory_path() / "rmc_corrdump_oracle";
+  for (const Case &c : cases) {
+    INFO(c.name);
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "rndstr.in") << c.rndstr;
+    const auto e = atat::enumerate(lattice(c.rndstr), c.sc, c.diameters, 11);
+    atat::write_str_out(dir / "str.out", e.axes, e.supercell, e.frac_positions,
+                        e.structure.elements);
+
+    std::string cmd = std::format(
+        "cd '{}' && '{}' -l=rndstr.in -ro -noe -nop -sig=12 -s=str.out",
+        dir.string(), corrdump);
+    for (const auto &[body, d] : c.diameters) {
+      cmd += std::format(" -{}={}", body, d);
+    }
+    REQUIRE(std::system((cmd + " > corr.out 2> corr.err").c_str()) == 0);
+    std::ifstream f(dir / "corr.out");
+    std::string line;
+    std::getline(f, line);
+    std::istringstream row(line);
+    std::vector<double> expected{std::istream_iterator<double>(row), {}};
+
+    RMC::ClusterCorrelationConstraint cc{e.structure, e.occ_index, e.table,
+                                         e.orbits};
+    auto got = cc.current_correlations();
+    std::ranges::sort(expected);
+    std::ranges::sort(got);
+    CAPTURE(got, expected);
+    REQUIRE(got.size() == expected.size());
+    for (const auto [g, x] : std::views::zip(got, expected)) {
+      REQUIRE_THAT(g, WithinAbs(x, 1e-9));
+    }
+  }
 }

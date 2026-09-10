@@ -5,12 +5,9 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/constraints/CoordinationConstraint.hpp>
-#include <RMC/constraints/DihedralAngleConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
-#include <RMC/constraints/ImproperAngleConstraint.hpp>
 #include <RMC/core/AtomsCollector.hpp>
 #include <RMC/generators/Removes.hpp>
 #include <RMC/generators/Rotations.hpp>
@@ -410,7 +407,7 @@ TEST_CASE("coordNumConstraint - coordination number held at 2 after 2000 steps",
 TEST_CASE("removes - RemoveGenerator stages, commits, and rolls back correctly",
           "[example_removes]") {
   auto col = std::make_shared<AtomsCollector>();
-  MoveGenerator gen = RemoveGenerator{col};
+  MoveGenerator gen = RemoveGenerator{col.get()};
 
   coords_t c(6, 3);
   c.setZero();

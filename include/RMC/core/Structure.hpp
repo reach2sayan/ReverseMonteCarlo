@@ -3,7 +3,7 @@
 #include <RMC/core/Types.hpp>
 #include <string>
 #include <string_view>
-#include <unordered_map>
+#include <boost/container/flat_map.hpp>
 #include <vector>
 
 namespace RMC {
@@ -39,7 +39,7 @@ struct AtomicStructure {
   [[nodiscard]] FORCE_INLINE double
   distance(std::size_t i, std::size_t j,
            const BoundaryConditions &bc) const noexcept {
-    return bc_min_image(bc, coordinates.row(j) - coordinates.row(i)).norm();
+    return bc.min_image(coordinates.row(j) - coordinates.row(i)).norm();
   }
 
 private:
@@ -48,7 +48,7 @@ private:
 
   std::vector<int> snapshot_atomic_numbers_;
   // code (atomic number / occupation index) → element symbol, built once.
-  std::unordered_map<int, std::string> code_to_symbol_;
+  boost::container::flat_map<int, std::string> code_to_symbol_;
   bool has_species_snapshot_{false};
 };
 

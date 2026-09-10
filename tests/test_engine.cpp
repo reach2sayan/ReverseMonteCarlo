@@ -1,6 +1,6 @@
 #include <RMC/Engine.hpp>
 #include <RMC/Ensemble.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/selectors/OrderedSelector.hpp>
 #include <catch2/catch_test_macros.hpp>

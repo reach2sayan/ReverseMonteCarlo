@@ -1,16 +1,16 @@
 #pragma once
-#include <RMC/sampling/Sampler.hpp>
+#include <cstdint>
 
 namespace RMC {
 
 // Zero-temperature quench: accept a move iff it does not raise the total error
 // beyond `tolerance` (default 0 → strict downhill).
-class GreedySampler : public SamplerBase<GreedySampler> {
+class GreedySampler {
 public:
   constexpr explicit GreedySampler(double tolerance = 0.0) noexcept
       : tolerance_(tolerance) {}
-  [[nodiscard]] constexpr bool accept(Sampler::Token, double e_before,
-                                      double e_after, std::uint64_t /*step*/,
+  [[nodiscard]] constexpr bool accept(double e_before, double e_after,
+                                      std::uint64_t /*step*/,
                                       double /*u01*/) const noexcept {
     return e_after <= e_before + tolerance_;
   }

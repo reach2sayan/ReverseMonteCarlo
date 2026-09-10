@@ -1,9 +1,7 @@
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/constraints/ConstraintCollection.hpp>
 #include <RMC/constraints/CoordinationConstraint.hpp>
-#include <RMC/constraints/DihedralAngleConstraint.hpp>
 #include <RMC/constraints/DistanceConstraint.hpp>
 #include <RMC/constraints/PairCorrelationConstraint.hpp>
 #include <RMC/constraints/PairDistributionConstraint.hpp>

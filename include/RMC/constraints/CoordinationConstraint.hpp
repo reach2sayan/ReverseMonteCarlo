@@ -38,20 +38,20 @@ public:
     return "CoordinationConstraint";
   }
   [[nodiscard]] static constexpr double
-  computation_cost(Constraint::Token) noexcept {
+  computation_cost() noexcept {
     return 10.0;
   }
 
   // Override ConstraintBase defaults so each step is O(N) not O(N²).
-  void compute_before_move(Constraint::Token, const coords_t &coords,
+  void compute_before_move(const coords_t &coords,
                            std::span<const std::size_t> moved);
 
-  void compute_after_move(Constraint::Token, const coords_t &coords,
+  void compute_after_move(const coords_t &coords,
                           std::span<const std::size_t> moved);
 
-  void accept(Constraint::Token tok) noexcept { ConstraintBase::accept(tok); }
+  void accept() noexcept { ConstraintBase::accept(); }
 
-  void reject(Constraint::Token tok) noexcept;
+  void reject() noexcept;
 
   // Fallback full-recompute; used by tests that call compute_error directly.
   [[nodiscard]] double compute_error(const coords_t &coords,
@@ -82,8 +82,5 @@ private:
                           std::span<const std::size_t> moved) const noexcept;
   double error_from_cn() const noexcept;
 };
-
-static_assert(CConstraint<CoordinationConstraint>,
-              "CoordinationConstraint must satisfy the CConstraint concept");
 
 } // namespace RMC

@@ -2,6 +2,7 @@
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/IncrementalHistogram.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
+#include <RMC/core/SpeciesIndex.hpp>
 #include <RMC/core/Types.hpp>
 #include <boost/assert.hpp>
 #include <boost/container/flat_map.hpp>
@@ -15,15 +16,6 @@
 #include <vector>
 
 namespace RMC {
-
-// Canonical element-pair key by string (used at init time only).
-struct PairElemKey {
-  std::string a, b;
-  PairElemKey(std::string x, std::string y)
-      : a(x < y ? std::move(x) : std::move(y)),
-        b(x < y ? std::move(y) : std::move(x)) {}
-  auto operator<=>(const PairElemKey &) const = default;
-};
 
 // Dense element-pair weight table for O(1) hot-path lookup.
 struct PairWeightMatrix {
@@ -61,6 +53,16 @@ FORCE_INLINE auto gaussian_shape_fn(double sigma) {
       [s = sigma](double r) -> double { return std::exp(-(r * r) / (s * s)); };
 }
 
+// Per-bin ideal-gas shell volumes (4π/3)(r_hi³ − r_lo³) of a uniform radial
+// grid starting at r_min.
+[[nodiscard]] inline vec_t shell_volumes(double r_min, double bin_width,
+                                         int n_bins) {
+  const auto r_lo =
+      r_min + Eigen::ArrayXd::LinSpaced(n_bins, 0, n_bins - 1) * bin_width;
+  return (4.0 * std::numbers::pi / 3.0) *
+         ((r_lo + bin_width).cube() - r_lo.cube());
+}
+
 // Accumulate a raw pair-count histogram into `hist`; each pair (i<j) adds 2*w to
 // hist[bin]. If molecule_ids non-empty and exclude_intra, same-molecule pairs skipped.
 void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
@@ -75,12 +77,19 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
 // Accumulate only pairs involving at least one atom from `moved` (O(K·N)
 // incremental update); adds into `hist` (caller zeroes). A moved-moved pair (k,j)
 // is counted once, when k precedes j in the moved array.
+// Reused buffers of accumulate_moved_pairs, one per constraint. A null
+// `scratch` makes the call use temporary buffers.
+struct PairScratch {
+  std::vector<std::size_t> moved_pos; // atom → its index in `moved` (or npos)
+  Eigen::ArrayXd X, Y, Z, d2;         // SoA coordinates, squared distances
+  Eigen::Matrix3Xd delta, frac;       // minimum-image workspace
+};
 void accumulate_moved_pairs(
     vec_t &hist, const coords_t &coords, const BoundaryConditions *bc,
     const std::vector<uint8_t> &elem_id, const PairWeightMatrix &weights,
     double r_min, double r_max, int n_bins, std::span<const std::size_t> moved,
     std::span<const std::size_t> molecule_ids = {}, bool exclude_intra = false,
-    const AtomsCollector *collector = nullptr);
+    const AtomsCollector *collector = nullptr, PairScratch *scratch = nullptr);
 
 class PairConstraintBase {
 protected:
@@ -101,6 +110,9 @@ protected:
 
 public:
   void set_experimental_data(const mat_t &data);
+  // Uniform grid of n bin centres from r_first in steps of dr, with a zero
+  // target (for a PDF used only as a G(r) source, e.g. by S(Q)/F(Q)).
+  void set_grid(double r_first, double dr, int n);
   void set_weight(const std::string &el1, const std::string &el2, double w) {
     weights_.insert_or_assign(PairElemKey{el1, el2}, w); // = w;
   }
@@ -116,6 +128,7 @@ public:
   // Shape function: f(r) multiplied into the computed G(r) before chi² eval
   void set_shape_function(std::function<double(double)> fn) {
     shape_fn_ = std::move(fn);
+    shape_factors_.resize(0);
   }
 
   void set_n_frames(std::size_t n);
@@ -137,7 +150,9 @@ public:
 
 protected:
   bool initialised_{false}; // guards initialise() against repeat work
-  std::optional<std::function<double(double)>> shape_fn_;
+  std::function<double(double)> shape_fn_;
+  mutable vec_t shape_factors_; // shape_fn_ at the bin centres, built on first use
+  mutable PairScratch scratch_;
 
   // Single-/multi-frame incremental histogram engine (shared with angular constraint).
   mutable IncrementalHistogram hist_;
@@ -161,6 +176,7 @@ public:
   using PairConstraintBase::set_elements;
   using PairConstraintBase::set_exclude_intra;
   using PairConstraintBase::set_experimental_data;
+  using PairConstraintBase::set_grid;
   using PairConstraintBase::set_molecule_ids;
   using PairConstraintBase::set_number_density;
   using PairConstraintBase::set_weight;
@@ -178,26 +194,26 @@ public:
   }
 
   [[nodiscard]] static constexpr double
-  computation_cost(Constraint::Token) noexcept {
+  computation_cost() noexcept {
     return 1e6;
   }
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const;
 
-  // Token-gated wrappers for CConstraint compliance (multi-frame).
-  void set_n_frames(Constraint::Token, std::size_t n) {
+  // Multi-frame hooks of the constraint interface.
+  void set_n_frames(std::size_t n) {
     PairConstraintBase::set_n_frames(n);
   }
-  void set_active_frame(Constraint::Token, std::size_t k) noexcept {
+  void set_active_frame(std::size_t k) noexcept {
     PairConstraintBase::set_active_frame_idx(k);
   }
-  // Token-gated initialise: routes the engine's safety-net sweep to the real setup.
-  void initialise(Constraint::Token) { PairConstraintBase::initialise(); }
+  // Routes the engine's safety-net initialise sweep to the real setup.
+  void initialise() { PairConstraintBase::initialise(); }
 
   // Restore the active frame's histogram on rejection.
-  void reject(Constraint::Token tok) noexcept {
-    SingularConstraintBase<PairFunctionConstraint<Mode>>::reject(tok);
+  void reject() noexcept {
+    SingularConstraintBase<PairFunctionConstraint<Mode>>::reject();
     PairConstraintBase::rollback_frame();
   }
 };
@@ -219,9 +235,8 @@ double PairFunctionConstraint<Mode>::compute_error(
       [&](vec_t &delta, std::span<const std::size_t> mv) {
         accumulate_moved_pairs(delta, coords, bc_, elem_id_, weight_table_,
                                r_min_, r_max_, n_bins_, mv, molecule_ids_,
-                               exclude_intra_, this->collector_);
-      },
-      [](std::span<const std::size_t>) {}, [](std::span<const std::size_t>) {});
+                               exclude_intra_, this->collector_, &scratch_);
+      });
 
   // Normalise raw counts to G(r) / PCF.
   if constexpr (Mode == PairNorm::PDF) {
@@ -235,14 +250,14 @@ double PairFunctionConstraint<Mode>::compute_error(
     computed_.array() -= 1.0;
   }
 
-  // Apply shape function (nanoparticle envelope), if set.
+  // Apply the shape function (nanoparticle envelope), cached per bin centre.
   if (shape_fn_) {
-    const auto &fn = *shape_fn_;
-    assert(computed_.size() == n_bins_);
-    for (auto &&[i, computed_val] :
-         computed_ | std::views::enumerate) { // int i = 0; i < n_bins_; ++i) {
-      computed_val *= std::invoke(fn, r_min_ + (i + 0.5) * bin_width_);
+    if (shape_factors_.size() != n_bins_) {
+      shape_factors_ = vec_t::NullaryExpr(n_bins_, [&](Eigen::Index i) {
+        return shape_fn_(r_min_ + (static_cast<double>(i) + 0.5) * bin_width_);
+      });
     }
+    computed_.array() *= shape_factors_.array();
   }
 
   const double denom = computed_.squaredNorm();

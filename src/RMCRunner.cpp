@@ -10,151 +10,108 @@
 #include <RMC/io/DataReader.hpp>
 #include <RMC/io/LammpsReader.hpp>
 #include <RMC/io/PdbReader.hpp>
-#include <RMC/io/StructFormat.hpp>
 #include <RMC/io/VaspReader.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
-#include <boost/hof/lift.hpp>
-#include <boost/hof/match.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/describe/enumerators.hpp>
 #include <boost/leaf.hpp>
+#include <boost/mp11/algorithm.hpp>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <cmath>
+#include <array>
 #include <filesystem>
-#include <functional>
-#include <iomanip>
 #include <iostream>
-#include <iterator>
-#include <memory>
-#include <optional>
+#include <print>
 #include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace po = boost::program_options;
 namespace leaf = boost::leaf;
 
 namespace RMC {
+
+// Program options reads a MoveGenKind by enumerator name, case-insensitively
+// ("langevin"). Found by ADL, so it lives in RMC, not the anonymous namespace.
+std::istream &operator>>(std::istream &is, MoveGenKind &kind) {
+  std::string name;
+  is >> name;
+  bool found = false;
+  boost::mp11::mp_for_each<boost::describe::describe_enumerators<MoveGenKind>>(
+      [&](auto e) {
+        if (boost::algorithm::iequals(name, e.name)) {
+          kind = e.value;
+          found = true;
+        }
+      });
+  if (!found) {
+    is.setstate(std::ios::failbit);
+  }
+  return is;
+}
+
 namespace {
 
-// Per-format input descriptors, fused into a variant for std::visit dispatch.
-struct PdbInput {
-  std::string path;
-};
-struct LammpsInput {
-  std::string path;
-  std::vector<std::string> types; // optional 'Zr Cu Ag' type→element legend
-};
-struct VaspInput {
-  std::string path;
-};
-using Input = std::variant<PdbInput, LammpsInput, VaspInput>;
+// The input-structure options: whichever one is supplied fixes the reader.
+constexpr std::array<std::pair<std::string RMCConfig::*, io::StructFormat>, 3>
+    kInputs{{
+        {&RMCConfig::pdb_path, io::StructFormat::Pdb},
+        {&RMCConfig::lammps_path, io::StructFormat::Lammps},
+        {&RMCConfig::vasp_path, io::StructFormat::Vasp},
+    }};
 
-// Resolve the one input the config supplies into a typed Input.
-Result<Input> select_input(const RMCConfig &cfg) {
-  std::optional<Input> chosen;
-  int given = 0;
-  if (!cfg.pdb_path.empty()) {
-    ++given;
-    chosen = PdbInput{cfg.pdb_path};
-  }
-  if (!cfg.lammps_path.empty()) {
-    ++given;
-    chosen = LammpsInput{cfg.lammps_path, cfg.lammps_types};
-  }
-  if (!cfg.vasp_path.empty()) {
-    ++given;
-    chosen = VaspInput{cfg.vasp_path};
-  }
-  if (given != 1) {
-    return leaf::new_error(std::string{
-        "Provide exactly one input structure (pdb, lammps or vasp)"});
-  }
-  return std::move(*chosen);
-}
-
-Result<LoadedStructure> load_pdb(const PdbInput &in) {
-  BOOST_LEAF_AUTO(ps, io::read_pdb(in.path));
-  LoadedStructure out;
-  out.structure = std::move(ps);
-  spdlog::info("Loaded {} atoms", out.structure.size());
-  return out;
-}
-
-Result<LoadedStructure> load_lammps(const LammpsInput &in) {
-  BOOST_LEAF_AUTO(data, io::read_lammps_data(in.path, in.types));
-  LoadedStructure out;
-  out.structure = std::move(data.structure);
-  // A LAMMPS data file carries its own cell; --box may override.
-  out.bc = data.periodic_bc();
-  spdlog::info("Loaded {} atoms from LAMMPS data; box {} x {} x {}",
-               out.structure.size(), data.box(0, 0), data.box(1, 1),
-               data.box(2, 2));
-  return out;
-}
-
-Result<LoadedStructure> load_vasp(const VaspInput &in) {
-  BOOST_LEAF_AUTO(data, io::read_vasp(in.path));
-  LoadedStructure out;
-  out.structure = std::move(data.structure);
-  // A POSCAR carries its own cell; --box may override.
-  out.bc = data.periodic_bc();
-  spdlog::info("Loaded {} atoms from VASP POSCAR; box {} x {} x {}",
-               out.structure.size(), data.box(0, 0), data.box(1, 1),
-               data.box(2, 2));
-  return out;
+// Split a whitespace-separated string into tokens of type T (e.g. the
+// "Zr Cu Ag" element legends and "50 50" count lists from the CLI).
+template <typename T> std::vector<T> parse_tokens(const std::string &text) {
+  std::istringstream is(text);
+  return std::ranges::istream_view<T>(is) | std::ranges::to<std::vector>();
 }
 
 // --box overrides whatever cell the input implied (incl. the LAMMPS/VASP cell).
-void apply_box_override(const RMCConfig &cfg, BoundaryConditions &bc) {
-  if (!cfg.box_override) {
-    return;
+Result<void> apply_box_override(const std::string &box, BoundaryConditions &bc) {
+  if (box.empty()) {
+    return {};
   }
-  if (*cfg.box_override == "inf") {
+  if (box == "inf") {
     bc = InfiniteBC(1.0);
     spdlog::info("Box: infinite (non-periodic)");
-    return;
+    return {};
   }
-  std::istringstream ss(*cfg.box_override);
-  double a, b, c;
-  ss >> a >> b >> c;
-  mat3_t box = vec3_t(a, b, c).asDiagonal();
-  bc = PeriodicBC(box);
-  spdlog::info("Periodic box: {} x {} x {}", a, b, c);
+  const auto abc = parse_tokens<double>(box);
+  if (abc.size() != 3) {
+    return leaf::new_error(std::string{"--box expects 'a b c' or 'inf'"});
+  }
+  const mat3_t cell = vec3_t(abc[0], abc[1], abc[2]).asDiagonal();
+  bc = PeriodicBC(cell);
+  spdlog::info("Periodic box: {} x {} x {}", abc[0], abc[1], abc[2]);
+  return {};
 }
 
 // One experimental target: label, config field naming its file, reader, and
 // destination field. S(Q)/G(r) are two-column; ADF is multi-column.
 struct ExperimentalTarget {
-  const char *label;
-  std::optional<std::string> RMCConfig::*path;
-  std::function<Result<mat_t>(const std::string &)> read;
+  std::string_view label;
+  std::string RMCConfig::*path;
+  Result<mat_t> (*read)(const std::filesystem::path &);
   std::optional<mat_t> ExperimentalData::*field;
 };
 
 // The experimental-target table — the single place to register a new target.
-std::vector<ExperimentalTarget> experimental_targets() {
-  const auto two_column = [](const std::string &p) {
-    return io::read_xy_data(p);
-  };
-  const auto multi_column = [](const std::string &p) {
-    return io::read_columns(p);
-  };
-  return {
-      {"PairDistribution", &RMCConfig::pdf_path, two_column,
-       &ExperimentalData::pdf},
-      {"StructureFactor", &RMCConfig::sq_path, two_column, &ExperimentalData::sq},
-      {"AngularDistribution", &RMCConfig::adf_path, multi_column,
-       &ExperimentalData::adf},
-  };
-}
+constexpr std::array<ExperimentalTarget, 3> kExperimentalTargets{{
+    {"PairDistribution", &RMCConfig::pdf_path, &io::read_xy_data,
+     &ExperimentalData::pdf},
+    {"StructureFactor", &RMCConfig::sq_path, &io::read_xy_data,
+     &ExperimentalData::sq},
+    {"AngularDistribution", &RMCConfig::adf_path, &io::read_columns,
+     &ExperimentalData::adf},
+}};
 
 template <CConstraint Constraint, typename Configure>
 void attach_constraint(Engine &engine, const mat_t &experimental,
@@ -170,28 +127,29 @@ void attach_constraint(Engine &engine, const mat_t &experimental,
 } // namespace
 
 Result<LoadedStructure> load_structure(const RMCConfig &cfg) {
-  auto pdb_loader = [](const PdbInput &in) { return load_pdb(in); };
-  auto lammps_loader = [](const LammpsInput &in) { return load_lammps(in); };
-  auto vasp_loader = [](const VaspInput &in) { return load_vasp(in); };
-  BOOST_LEAF_AUTO(input, select_input(cfg));
-  BOOST_LEAF_AUTO(
-      loaded,
-      std::visit(boost::hof::match(pdb_loader, lammps_loader, vasp_loader),
-                 input));
-  apply_box_override(cfg, loaded.bc);
+  auto given = kInputs | std::views::filter([&](const auto &in) {
+                 return !(cfg.*in.first).empty();
+               });
+  if (std::ranges::distance(given) != 1) {
+    return leaf::new_error(std::string{
+        "Provide exactly one input structure (pdb, lammps or vasp)"});
+  }
+  const auto &[path, fmt] = *given.begin();
+  BOOST_LEAF_AUTO(loaded, io::read_structure(cfg.*path, fmt, InfiniteBC(1.0),
+                                             cfg.lammps_types));
+  spdlog::info("Loaded {} atoms from {}", loaded.structure.size(), cfg.*path);
+  BOOST_LEAF_CHECK(apply_box_override(cfg.box_override, loaded.bc));
   return loaded;
 }
 
 Result<ExperimentalData> load_experimental_data(const RMCConfig &cfg) {
   ExperimentalData d;
-  for (const ExperimentalTarget &t : experimental_targets()) {
-    const std::optional<std::string> &path = cfg.*(t.path);
-    if (!path) {
-      continue;
+  for (const ExperimentalTarget &t : kExperimentalTargets) {
+    if (const std::string &path = cfg.*t.path; !path.empty()) {
+      BOOST_LEAF_AUTO(x, t.read(path));
+      d.*t.field = std::move(x);
+      spdlog::info("Loaded {} data", t.label);
     }
-    BOOST_LEAF_AUTO(x, t.read(*path));
-    (d.*t.field) = std::move(x);
-    spdlog::info("Loaded {} data", t.label);
   }
   return d;
 }
@@ -246,16 +204,8 @@ void apply_move_generator(Engine &engine, const RMCConfig &cfg) {
 }
 
 mat3_t periodic_box_or_zero(const BoundaryConditions &bc) {
-  mat3_t out = mat3_t::Zero();
-  if (const auto *p = std::get_if<PeriodicBC>(&bc)) {
-    out = p->box();
-  }
-  return out;
+  return bc.periodic() ? bc.box() : mat3_t::Zero().eval();
 }
-
-// =====================================================================
-// Command-line driver (RMC_run).
-// =====================================================================
 
 // Write a structure, picking the format from the output path's extension
 // (.vasp/.poscar → VASP, .lammps/.lmp/.data → LAMMPS, else PDB).
@@ -285,81 +235,45 @@ Result<void> write_structure_by_ext(const AtomicStructure &s, const mat3_t &box,
   return io::write_pdb(s, path);
 }
 
+int run_cli(int argc, char **argv, const po::options_description &options,
+            const std::function<int(const po::variables_map &)> &body) {
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, options), vm);
+    if (vm.count("help")) {
+      std::cout << options << "\n";
+      return 0;
+    }
+    po::notify(vm);
+  } catch (const po::error &e) {
+    std::cerr << "Error: " << e.what() << "\n" << options << "\n";
+    return 1;
+  }
+  return body(vm);
+}
+
+// =====================================================================
+// Command-line driver (RMC_run).
+// =====================================================================
+
 namespace {
 
-// Split a whitespace-separated string into tokens of type T (e.g. the
-// "Zr Cu Ag" element legends and "50 50" count lists from the CLI).
-template <typename T> std::vector<T> parse_tokens(const std::string &text) {
-  std::vector<T> out;
-  std::istringstream is(text);
-  std::ranges::copy(std::ranges::istream_view<T>(is), std::back_inserter(out));
-  return out;
-}
-
 void configure_logging(bool verbose) {
-  // One thread-safe (_mt) colour sink as the default logger (parallel replicas
-  // share it); static guard registers the named logger exactly once.
-  static const std::shared_ptr<spdlog::logger> logger = [] {
-    auto l = spdlog::stdout_color_mt("rmc");
-    spdlog::set_default_logger(l);
+  // One thread-safe (_mt) colour sink as the default logger, shared by
+  // parallel replicas; registered once per process.
+  if (!spdlog::get("rmc")) {
+    spdlog::set_default_logger(spdlog::stdout_color_mt("rmc"));
     spdlog::set_pattern("[%^%l%$] %v");
-    return l;
-  }();
+  }
   spdlog::set_level(verbose ? spdlog::level::debug : spdlog::level::info);
-}
-
-// Map the parsed command line onto RMCConfig. Knobs not exposed by the CLI
-// (group amps, log_every) keep their RMCConfig defaults.
-RMCConfig sim_config_from_vm(const po::variables_map &vm) {
-  RMCConfig cfg;
-  if (vm.count("pdb")) {
-    cfg.pdb_path = vm["pdb"].as<std::string>();
-  }
-  if (vm.count("lammps")) {
-    cfg.lammps_path = vm["lammps"].as<std::string>();
-  }
-  if (vm.count("vasp")) {
-    cfg.vasp_path = vm["vasp"].as<std::string>();
-  }
-  if (vm.count("types")) {
-    cfg.lammps_types = parse_tokens<std::string>(vm["types"].as<std::string>());
-  }
-  if (vm.count("box")) {
-    cfg.box_override = vm["box"].as<std::string>();
-  }
-  if (vm.count("pdf")) {
-    cfg.pdf_path = vm["pdf"].as<std::string>();
-  }
-  if (vm.count("sq")) {
-    cfg.sq_path = vm["sq"].as<std::string>();
-  }
-  if (vm.count("adf")) {
-    cfg.adf_path = vm["adf"].as<std::string>();
-  }
-  if (vm.count("checkpoint")) {
-    cfg.checkpoint_path = vm["checkpoint"].as<std::string>();
-  }
-  cfg.rho0 = vm["rho0"].as<double>();
-  cfg.adf_cutoff = vm["adf-cutoff"].as<double>();
-  cfg.adf_smooth = vm["adf-smooth"].as<int>();
-  cfg.steps = vm["steps"].as<std::uint64_t>();
-  cfg.seed = vm["seed"].as<std::uint32_t>();
-  cfg.use_smart = vm["smart"].as<bool>();
-  const std::string mg = vm["move-gen"].as<std::string>();
-  cfg.move_gen = mg == "langevin"  ? MoveGenKind::Langevin
-                 : mg == "leapfrog" ? MoveGenKind::Leapfrog
-                                    : MoveGenKind::Random;
-  cfg.move_step = vm["step"].as<double>();
-  cfg.out_path = vm["out"].as<std::string>();
-  return cfg;
 }
 
 // State threaded through every command. The structure is loaded lazily on first
 // use (and cached), so structure-free commands never read one.
 class RMCContext {
 public:
-  explicit RMCContext(const po::variables_map &vm)
-      : vm_(vm), cfg_(sim_config_from_vm(vm)) {}
+  RMCContext(const po::variables_map &vm, const RMCConfig &cfg)
+      : vm_(vm), cfg_(cfg) {}
   const po::variables_map &options() const { return vm_; }
   const RMCConfig &config() const { return cfg_; }
   // Load-on-first-use; the pointer stays valid for the RMCContext's lifetime.
@@ -373,31 +287,25 @@ public:
 
 private:
   const po::variables_map &vm_;
-  RMCConfig cfg_;
+  const RMCConfig &cfg_;
   std::optional<LoadedStructure> loaded_;
-};
-
-struct RMCCommand {
-  std::string_view name;
-  std::function<bool(const po::variables_map &)> selected;
-  std::function<Result<int>(RMCContext &)> run;
 };
 
 // --gen-random: build a random amorphous structure, write it to --out, exit.
 Result<int> cmd_gen_random(RMCContext &ctx) {
   const auto &vm = ctx.options();
+  const RMCConfig &cfg = ctx.config();
   if (!vm.count("elements") || !vm.count("counts")) {
     return leaf::new_error(
         std::string{"--gen-random requires --elements and --counts"});
   }
   const auto els = parse_tokens<std::string>(vm["elements"].as<std::string>());
   const auto cnts = parse_tokens<std::size_t>(vm["counts"].as<std::string>());
-  BOOST_LEAF_AUTO(gen,
-                  make_random_amorphous(els, cnts, vm["spacing"].as<double>(),
-                                        vm["seed"].as<std::uint32_t>()));
-  const std::string out = vm["out"].as<std::string>();
-  BOOST_LEAF_CHECK(write_structure_by_ext(gen.structure, gen.box, out));
-  spdlog::info("Generated {} atoms; wrote {}", gen.structure.size(), out);
+  BOOST_LEAF_AUTO(gen, make_random_amorphous(
+                           els, cnts, vm["spacing"].as<double>(), cfg.seed));
+  BOOST_LEAF_CHECK(write_structure_by_ext(gen.structure, gen.box, cfg.out_path));
+  spdlog::info("Generated {} atoms; wrote {}", gen.structure.size(),
+               cfg.out_path);
   return 0;
 }
 
@@ -405,16 +313,15 @@ Result<int> cmd_gen_random(RMCContext &ctx) {
 Result<int> cmd_compute_gr(RMCContext &ctx) {
   const auto &vm = ctx.options();
   BOOST_LEAF_AUTO(in, ctx.structure());
-  const AtomicStructure &s = in->structure;
-  const BoundaryConditions &bc = in->bc;
   analysis::GrParams gp;
   gp.r_min = vm["rmin"].as<double>();
   gp.r_max = vm["rmax"].as<double>();
   gp.n_bins = static_cast<int>(vm["nbins"].as<std::size_t>());
-  BOOST_LEAF_AUTO(g, analysis::compute_gr(s.coordinates, bc, s.elements, gp));
-  BOOST_LEAF_CHECK(analysis::write_gr(g, vm["gr-out"].as<std::string>()));
-  spdlog::info("Wrote g(r) ({} partials) to {}", g.partials.size(),
-               vm["gr-out"].as<std::string>());
+  const auto &s = in->structure;
+  BOOST_LEAF_AUTO(g, analysis::compute_gr(s.coordinates, in->bc, s.elements, gp));
+  const auto &out = vm["gr-out"].as<std::string>();
+  BOOST_LEAF_CHECK(analysis::write_gr(g, out));
+  spdlog::info("Wrote g(r) ({} partials) to {}", g.partials.size(), out);
   return 0;
 }
 
@@ -422,63 +329,54 @@ Result<int> cmd_compute_gr(RMCContext &ctx) {
 Result<int> cmd_compute_adf(RMCContext &ctx) {
   const auto &vm = ctx.options();
   BOOST_LEAF_AUTO(in, ctx.structure());
-  const AtomicStructure &s = in->structure;
-  const BoundaryConditions &bc = in->bc;
   analysis::AdfParams ap;
-  ap.max_dis = vm["adf-cutoff"].as<double>();
+  ap.max_dis = ctx.config().adf_cutoff;
   ap.n_bins = static_cast<int>(vm["nbins"].as<std::size_t>());
-  ap.smooth_range = vm["adf-smooth"].as<int>();
-  BOOST_LEAF_AUTO(a, analysis::compute_adf(s.coordinates, bc, s.elements, ap));
-  BOOST_LEAF_CHECK(analysis::write_adf(a, vm["adf-out"].as<std::string>()));
-  spdlog::info("Wrote ADF ({} triplets) to {}", a.partials.size(),
-               vm["adf-out"].as<std::string>());
+  ap.smooth_range = ctx.config().adf_smooth;
+  const auto &s = in->structure;
+  BOOST_LEAF_AUTO(a,
+                  analysis::compute_adf(s.coordinates, in->bc, s.elements, ap));
+  const auto &out = vm["adf-out"].as<std::string>();
+  BOOST_LEAF_CHECK(analysis::write_adf(a, out));
+  spdlog::info("Wrote ADF ({} triplets) to {}", a.partials.size(), out);
   return 0;
+}
+
+double acceptance_pct(std::uint64_t accepted, std::uint64_t tried) {
+  return tried > 0 ? 100.0 * static_cast<double>(accepted) /
+                         static_cast<double>(tried)
+                   : 0.0;
 }
 
 // Periodic progress line for a single run.
 void log_progress(std::uint64_t step, std::uint64_t acc, std::uint64_t tried,
                   double chi2, const AtomicStructure &) {
-  double rate =
-      tried > 0 ? 100.0 * static_cast<double>(acc) / static_cast<double>(tried)
-                : 0.0;
-  spdlog::info("Step {}  acceptance={:.1f}%  chi2={}", step, rate, chi2);
+  spdlog::info("Step {}  acceptance={:.1f}%  chi2={}", step,
+               acceptance_pct(acc, tried), chi2);
 }
 
 // Run the refinement: an ensemble of replicas (best chi2 wins) when
-// --ensemble > 1, otherwise a single run with checkpoint + progress callback.
+// n_ensemble > 1, otherwise a single run with checkpoint + progress callback.
 template <typename Factory, typename Prepare>
-Engine run_refinement(const po::variables_map &vm, Factory &&make_engine,
-                      Prepare &&prepare, std::size_t n_ensemble,
-                      std::uint64_t n_steps) {
+Engine run_refinement(const RMCConfig &cfg, Factory &&make_engine,
+                      Prepare &&prepare, std::size_t n_ensemble) {
   if (n_ensemble > 1) {
     spdlog::info("Ensemble: running {} replicas in parallel", n_ensemble);
-    return run_ensemble(make_engine, n_ensemble, n_steps, /*tbb=*/0, prepare);
+    return run_ensemble(make_engine, n_ensemble, cfg.steps, /*tbb=*/0, prepare);
   }
   Engine e = make_engine(0);
   prepare(e); // bind gradient generators to e's final location, if requested
-  if (vm.count("checkpoint")) {
-    e.set_checkpoint(vm["checkpoint"].as<std::string>());
+  if (!cfg.checkpoint_path.empty()) {
+    e.set_checkpoint(cfg.checkpoint_path);
   }
-  e.set_step_callback(log_progress, 1000);
-  spdlog::info("Starting {} steps", n_steps);
-  e.run(n_steps);
+  e.set_step_callback(log_progress, cfg.log_every);
+  spdlog::info("Starting {} steps", cfg.steps);
+  e.run(cfg.steps);
   return e;
-}
-
-void print_summary(const Engine &engine) {
-  auto st = engine.stats();
-  std::cout << "Done. Accepted " << st.steps_accepted << " / " << st.steps_tried
-            << " moves (" << std::fixed << std::setprecision(1)
-            << (st.steps_tried > 0
-                    ? 100.0 * static_cast<double>(st.steps_accepted) /
-                          static_cast<double>(st.steps_tried)
-                    : 0.0)
-            << "%)  final chi2=" << st.last_total_err << "\n";
 }
 
 // Default command: refine the input structure against the experimental targets.
 Result<int> cmd_refine(RMCContext &ctx) {
-  const auto &vm = ctx.options();
   const RMCConfig &cfg = ctx.config();
   // Load structure + experimental data once; the ensemble factory reuses them.
   BOOST_LEAF_AUTO(in, ctx.structure());
@@ -487,147 +385,133 @@ Result<int> cmd_refine(RMCContext &ctx) {
   // Fresh engine per replica with a per-replica seed offset.
   auto make_engine = [&](std::size_t replica) {
     RMCConfig c = cfg;
-    c.seed = cfg.seed + static_cast<std::uint32_t>(replica);
+    c.seed += static_cast<std::uint32_t>(replica);
     return build_engine(*in, data, c);
   };
   // Applied in each engine's final location (gradient generators bind to
   // engine.constraints(), which the build/ensemble moves would invalidate).
   auto prepare = [&](Engine &e) { apply_move_generator(e, cfg); };
+  Engine engine = run_refinement(cfg, make_engine, prepare,
+                                 ctx.options()["ensemble"].as<std::size_t>());
 
-  const auto n_steps = cfg.steps;
-  const auto n_ensemble = vm["ensemble"].as<std::size_t>();
-  Engine engine =
-      run_refinement(vm, make_engine, prepare, n_ensemble, n_steps);
-
-  const mat3_t out_box = periodic_box_or_zero(in->bc);
-  BOOST_LEAF_CHECK(
-      write_structure_by_ext(engine.structure(), out_box, cfg.out_path));
+  BOOST_LEAF_CHECK(write_structure_by_ext(
+      engine.structure(), periodic_box_or_zero(in->bc), cfg.out_path));
   spdlog::info("Wrote refined structure to {}", cfg.out_path);
 
-  print_summary(engine);
+  const auto st = engine.stats();
+  std::println("Done. Accepted {} / {} moves ({:.1f}%)  final chi2={:.1f}",
+               st.steps_accepted, st.steps_tried,
+               acceptance_pct(st.steps_accepted, st.steps_tried),
+               st.last_total_err);
   return 0;
 }
 
-std::vector<RMCCommand> build_commands() {
-  const auto flag = [](const char *name) {
-    return [name](const po::variables_map &vm) { return vm[name].as<bool>(); };
-  };
-  return {
-      {"gen-random", flag("gen-random"), cmd_gen_random},
-      {"gr", flag("gr"), cmd_compute_gr},
-      {"adf-compute", flag("adf-compute"), cmd_compute_adf},
-      {"refine", [](const po::variables_map &) { return true; }, cmd_refine},
-  };
-}
+// Exit-early commands, each selected by the bool flag of the same name; refine
+// is the default.
+struct RMCCommand {
+  const char *flag;
+  Result<int> (*run)(RMCContext &);
+};
+constexpr std::array<RMCCommand, 3> kCommands{{
+    {"gen-random", cmd_gen_random},
+    {"gr", cmd_compute_gr},
+    {"adf-compute", cmd_compute_adf},
+}};
 
-Result<int> dispatch(const po::variables_map &vm) {
-  RMCContext ctx(vm);
-  const auto commands = build_commands();
+Result<int> dispatch(const po::variables_map &vm, const RMCConfig &cfg) {
+  RMCContext ctx(vm, cfg);
   const auto cmd = std::ranges::find_if(
-      commands, [&](const RMCCommand &c) { return c.selected(vm); });
-  if (cmd != commands.end()) {
-    spdlog::debug("Running command '{}'", cmd->name);
-    return cmd->run(ctx);
-  }
-  // Unreachable: the trailing "refine" command matches everything.
-  return leaf::new_error(std::string{"no command selected"});
+      kCommands, [&](const RMCCommand &c) { return vm[c.flag].as<bool>(); });
+  return cmd != kCommands.end() ? cmd->run(ctx) : cmd_refine(ctx);
 }
 
-// Build the command-line option schema.
-po::options_description make_options_description() {
+// Build the command-line option schema; config knobs bind straight into cfg.
+po::options_description make_options_description(RMCConfig &cfg) {
+  const auto types = [&cfg](const std::string &s) {
+    cfg.lammps_types = parse_tokens<std::string>(s);
+  };
   po::options_description desc(
       "RMC_run — Reverse Monte Carlo structural refinement");
-  desc.add_options()("help,h", "Show this help")(
-      "pdb,p", po::value<std::string>(), "Input PDB file")(
-      "lammps,l", po::value<std::string>(),
-      "Input LAMMPS data file (atom_style atomic); supplies the periodic box")(
-      "types,t", po::value<std::string>(),
-      "Element symbols for LAMMPS atom types, in order, e.g. 'Zr Cu Ag'")(
-      "pdf,d", po::value<std::string>(), "Experimental G(r) data file")(
-      "sq,q", po::value<std::string>(), "Experimental S(Q) data file")(
-      "steps,n", po::value<std::uint64_t>()->default_value(100000), "MC steps")(
-      "ensemble,e", po::value<std::size_t>()->default_value(1),
-      "Number of independent replicas to run in parallel; best chi2 wins")(
-      "rho0", po::value<double>()->default_value(0.1),
-      "Number density (atoms/Å³)")(
-      "seed", po::value<std::uint32_t>()->default_value(42), "RNG seed")(
-      "out,o", po::value<std::string>()->default_value("refined.pdb"),
-      "Output PDB")("checkpoint,c", po::value<std::string>(),
-                    "Checkpoint file path")(
-      "box", po::value<std::string>(),
-      "Box vectors: 'a b c' for orthogonal periodic or 'inf' for infinite")(
-      "smart", po::bool_switch()->default_value(false),
-      "Use smart adaptive selector")(
-      "move-gen", po::value<std::string>()->default_value("random"),
-      "Move proposer: 'random' (classic walk), 'langevin' (MALA) or 'leapfrog' "
-      "(HMC) — the gradient movers steer atoms along −∇χ² toward the target")(
-      "step", po::value<double>()->default_value(0.05),
-      "Gradient step ε (Å) for --move-gen langevin/leapfrog")(
-      "gr", po::bool_switch()->default_value(false),
-      "Compute g(r) (total + partials) from the input structure and exit; "
-      "no MC is run")("gr-out",
-                      po::value<std::string>()->default_value("gr.dat"),
-                      "Output path for g(r) (used with --gr)")(
-      "rmin", po::value<double>()->default_value(0.0),
-      "g(r) minimum radius (Å)")("rmax",
-                                 po::value<double>()->default_value(10.0),
-                                 "g(r) maximum radius (Å)")(
-      "nbins", po::value<std::size_t>()->default_value(200),
-      "g(r) / ADF number of bins")(
-      "vasp", po::value<std::string>(),
-      "Input VASP POSCAR/CONTCAR; supplies the periodic cell")(
-      "adf,a", po::value<std::string>(),
-      "Experimental ADF (bond-angle distribution) target file")(
-      "adf-cutoff", po::value<double>()->default_value(3.4),
-      "ADF bond cutoff (Å)")("adf-smooth", po::value<int>()->default_value(2),
-                             "ADF boxcar smoothing half-width (0 disables)")(
-      "adf-compute", po::bool_switch()->default_value(false),
-      "Compute the ADF (total + partials) from the input structure and exit; "
-      "no MC is run")("adf-out",
-                      po::value<std::string>()->default_value("adf.dat"),
-                      "Output path for the ADF (used with --adf-compute)")(
-      "gen-random", po::bool_switch()->default_value(false),
-      "Generate a random amorphous structure, write it to --out, and exit")(
-      "elements", po::value<std::string>(),
-      "Element symbols for --gen-random, e.g. 'Zr Cu'")(
-      "counts", po::value<std::string>(),
-      "Atom count per element for --gen-random, e.g. '50 50'")(
-      "spacing", po::value<double>()->default_value(3.0),
-      "Grid spacing (Å) for --gen-random")(
-      "verbose,v", po::bool_switch()->default_value(false), "Verbose logging");
+  // clang-format off
+  desc.add_options()
+    ("help,h", "Show this help")
+    ("pdb,p", po::value(&cfg.pdb_path), "Input PDB file")
+    ("lammps,l", po::value(&cfg.lammps_path),
+       "Input LAMMPS data file (atom_style atomic); supplies the periodic box")
+    ("types,t", po::value<std::string>()->notifier(types),
+       "Element symbols for LAMMPS atom types, in order, e.g. 'Zr Cu Ag'")
+    ("pdf,d", po::value(&cfg.pdf_path), "Experimental G(r) data file")
+    ("sq,q", po::value(&cfg.sq_path), "Experimental S(Q) data file")
+    ("steps,n", po::value(&cfg.steps)->default_value(cfg.steps), "MC steps")
+    ("ensemble,e", po::value<std::size_t>()->default_value(1),
+       "Number of independent replicas to run in parallel; best chi2 wins")
+    ("rho0", po::value(&cfg.rho0)->default_value(cfg.rho0),
+       "Number density (atoms/Å³)")
+    ("seed", po::value(&cfg.seed)->default_value(cfg.seed), "RNG seed")
+    ("out,o", po::value(&cfg.out_path)->default_value(cfg.out_path),
+       "Output PDB")
+    ("checkpoint,c", po::value(&cfg.checkpoint_path), "Checkpoint file path")
+    ("box", po::value(&cfg.box_override),
+       "Box vectors: 'a b c' for orthogonal periodic or 'inf' for infinite")
+    ("smart", po::bool_switch(&cfg.use_smart), "Use smart adaptive selector")
+    ("move-gen", po::value(&cfg.move_gen)->default_value(cfg.move_gen, "random"),
+       "Move proposer: 'random' (classic walk), 'langevin' (MALA) or 'leapfrog' "
+       "(HMC) — the gradient movers steer atoms along −∇χ² toward the target")
+    ("step", po::value(&cfg.move_step)->default_value(cfg.move_step),
+       "Gradient step ε (Å) for --move-gen langevin/leapfrog")
+    ("gr", po::bool_switch(),
+       "Compute g(r) (total + partials) from the input structure and exit; "
+       "no MC is run")
+    ("gr-out", po::value<std::string>()->default_value("gr.dat"),
+       "Output path for g(r) (used with --gr)")
+    ("rmin", po::value<double>()->default_value(0.0), "g(r) minimum radius (Å)")
+    ("rmax", po::value<double>()->default_value(10.0), "g(r) maximum radius (Å)")
+    ("nbins", po::value<std::size_t>()->default_value(200),
+       "g(r) / ADF number of bins")
+    ("vasp", po::value(&cfg.vasp_path),
+       "Input VASP POSCAR/CONTCAR; supplies the periodic cell")
+    ("adf,a", po::value(&cfg.adf_path),
+       "Experimental ADF (bond-angle distribution) target file")
+    ("adf-cutoff", po::value(&cfg.adf_cutoff)->default_value(cfg.adf_cutoff),
+       "ADF bond cutoff (Å)")
+    ("adf-smooth", po::value(&cfg.adf_smooth)->default_value(cfg.adf_smooth),
+       "ADF boxcar smoothing half-width (0 disables)")
+    ("adf-compute", po::bool_switch(),
+       "Compute the ADF (total + partials) from the input structure and exit; "
+       "no MC is run")
+    ("adf-out", po::value<std::string>()->default_value("adf.dat"),
+       "Output path for the ADF (used with --adf-compute)")
+    ("gen-random", po::bool_switch(),
+       "Generate a random amorphous structure, write it to --out, and exit")
+    ("elements", po::value<std::string>(),
+       "Element symbols for --gen-random, e.g. 'Zr Cu'")
+    ("counts", po::value<std::string>(),
+       "Atom count per element for --gen-random, e.g. '50 50'")
+    ("spacing", po::value<double>()->default_value(3.0),
+       "Grid spacing (Å) for --gen-random")
+    ("verbose,v", po::bool_switch(), "Verbose logging");
+  // clang-format on
   return desc;
 }
 
 } // namespace
 
-RMCRunner::RMCRunner() : options_(make_options_description()) {}
+RMCRunner::RMCRunner() : options_(make_options_description(cfg_)) {}
 
 int RMCRunner::run(int argc, char **argv) {
-  po::variables_map vm;
-  try {
-    po::store(po::parse_command_line(argc, argv, options_), vm);
-    if (vm.count("help")) {
-      std::cout << options_ << "\n";
-      return 0;
-    }
-    po::notify(vm);
-  } catch (const po::error &e) {
-    std::cerr << "Error: " << e.what() << "\n" << options_ << "\n";
-    return 1;
-  }
-
-  configure_logging(vm["verbose"].as<bool>());
-
-  return leaf::try_handle_all(
-      [&]() -> leaf::result<int> { return dispatch(vm); },
-      [](std::string const &msg) -> int {
-        std::cerr << "Error: " << msg << "\n";
-        return 1;
-      },
-      [](leaf::error_info const &unmatched) -> int {
-        std::cerr << "Unexpected error: " << unmatched << "\n";
-        return 1;
-      });
+  return run_cli(argc, argv, options_, [this](const po::variables_map &vm) {
+    configure_logging(vm["verbose"].as<bool>());
+    return leaf::try_handle_all(
+        [&]() -> leaf::result<int> { return dispatch(vm, cfg_); },
+        [](const std::string &msg) {
+          std::cerr << "Error: " << msg << "\n";
+          return 1;
+        },
+        [](const leaf::error_info &unmatched) {
+          std::cerr << "Unexpected error: " << unmatched << "\n";
+          return 1;
+        });
+  });
 }
 
 } // namespace RMC

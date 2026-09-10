@@ -1,205 +1,112 @@
 #pragma once
-#include <RMC/core/RngGenerator.hpp>
 #include <RMC/generators/MoveGenerator.hpp>
-#include <cmath>
+#include <optional>
 
 namespace RMC {
 
-// Translates all atoms in a group by the same random displacement vector.
-// Amplitude is drawn uniformly from [min_amp, max_amp] (Angstrom).
-// Direction is uniform on the unit sphere via the Marsaglia method.
+namespace detail {
+// Displacement of length `amp` from `from` towards `to`; nullopt when there.
+[[nodiscard]] inline std::optional<vec3_t>
+step_towards(const vec3_t &from, const vec3_t &to, double amp) {
+  const vec3_t d = to - from;
+  const double n = d.norm();
+  return n < 1e-12 ? std::nullopt : std::optional<vec3_t>{d * (amp / n)};
+}
+} // namespace detail
+
+// Translates the group by a [min, max] amplitude in a random direction.
 struct TranslationGenerator : MoveGeneratorBase<TranslationGenerator> {
-  double min_amp{0.0};
-  double max_amp{0.2};
-  mutable RngBuffer<> rng;
+  Amplitude amp;
+  Rng rng;
 
   TranslationGenerator() = default;
   TranslationGenerator(double mn, double mx, std::uint32_t seed = 42)
-      : min_amp(mn), max_amp(mx), rng(seed) {}
+      : amp{mn, mx}, rng(seed) {}
 
-  void generate(MoveGenerator::Token, coords_t &coords,
+  void generate(coords_t &coords,
                 std::span<const std::size_t> indices) {
-    double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    vec3_t delta = random_unit_vector() * amp;
-    coords(indices, Eigen::all).rowwise() += delta.transpose();
-  }
-
-private:
-  FORCE_INLINE vec3_t random_unit_vector() {
-    // Marsaglia (1972) uniform sphere sampling
-    vec3_t v(rng.normal(), rng.normal(), rng.normal());
-    double n = v.norm();
-    if (n < 1e-12) {
-      return vec3_t::UnitX();
-    }
-    return v / n;
+    const double a = amp.draw(rng);
+    translate(coords, indices, a * random_unit_vector(rng));
   }
 };
 
-// Translates along a fixed axis only.
+// Translates along a fixed axis by a signed amplitude.
 struct TranslationAlongAxisGenerator
     : MoveGeneratorBase<TranslationAlongAxisGenerator> {
-  vec3_t axis{1.0, 0.0, 0.0};
-  double min_amp{0.0};
-  double max_amp{0.2};
-  mutable RngBuffer<> rng;
+  vec3_t axis{vec3_t::UnitX()};
+  Amplitude amp;
+  Rng rng;
 
   TranslationAlongAxisGenerator() = default;
-  TranslationAlongAxisGenerator(vec3_t ax, double mn, double mx,
+  TranslationAlongAxisGenerator(const vec3_t &ax, double mn, double mx,
                                 std::uint32_t seed = 42)
-      : axis(ax.normalized()), min_amp(mn), max_amp(mx), rng(seed) {}
+      : axis(ax.normalized()), amp{mn, mx}, rng(seed) {}
 
-  void generate(MoveGenerator::Token, coords_t &coords,
+  void generate(coords_t &coords,
                 std::span<const std::size_t> indices) {
-    double magnitude =
-        (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    if (rng.uniform() < 0.5) {
-      magnitude = -magnitude;
-    }
-    vec3_t delta = axis * magnitude;
-    coords(indices, Eigen::all).rowwise() += delta.transpose();
+    translate(coords, indices, amp.signed_draw(rng) * axis);
   }
+};
+
+// Along one of the three Cartesian axes.
+struct TranslationAlongSymmetryAxisGenerator : TranslationAlongAxisGenerator {
+  TranslationAlongSymmetryAxisGenerator(SymmetryAxis ax, double mn, double mx,
+                                        std::uint32_t seed = 42)
+      : TranslationAlongAxisGenerator(unit(ax), mn, mx, seed) {}
 };
 
 // Translates towards a fixed centre point.
 struct TranslationTowardsCentreGenerator
     : MoveGeneratorBase<TranslationTowardsCentreGenerator> {
-  vec3_t centre{0.0, 0.0, 0.0};
-  double min_amp{0.0};
-  double max_amp{0.2};
-  mutable RngBuffer<> rng;
+  vec3_t centre{vec3_t::Zero()};
+  Amplitude amp;
+  Rng rng;
 
   TranslationTowardsCentreGenerator() = default;
-  TranslationTowardsCentreGenerator(vec3_t c, double mn, double mx,
+  TranslationTowardsCentreGenerator(const vec3_t &c, double mn, double mx,
                                     std::uint32_t seed = 42)
-      : centre(c), min_amp(mn), max_amp(mx), rng(seed) {}
+      : centre(c), amp{mn, mx}, rng(seed) {}
 
-  void generate(MoveGenerator::Token, coords_t &coords,
+  void generate(coords_t &coords,
                 std::span<const std::size_t> indices) {
-    double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    vec3_t gc = centroid(coords, indices);
-    vec3_t dir = (centre - gc);
-    double dist = dir.norm();
-    if (dist < 1e-12) {
-      return;
+    const double a = amp.draw(rng);
+    if (const auto d = detail::step_towards(centroid(coords, indices), centre, a)) {
+      translate(coords, indices, *d);
     }
-    vec3_t delta = (dir / dist) * amp;
-    coords(indices, Eigen::all).rowwise() += delta.transpose();
   }
 };
 
-// Translates toward the nearest point on an infinite axis (line through `point`
-// along `direction`).
+// Translates toward the nearest point on the line through `point` along
+// `direction`.
 struct TranslationTowardsAxisGenerator
     : MoveGeneratorBase<TranslationTowardsAxisGenerator> {
-  vec3_t point{0.0, 0.0, 0.0};
-  vec3_t direction{0.0, 0.0, 1.0};
-  double min_amp{0.0};
-  double max_amp{0.2};
-  mutable RngBuffer<> rng;
+  vec3_t point{vec3_t::Zero()};
+  vec3_t direction{vec3_t::UnitZ()};
+  Amplitude amp;
+  Rng rng;
 
   TranslationTowardsAxisGenerator() = default;
-  TranslationTowardsAxisGenerator(vec3_t pt, vec3_t dir, double mn, double mx,
-                                  std::uint32_t seed = 42)
-      : point(std::move(pt)), direction(dir.normalized()), min_amp(mn),
-        max_amp(mx), rng(seed) {}
+  TranslationTowardsAxisGenerator(const vec3_t &pt, const vec3_t &dir,
+                                  double mn, double mx, std::uint32_t seed = 42)
+      : point(pt), direction(dir.normalized()), amp{mn, mx}, rng(seed) {}
 
-  void generate(MoveGenerator::Token, coords_t &coords,
+  void generate(coords_t &coords,
                 std::span<const std::size_t> indices) {
-    double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    vec3_t gc = centroid(coords, indices);
-    vec3_t diff = gc - point;
-    vec3_t nearest = point + direction.dot(diff) * direction;
-    vec3_t to_axis = nearest - gc;
-    double dist = to_axis.norm();
-    if (dist < 1e-12) {
-      return;
+    const double a = amp.draw(rng);
+    const vec3_t gc = centroid(coords, indices);
+    const vec3_t nearest = point + direction.dot(gc - point) * direction;
+    if (const auto d = detail::step_towards(gc, nearest, a)) {
+      translate(coords, indices, *d);
     }
-    vec3_t delta = (to_axis / dist) * amp;
-    coords(indices, Eigen::all).rowwise() += delta.transpose();
   }
 };
 
-// Translates along one of the three Cartesian symmetry axes.
-struct TranslationAlongSymmetryAxisGenerator
-    : MoveGeneratorBase<TranslationAlongSymmetryAxisGenerator> {
-  SymmetryAxis axis{SymmetryAxis::Z};
-  double min_amp{0.0};
-  double max_amp{0.2};
-  mutable RngBuffer<> rng;
-
-  TranslationAlongSymmetryAxisGenerator() = default;
-  TranslationAlongSymmetryAxisGenerator(SymmetryAxis ax, double mn, double mx,
-                                        std::uint32_t seed = 42)
-      : axis(ax), min_amp(mn), max_amp(mx), rng(seed) {}
-
-  void generate(MoveGenerator::Token, coords_t &coords,
-                std::span<const std::size_t> indices) {
-    double magnitude =
-        (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    if (rng.uniform() < 0.5) {
-      magnitude = -magnitude;
-    }
-    vec3_t delta = vec3_t::Zero();
-    switch (axis) {
-    case SymmetryAxis::Z:
-      delta.z() = magnitude;
-      break;
-    case SymmetryAxis::X:
-      delta.x() = magnitude;
-      break;
-    case SymmetryAxis::Y:
-      delta.y() = magnitude;
-      break;
-    }
-    coords(indices, Eigen::all).rowwise() += delta.transpose();
-  }
-};
-
-// Translates toward the nearest point on a Cartesian symmetry axis through the
-// origin.
+// Towards a Cartesian axis through the origin.
 struct TranslationTowardsSymmetryAxisGenerator
-    : MoveGeneratorBase<TranslationTowardsSymmetryAxisGenerator> {
-  SymmetryAxis axis{SymmetryAxis::Z};
-  double min_amp{0.0};
-  double max_amp{0.2};
-  mutable RngBuffer<> rng;
-
-  TranslationTowardsSymmetryAxisGenerator() = default;
+    : TranslationTowardsAxisGenerator {
   TranslationTowardsSymmetryAxisGenerator(SymmetryAxis ax, double mn, double mx,
                                           std::uint32_t seed = 42)
-      : axis(ax), min_amp(mn), max_amp(mx), rng(seed) {}
-
-  void generate(MoveGenerator::Token, coords_t &coords,
-                std::span<const std::size_t> indices) {
-    double amp = (min_amp < max_amp) ? rng.uniform(min_amp, max_amp) : min_amp;
-    vec3_t gc = centroid(coords, indices);
-    // Nearest point on the symmetry axis: zero out the two perpendicular
-    // components.
-    vec3_t nearest = gc;
-    switch (axis) {
-    case SymmetryAxis::Z:
-      nearest.x() = 0.0;
-      nearest.y() = 0.0;
-      break;
-    case SymmetryAxis::X:
-      nearest.y() = 0.0;
-      nearest.z() = 0.0;
-      break;
-    case SymmetryAxis::Y:
-      nearest.x() = 0.0;
-      nearest.z() = 0.0;
-      break;
-    }
-
-    vec3_t to_axis = nearest - gc;
-    double dist = to_axis.norm();
-    if (dist < 1e-12) {
-      return;
-    }
-    vec3_t delta = (to_axis / dist) * amp;
-    coords(indices, Eigen::all).rowwise() += delta.transpose();
-  }
+      : TranslationTowardsAxisGenerator(vec3_t::Zero(), unit(ax), mn, mx, seed) {}
 };
 
 } // namespace RMC

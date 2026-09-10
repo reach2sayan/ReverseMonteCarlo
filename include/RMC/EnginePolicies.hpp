@@ -37,24 +37,14 @@ struct WithFeedback {
 };
 
 // --- Pending atom removal (RemoveGenerator) --------------------------------
+// Heap-stable so RemoveGenerators and constraints can hold a raw pointer that
+// survives the engine being moved.
 struct WithCollector {
-  std::shared_ptr<AtomsCollector> collector_{
-      std::make_shared<AtomsCollector>()};
+  std::unique_ptr<AtomsCollector> collector_{std::make_unique<AtomsCollector>()};
   void commit_or_rollback(bool accepted) {
-    if (accepted && !collector_->pending().empty()) {
-      collector_->commit_removal();
-    } else {
-      collector_->rollback_removal();
-    }
+    accepted ? collector_->commit_removal() : collector_->rollback_removal();
   }
-  [[nodiscard]] AtomsCollector &collector() noexcept { return *collector_; }
-  // Shared handle for binding a RemoveGenerator to this collector.
-  [[nodiscard]] std::shared_ptr<AtomsCollector>
-  shared_collector() const noexcept {
-    return collector_;
-  }
-  // Pointer the engine hands to the constraints so they can skip removed atoms.
-  [[nodiscard]] const AtomsCollector *collector_ptr() const noexcept {
+  [[nodiscard]] AtomsCollector *collector() const noexcept {
     return collector_.get();
   }
 };

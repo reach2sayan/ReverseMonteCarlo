@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <boost/container/static_vector.hpp>
 #include <ranges>
-#include <span>
 
 namespace RMC {
 
@@ -27,7 +27,7 @@ std::int32_t NeighborGrid::cell_index(const vec3_t &r) const noexcept {
 void NeighborGrid::build(const coords_t &coords, const BoundaryConditions *bc,
                          double cutoff, const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
-  const PeriodicBC *pbc = bc ? std::get_if<PeriodicBC>(bc) : nullptr;
+  const BoundaryConditions *pbc = bc && bc->periodic() ? bc : nullptr;
   if (pbc && cutoff > 0.0) {
     periodic_ = true;
     inv_box_ = pbc->inv_box();
@@ -113,19 +113,16 @@ void NeighborGrid::neighbors_of(std::size_t i, const coords_t &coords,
 
   // Per-axis cells to visit: for >=3 cells the wrapped +/-1 stencil gives 3
   // distinct cells; for 1-2 cells scan every cell (a +/-1 stencil would alias).
-  std::array<std::array<int, 3>, 3> visit;
-  std::array<std::span<const int>, 3> axes;
-  for (auto &&[a, vis] :
-       visit | std::views::enumerate) { // int a = 0; a < 3; ++a) {
-    int k = 0;
-    if (n_(a) >= 3) {
-      vis = {(ci(a) - 1 + n_(a)) % n_(a), ci(a), (ci(a) + 1) % n_(a)};
-      k = 3;
+  std::array<boost::container::static_vector<int, 3>, 3> axes;
+  for (auto &&[a, cells] : axes | std::views::enumerate) {
+    const int n = n_(a), c = ci(a);
+    if (n >= 3) {
+      cells = {(c + n - 1) % n, c, (c + 1) % n};
     } else {
-      std::ranges::copy(std::views::iota(0, n_(a)), vis.begin());
-      k = n_(a);
+      for (int k = 0; k < n; ++k) {
+        cells.push_back(k);
+      }
     }
-    axes[a] = std::span{vis.data(), static_cast<std::size_t>(k)};
   }
 
   const auto present = [&](std::uint32_t j) {
@@ -139,7 +136,7 @@ void NeighborGrid::neighbors_of(std::size_t i, const coords_t &coords,
     for (const std::uint32_t j : cell_atoms_[flat] | std::views::filter(present)) {
       vec3_t d = coords.row(static_cast<Eigen::Index>(j)).transpose() - ri;
       if (bc) {
-        d = bc_min_image(*bc, d);
+        d = bc->min_image(d);
       }
       if (d.squaredNorm() <= cut2) {
         out.push_back(j);

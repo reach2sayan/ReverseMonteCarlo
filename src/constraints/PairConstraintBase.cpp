@@ -1,15 +1,8 @@
 #include <RMC/constraints/PairHistogram.hpp>
 #include <RMC/core/Parallel.hpp>
 #include <cmath>
-#include <numbers>
 #include <ranges>
-#include <unordered_map>
-#include <variant>
 #include <vector>
-
-#if defined(RMC_USE_TBB)
-#include <numeric>
-#endif
 
 namespace RMC {
 
@@ -36,22 +29,22 @@ FORCE_INLINE void bin_distance(vec_t &hist, double d, double w, double r_min,
 FORCE_INLINE void squared_distances(Eigen::ArrayXd &d2, const Eigen::ArrayXd &X,
                                     const Eigen::ArrayXd &Y,
                                     const Eigen::ArrayXd &Z, Eigen::Index k,
-                                    const PeriodicBC *pbc,
-                                    Eigen::Matrix3Xd &delta_scratch,
-                                    Eigen::Matrix3Xd &frac_scratch) {
+                                    const BoundaryConditions *pbc,
+                                    Eigen::Matrix3Xd &delta,
+                                    Eigen::Matrix3Xd &frac) {
   if (pbc == nullptr) {
     d2 = (X - X(k)).square() + (Y - Y(k)).square() + (Z - Z(k)).square();
     return;
   }
   const Eigen::Index N = X.size();
-  delta_scratch.resize(3, N);
-  delta_scratch.row(0) = (X - X(k)).matrix().transpose();
-  delta_scratch.row(1) = (Y - Y(k)).matrix().transpose();
-  delta_scratch.row(2) = (Z - Z(k)).matrix().transpose();
-  frac_scratch.noalias() = pbc->inv_box() * delta_scratch;
-  frac_scratch -= frac_scratch.array().round().matrix();
-  delta_scratch.noalias() = pbc->box() * frac_scratch;
-  d2 = delta_scratch.colwise().squaredNorm().transpose().array();
+  delta.resize(3, N);
+  delta.row(0) = (X - X(k)).matrix().transpose();
+  delta.row(1) = (Y - Y(k)).matrix().transpose();
+  delta.row(2) = (Z - Z(k)).matrix().transpose();
+  frac.noalias() = pbc->inv_box() * delta;
+  frac -= frac.array().round().matrix();
+  delta.noalias() = pbc->box() * frac;
+  d2 = delta.colwise().squaredNorm().transpose().array();
 }
 
 } // namespace
@@ -65,71 +58,41 @@ void accumulate_pair_histogram(vec_t &hist, const coords_t &coords,
                                bool exclude_intra,
                                const AtomsCollector *collector) {
   const Eigen::Index N = coords.rows();
+  hist.setZero();
+  if (N < 2) {
+    return;
+  }
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
   const double inv_dr = static_cast<double>(n_bins) / (r_max - r_min);
-  const PeriodicBC *pbc = bc ? std::get_if<PeriodicBC>(bc) : nullptr;
+  const BoundaryConditions *pbc = bc && bc->periodic() ? bc : nullptr;
+  const auto absent = [&](Eigen::Index a) {
+    return collector && collector->absent(static_cast<std::size_t>(a));
+  };
 
   // SoA columns (contiguous) so the per-row distance fan-out vectorises.
-  Eigen::ArrayXd X = coords.col(0), Y = coords.col(1), Z = coords.col(2);
-  hist.setZero();
-
-#if defined(RMC_USE_TBB)
-  // TBB thread pool — no per-call spawn cost. Each row i bins into its own
-  // private vector; they are summed at the end.
-  std::vector<Eigen::Index> rows(static_cast<std::size_t>(N - 1));
-  std::ranges::iota(rows, Eigen::Index{0});
-
-  std::vector<vec_t> partial(static_cast<std::size_t>(N - 1),
-                             vec_t::Zero(n_bins));
-  parallel::for_each(rows.begin(), rows.end(), [&](Eigen::Index i) {
-    if (collector && collector->absent(static_cast<std::size_t>(i))) {
-      return; // every pair (i, ·) involves a removed atom
-    }
-    vec_t &local = partial[static_cast<std::size_t>(i)];
-    Eigen::ArrayXd d2;
-    Eigen::Matrix3Xd delta_scratch, frac_scratch;
-    squared_distances(d2, X, Y, Z, i, pbc, delta_scratch, frac_scratch);
-    for (Eigen::Index j = i + 1; j < N; ++j) {
-
-      if (collector && collector->absent(static_cast<std::size_t>(j))) {
-        continue;
-      }
-      if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                              molecule_ids[static_cast<std::size_t>(j)]) {
-        continue;
-      }
-
-      const double w = weights.weight_of(elem_id, static_cast<std::size_t>(i),
-                                         static_cast<std::size_t>(j));
-      bin_distance(local, std::sqrt(d2(j)), 2.0 * w, r_min, inv_dr, n_bins);
-    }
-  });
-  for (const vec_t &p : partial) {
-    hist += p;
-  }
-
-#else
-  Eigen::ArrayXd d2;
-  Eigen::Matrix3Xd delta_scratch, frac_scratch;
-  for (Eigen::Index i = 0; i < N; ++i) {
-    if (collector && collector->absent(static_cast<std::size_t>(i))) {
-      continue; // every pair (i, ·) involves a removed atom
-    }
-    squared_distances(d2, X, Y, Z, i, pbc, delta_scratch, frac_scratch);
-    for (Eigen::Index j = i + 1; j < N; ++j) {
-      if (collector && collector->absent(static_cast<std::size_t>(j))) {
-        continue;
-      }
-      if (filter_intra && molecule_ids[static_cast<std::size_t>(i)] ==
-                              molecule_ids[static_cast<std::size_t>(j)]) {
-        continue;
-      }
-      const double w = weights.weight_of(elem_id, static_cast<std::size_t>(i),
-                                         static_cast<std::size_t>(j));
-      bin_distance(hist, std::sqrt(d2(j)), 2.0 * w, r_min, inv_dr, n_bins);
-    }
-  }
-#endif
+  const Eigen::ArrayXd X = coords.col(0), Y = coords.col(1), Z = coords.col(2);
+  // Rows i bin their pairs (i, j > i) into per-lane histograms.
+  const vec_t zero = vec_t::Zero(n_bins);
+  hist = parallel::parallel_sum(
+      static_cast<std::size_t>(N - 1), zero, [&](std::size_t ii, vec_t &local) {
+        const auto i = static_cast<Eigen::Index>(ii);
+        if (absent(i)) {
+          return; // every pair (i, ·) involves a removed atom
+        }
+        Eigen::ArrayXd d2;
+        Eigen::Matrix3Xd delta, frac;
+        squared_distances(d2, X, Y, Z, i, pbc, delta, frac);
+        for (Eigen::Index j = i + 1; j < N; ++j) {
+          const auto jj = static_cast<std::size_t>(j);
+          if (absent(j) ||
+              (filter_intra && molecule_ids[ii] == molecule_ids[jj])) {
+            continue;
+          }
+          bin_distance(local, std::sqrt(d2(j)),
+                       2.0 * weights.weight_of(elem_id, ii, jj), r_min, inv_dr,
+                       n_bins);
+        }
+      });
 }
 
 void accumulate_moved_pairs(
@@ -137,75 +100,58 @@ void accumulate_moved_pairs(
     const std::vector<uint8_t> &elem_id, const PairWeightMatrix &weights,
     double r_min, double r_max, int n_bins, std::span<const std::size_t> moved,
     std::span<const std::size_t> molecule_ids, bool exclude_intra,
-    const AtomsCollector *collector) {
+    const AtomsCollector *collector, PairScratch *scratch) {
   const Eigen::Index N = coords.rows();
   if (N == 0 || moved.empty()) {
     return;
   }
+  PairScratch local;
+  PairScratch &s = scratch ? *scratch : local;
   const bool filter_intra = exclude_intra && !molecule_ids.empty();
-
-  // #2: inline binning — write straight into `hist`, no boost::histogram
-  // allocation and no per-insert variant dispatch.
   const double inv_dr = static_cast<double>(n_bins) / (r_max - r_min);
 
-  // O(1) "position of atom in moved" lookup, replacing the O(K) ranges::contains
-  // scan that ran per (moved, j) pair. moved_pos_[atom] = its index in `moved`
-  // (kSentinel ⇒ not moved). Sized to N, only the K moved slots are touched and
-  // reset, so setup/teardown is O(K) not O(N).
-  constexpr std::size_t kSentinel = static_cast<std::size_t>(-1);
-  thread_local std::vector<std::size_t> moved_pos;
-  if (moved_pos.size() < static_cast<std::size_t>(N)) {
-    moved_pos.assign(static_cast<std::size_t>(N), kSentinel);
+  // O(1) "position of atom in moved" lookup: moved_pos[atom] = its index in
+  // `moved` (kNotMoved otherwise). Sized to N, only the K moved slots are
+  // touched and reset, so setup/teardown is O(K) not O(N).
+  constexpr std::size_t kNotMoved = static_cast<std::size_t>(-1);
+  if (s.moved_pos.size() < static_cast<std::size_t>(N)) {
+    s.moved_pos.assign(static_cast<std::size_t>(N), kNotMoved);
   }
   for (const auto [mk, k] : moved | std::views::enumerate) {
-    moved_pos[k] = static_cast<std::size_t>(mk);
+    s.moved_pos[k] = static_cast<std::size_t>(mk);
   }
 
-  // #3 + Eigen vectorization: coords is RowMajor AoS, so column access is
-  // strided. Copy the three columns into contiguous SoA arrays once; every
-  // moved atom then gets its squared distances to all atoms in a single
-  // vectorized Eigen expression (see squared_distances()).
-  thread_local Eigen::ArrayXd X, Y, Z, d2;
-  X = coords.col(0);
-  Y = coords.col(1);
-  Z = coords.col(2);
-  thread_local Eigen::Matrix3Xd delta_scratch, frac_scratch;
-  const PeriodicBC *pbc = bc ? std::get_if<PeriodicBC>(bc) : nullptr;
+  // Contiguous SoA columns: each moved atom gets its squared distances to all
+  // atoms in one vectorised Eigen expression (see squared_distances()).
+  s.X = coords.col(0);
+  s.Y = coords.col(1);
+  s.Z = coords.col(2);
+  const BoundaryConditions *pbc = bc && bc->periodic() ? bc : nullptr;
 
   for (const auto [mk, k] : moved | std::views::enumerate) {
-    const auto kk = static_cast<std::size_t>(k);
-    if (collector && collector->absent(kk)) {
+    if (collector && collector->absent(k)) {
       continue; // moved atom is removed: every pair (k, ·) is gone
     }
-    squared_distances(d2, X, Y, Z, static_cast<Eigen::Index>(k), pbc,
-                      delta_scratch, frac_scratch);
-    for (Eigen::Index jj = 0; jj < N; ++jj) {
-      const std::size_t j = static_cast<std::size_t>(jj);
-      if (j == kk) {
+    squared_distances(s.d2, s.X, s.Y, s.Z, static_cast<Eigen::Index>(k), pbc,
+                      s.delta, s.frac);
+    for (std::size_t j = 0; j < static_cast<std::size_t>(N); ++j) {
+      // A pair of two moved atoms is counted once, when k precedes j in
+      // `moved`; removed partners and (optionally) same-molecule pairs skip.
+      const bool counted_earlier =
+          s.moved_pos[j] != kNotMoved &&
+          s.moved_pos[j] < static_cast<std::size_t>(mk);
+      if (j == k || (collector && collector->absent(j)) || counted_earlier ||
+          (filter_intra && molecule_ids[k] == molecule_ids[j])) {
         continue;
       }
-      if (collector && collector->absent(j)) {
-        continue; // partner atom is removed
-      }
-      // Avoid double-counting pairs where both atoms are in `moved`:
-      // count (k,j) only when k appears before j in the moved array, i.e. skip
-      // when j is also moved and appears earlier (position < mk).
-      const bool already_counted =
-          moved_pos[j] != kSentinel &&
-          moved_pos[j] < static_cast<std::size_t>(mk);
-      if (already_counted ||
-          (filter_intra && molecule_ids[kk] == molecule_ids[j])) {
-        continue;
-      }
-
-      const double w = weights.weight_of(elem_id, kk, j);
-      bin_distance(hist, std::sqrt(d2(jj)), 2.0 * w, r_min, inv_dr, n_bins);
+      bin_distance(hist, std::sqrt(s.d2(static_cast<Eigen::Index>(j))),
+                   2.0 * weights.weight_of(elem_id, k, j), r_min, inv_dr,
+                   n_bins);
     }
   }
 
-  // Reset only the touched slots, keeping the thread_local clear for next call.
   for (const std::size_t k : moved) {
-    moved_pos[k] = kSentinel;
+    s.moved_pos[k] = kNotMoved;
   }
 }
 
@@ -219,18 +165,26 @@ void PairConstraintBase::rollback_frame() noexcept {
   hist_.rollback([] {}); // no auxiliary undo for the pair path
 }
 
+void PairConstraintBase::set_grid(double r_first, double dr, int n) {
+  exp_r_ = (r_first + Eigen::ArrayXd::LinSpaced(n, 0, n - 1) * dr).matrix();
+  exp_data_ = vec_t::Zero(n);
+  r_min_ = r_first;
+  r_max_ = exp_r_(n - 1);
+  bin_width_ = dr;
+  n_bins_ = n;
+  computed_.resize(n);
+  hist_.set_length(n);
+  hist_.set_n_frames(1);
+}
+
 void PairConstraintBase::set_experimental_data(const mat_t &data) {
   BOOST_ASSERT_MSG(data.cols() >= 2, "PairConstraint: need 2-column r/data");
   const Eigen::Index N = data.rows();
+  set_grid(data(0, 0), N > 1 ? data(1, 0) - data(0, 0) : 0.1,
+           static_cast<int>(N));
   exp_r_ = data.col(0);
   exp_data_ = data.col(1);
-  r_min_ = exp_r_(0);
   r_max_ = exp_r_(N - 1);
-  bin_width_ = (N > 1) ? (exp_r_(1) - exp_r_(0)) : 0.1;
-  n_bins_ = static_cast<int>(N);
-  computed_.resize(N);
-  hist_.set_length(static_cast<int>(N));
-  hist_.set_n_frames(1);
 }
 
 void PairConstraintBase::initialise() {
@@ -238,38 +192,19 @@ void PairConstraintBase::initialise() {
     return;
   }
   initialised_ = true;
-  const auto idx = Eigen::ArrayXd::LinSpaced(n_bins_, 0, n_bins_ - 1);
-  const auto r_lo = r_min_ + idx * bin_width_;
-  const auto r_hi = r_lo + bin_width_;
-  shell_vols_ = (4.0 * std::numbers::pi / 3.0) * (r_hi.cube() - r_lo.cube());
+  shell_vols_ = shell_volumes(r_min_, bin_width_, n_bins_);
 
-  std::unordered_map<std::string_view, uint8_t> name_to_id;
-  uint8_t next_id = 0;
-  elem_id_.resize(elements_.size());
-  for (const auto [i, elem] : std::views::enumerate(elements_)) {
-    auto [it, ins] = name_to_id.try_emplace(elem, next_id);
-    if (ins) {
-      ++next_id;
-    }
-    elem_id_[i] = it->second;
-  }
-  // Build the dense n_types×n_types weight matrix. Default 1.0 so unset pairs
-  // behave exactly like the old flat_map miss. `weighted` short-circuits the
-  // whole lookup when no weights were set (the common unweighted case).
-  const int n_types = static_cast<int>(next_id);
-  weight_table_.n_types = n_types;
-  weight_table_.weighted = !weights_.empty();
-  weight_table_.w.assign(
-      static_cast<std::size_t>(n_types) * static_cast<std::size_t>(n_types),
-      1.0);
+  // Dense species×species weight table; unset pairs weigh 1.0, and `weighted`
+  // skips the lookup entirely when no weights were set (the common case).
+  const SpeciesIndex sp(elements_);
+  elem_id_ = sp.id;
+  const std::size_t n = sp.size();
+  weight_table_ = {static_cast<int>(n), !weights_.empty(),
+                   std::vector<double>(n * n, 1.0)};
   for (const auto &[key, w] : weights_) {
-    auto ia = name_to_id.find(key.a);
-    auto ib = name_to_id.find(key.b);
-    if (ia != name_to_id.end() && ib != name_to_id.end()) {
-      weight_table_.w[static_cast<std::size_t>(ia->second) * n_types +
-                      ib->second] = w;
-      weight_table_.w[static_cast<std::size_t>(ib->second) * n_types +
-                      ia->second] = w;
+    if (const auto a = sp.id_of(key.a), b = sp.id_of(key.b); a && b) {
+      weight_table_.w[*a * n + *b] = w;
+      weight_table_.w[*b * n + *a] = w;
     }
   }
 }

@@ -1,12 +1,12 @@
 #pragma once
-#include <Eigen/Core>
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/IncrementalCache.hpp>
+#include <RMC/core/SpeciesIndex.hpp>
 #include <boost/container/flat_map.hpp>
 #include <limits>
 #include <optional>
 #include <string>
-#include <variant>
+#include <vector>
 
 namespace RMC {
 
@@ -24,21 +24,11 @@ enum class DistanceScope : std::uint8_t { Inter, Intra };
 template <DistanceScope S>
 class DistanceConstraint : public RigidConstraintBase<DistanceConstraint<S>> {
   using RigidConstraintBase<DistanceConstraint<S>>::bc_;
-  struct ElemPair {
-    std::string key1;
-    std::string key2;
-    constexpr ElemPair(std::string a, std::string b)
-        : key1(std::move(a)), key2(std::move(b)) {
-      if (key1 > key2)
-        std::swap(key1, key2);
-    }
-    constexpr auto operator<=>(const ElemPair &) const = default;
-  };
 
 public:
   void set_minimum_distance(const std::string &el1, const std::string &el2,
                             double d_min) {
-    d_min_.insert_or_assign(ElemPair{el1, el2}, d_min);
+    d_min_.insert_or_assign(PairElemKey{el1, el2}, d_min);
     cache_.invalidate();
   }
 
@@ -60,53 +50,43 @@ public:
 
   [[nodiscard]] double compute_error(const coords_t &coords,
                                      std::span<const std::size_t> moved) const {
-    const std::size_t N = static_cast<std::size_t>(coords.rows());
-    auto threshold = [&](std::size_t i,
-                         std::size_t j) -> std::optional<double> {
-      if (!in_scope(i, j)) {
-        return std::nullopt;
-      }
-      auto it = d_min_.find(make_key(i, j));
-      if (it == d_min_.end()) {
-        return std::nullopt;
-      }
-      return it->second;
-    };
-    // Resolve the boundary condition ONCE here instead of dispatching
-    // bc_min_image() through std::visit on every pair.
-    if (bc_ == nullptr) {
-      return cache_.compute(
-          N, threshold,
-          [&](std::size_t i, std::size_t j) {
-            if (this->absent(i) || this->absent(j)) {
-              return std::numeric_limits<double>::infinity(); // pair gone
-            }
-            const vec3_t d =
-                coords.row(j).transpose() - coords.row(i).transpose();
-            return d.squaredNorm();
-          },
-          moved);
+    if (!cache_.ready) {
+      build_thresholds();
     }
-    return std::visit(
-        [&](const auto &b) {
-          return cache_.compute(
-              N, threshold,
-              [&](std::size_t i, std::size_t j) {
-                if (this->absent(i) || this->absent(j)) {
-                  return std::numeric_limits<double>::infinity(); // pair gone
-                }
-                vec3_t d =
-                    coords.row(j).transpose() - coords.row(i).transpose();
-                return b.min_image(d).squaredNorm();
-              },
-              moved);
+    const std::size_t n = species_.size();
+    return cache_.compute(
+        static_cast<std::size_t>(coords.rows()),
+        [&](std::size_t i, std::size_t j) -> std::optional<double> {
+          return in_scope(i, j) ? thresholds_[species_.id[i] * n + species_.id[j]]
+                                : std::nullopt;
         },
-        *bc_);
+        [&](std::size_t i, std::size_t j) {
+          if (this->absent(i) || this->absent(j)) {
+            return std::numeric_limits<double>::infinity(); // pair gone
+          }
+          const vec3_t d = coords.row(j).transpose() - coords.row(i).transpose();
+          return (bc_ ? bc_->min_image(d) : d).squaredNorm();
+        },
+        moved);
   }
 
 private:
-  [[nodiscard]] constexpr FORCE_INLINE bool
-  in_scope(std::size_t i, std::size_t j) const noexcept {
+  // Dense species × species minimum-distance table (nullopt = unconstrained).
+  void build_thresholds() const {
+    species_ = SpeciesIndex(elements_);
+    const std::size_t n = species_.size();
+    thresholds_.assign(n * n, std::nullopt);
+    for (const auto &[key, d] : d_min_) {
+      if (const auto a = species_.id_of(key.a), b = species_.id_of(key.b);
+          a && b) {
+        thresholds_[*a * n + *b] = d;
+        thresholds_[*b * n + *a] = d;
+      }
+    }
+  }
+
+  [[nodiscard]] FORCE_INLINE bool in_scope(std::size_t i,
+                                           std::size_t j) const noexcept {
     if (mol_ids_.empty()) {
       return true;
     }
@@ -117,15 +97,11 @@ private:
     }
   }
 
-  [[nodiscard]] constexpr ElemPair make_key(std::size_t i,
-                                            std::size_t j) const {
-    return {elements_[i], elements_[j]};
-  }
-
-  boost::container::flat_map<ElemPair, double> d_min_;
+  boost::container::flat_map<PairElemKey, double> d_min_;
   std::span<const std::string> elements_;
   std::span<const std::size_t> mol_ids_;
-
+  mutable SpeciesIndex species_;
+  mutable std::vector<std::optional<double>> thresholds_;
   mutable PairCache cache_;
 };
 
@@ -133,12 +109,5 @@ using InterMolecularDistanceConstraint =
     DistanceConstraint<DistanceScope::Inter>;
 using IntraMolecularDistanceConstraint =
     DistanceConstraint<DistanceScope::Intra>;
-
-static_assert(CConstraint<InterMolecularDistanceConstraint>,
-              "InterMolecularDistanceConstraint must satisfy the CConstraint "
-              "concept");
-static_assert(CConstraint<IntraMolecularDistanceConstraint>,
-              "IntraMolecularDistanceConstraint must satisfy the CConstraint "
-              "concept");
 
 } // namespace RMC

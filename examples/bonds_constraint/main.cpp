@@ -4,7 +4,7 @@
 // Phase 2: distorted target [2.0,2.5] — engine must elongate bonds.
 // Phase 3: restored [0.8,1.1] — engine tightens back.
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Structure.hpp>
 

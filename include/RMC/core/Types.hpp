@@ -10,6 +10,7 @@ using placeholders::all;
 }
 #endif
 #include <boost/leaf/result.hpp>
+#include <boost/nowide/cstdlib.hpp>
 #include <concepts>
 #include <cstdint>
 #include <cstdlib>
@@ -38,13 +39,6 @@ using mat_t = Eigen::MatrixXd;
 using ivec_t = Eigen::VectorXi;
 
 template <typename T>
-concept BoundaryConditionsConcept = requires(T bc, const vec3_t &v) {
-  { bc.wrap(v) } -> std::convertible_to<vec3_t>;
-  { bc.min_image(v) } -> std::convertible_to<vec3_t>;
-  { bc.volume() } -> std::convertible_to<double>;
-};
-
-template <typename T>
 concept GroupSelectorConcept = requires(T s, std::size_t n) {
   { s.select(n) } -> std::convertible_to<std::size_t>;
 };
@@ -62,33 +56,12 @@ concept ConstraintConcept =
 
 template <typename T> using Result = boost::leaf::result<T>;
 
-constexpr auto upper_triangle_pairs(auto &&N) {
-  return std::views::iota(decltype(N){0}, N) |
-         std::views::transform([N](auto i) {
-           return std::views::iota(i + 1, N) |
-                  std::views::transform(
-                      [i](auto j) { return std::pair{i, j}; });
-         }) |
-         std::views::join;
-}
-
-// Read env var, nullopt if unset/empty. _dupenv_s on MSVC (getenv trips C4996).
+// Read env var, nullopt if unset/empty.
 inline std::optional<std::string> read_env(const char *name) {
-#if defined(_MSC_VER)
-  char *raw = nullptr;
-  std::size_t len = 0;
-  std::optional<std::string> result;
-  if (_dupenv_s(&raw, &len, name) == 0 && raw != nullptr && *raw != '\0') {
-    result.emplace(raw);
-  }
-  std::free(raw); // free(nullptr) is a no-op
-  return result;
-#else
-  if (const char *val = std::getenv(name); val && *val) {
+  if (const char *val = boost::nowide::getenv(name); val && *val) {
     return std::string(val);
   }
   return std::nullopt;
-#endif
 }
 
 // Returns the number of CPUs allocated to this process, in priority order:

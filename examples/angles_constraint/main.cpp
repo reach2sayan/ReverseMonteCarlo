@@ -4,8 +4,7 @@
 // Phase 2: [30°,40°]  — engine must compress angle.
 // Phase 3: [160°,170°] — engine must open angle.
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Structure.hpp>
 

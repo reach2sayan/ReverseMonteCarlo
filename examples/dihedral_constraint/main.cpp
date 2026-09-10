@@ -2,9 +2,7 @@
 // Butane-like 4-carbon backbone; DihedralAngleConstraint steers the C1-C2-C3-C4
 // torsion angle into three different rotamer shells across phases.
 #include <RMC/Engine.hpp>
-#include <RMC/constraints/AngleConstraint.hpp>
-#include <RMC/constraints/BondConstraint.hpp>
-#include <RMC/constraints/DihedralAngleConstraint.hpp>
+#include <RMC/constraints/GeometricConstraints.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Structure.hpp>
 

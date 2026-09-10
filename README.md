@@ -4,9 +4,11 @@
 
 C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(r), S(Q)), the engine iteratively perturbs atomic positions via Metropolis acceptance until computed data matches experiment.
 
-**Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 13, Clang ≥ 17) · Eigen ≥ 3.4 · Boost ≥ 1.83 · Intel oneAPI TBB ≥ 2021 (on by default) · Catch2 ≥ 3 (tests only)
+**Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 15, or Clang ≥ 20 on GCC 15's libstdc++) · Boost ≥ 1.88 · Intel oneAPI TBB ≥ 2021 (on by default) · spdlog · Python 3 with numpy, pandas and pygments (configure time only) · Catch2 ≥ 3 (tests only)
 
-**Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · ATAT `corrdump` for the SQS extension (external tool, see [corrdump (ATAT)](#corrdump-atat) below — installed separately, not vendored)
+**Fetched at configure time (network required):** Eigen 5.0.0 and [seitz](https://github.com/reach2sayan/Seitz) (lattices, periodicity, element data and cluster orbits; BSD-3). GCC 15 is seitz's floor.
+
+**Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · ATAT `corrdump`, only for the SQS cross-check test (see [SQS search](#sqs-search-mcsqs_rmc))
 
 For the architecture — the engine pipeline, the constraint / generator / sampler / selector contracts, and how to add your own — see [DESIGN.md](DESIGN.md). For copy-paste example runs end to end, see [WORKFLOW.md](WORKFLOW.md).
 
@@ -20,9 +22,6 @@ ctest --test-dir build --output-on-failure
 
 If Boost is not on the default path: `-DBOOST_ROOT=/opt/boost`  
 To enable AddressSanitizer + UBSan: `-DENABLE_SANITIZERS=ON`
-
-The SQS extension (`mcsqs_rmc`) drives ATAT's `corrdump` as an external tool —
-see [corrdump (ATAT)](#corrdump-atat) for how to provide it.
 
 A minimal build (library + CLI only, no extension or examples):
 
@@ -43,7 +42,6 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 | `RMC_BUILD_TESTS` | `ON` | Build the Catch2 test suite (`RMC_tests`). |
 | `RMC_BUILD_EXAMPLES` | `ON` | Build the bundled C++ examples under `examples/`. |
 | `RMC_BUILD_MCSQS` | `ON` | Build the `mcsqs_rmc` SQS-search extension. |
-| `RMC_ATAT_PROVIDER` | `SYSTEM` | How `corrdump` is provided to the SQS extension: `SYSTEM` (use an installed corrdump), `FETCH` (download + build at configure time), or `SOURCE` (build from `RMC_ATAT_SOURCE_DIR`). See [corrdump (ATAT)](#corrdump-atat). |
 | `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer + UBSan on all targets. |
 
 Example — release build with the kernels run serially:
@@ -51,37 +49,6 @@ Example — release build with the kernels run serially:
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DRMC_USE_TBB=OFF
 cmake --build build -j$(nproc)
-```
-
-### corrdump (ATAT)
-
-The SQS extension (`mcsqs_rmc`) uses ATAT's `corrdump` to generate the cluster
-basis. corrdump is run as a **separate executable over a process boundary** — it
-is never linked into RMC, and ATAT is installed separately rather than bundled
-with this project. ATAT is licensed [CC BY-ND 4.0](https://creativecommons.org/licenses/by-nd/4.0/)
-(see [NOTICE](NOTICE)). You provide corrdump yourself; `RMC_ATAT_PROVIDER`
-selects how:
-
-| `RMC_ATAT_PROVIDER` | What it does |
-|---|---|
-| `SYSTEM` *(default)* | Use a `corrdump` already installed on your system. Nothing is downloaded or built. Install ATAT separately: <https://axelvdw.github.io/atat/>. |
-| `FETCH` | Clone ATAT at configure time into the build tree (not committed) and build only `corrdump`. Source via `RMC_ATAT_GIT_REPOSITORY` / `RMC_ATAT_GIT_TAG`. |
-| `SOURCE` | Build `corrdump` from an existing ATAT checkout: `-DRMC_ATAT_SOURCE_DIR=<path>`. |
-
-In `SYSTEM` mode the build looks for `corrdump` on your `PATH`; if found, that
-path is baked in. If it isn't found, `mcsqs_rmc` still builds — supply corrdump
-at runtime with `--corrdump <path>`. Resolution order at runtime is
-`--corrdump` → the path baked in at build time → `corrdump` on `PATH`.
-
-```bash
-# Use an installed corrdump (on PATH) — the default
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build corrdump from a local ATAT checkout
-cmake -B build -DRMC_ATAT_PROVIDER=SOURCE -DRMC_ATAT_SOURCE_DIR=$HOME/atat
-
-# …or at runtime, point mcsqs_rmc at any corrdump
-mcsqs_rmc --corrdump $HOME/bin/corrdump  ...
 ```
 
 ## CLI
@@ -114,7 +81,7 @@ Supply **exactly one** input structure. The output format is chosen from the
 | `--lammps` / `-l` | — | Input LAMMPS data file (`atom_style atomic`); supplies its own periodic box |
 | `--types` / `-t` | — | Element symbols for LAMMPS atom types, in order, e.g. `"Zr Cu Ag"` |
 | `--vasp` | — | Input VASP POSCAR/CONTCAR; supplies its own cell |
-| `--box` | input/`inf` | `"a b c"` for an orthogonal periodic box, or `inf`. Overrides any cell from the input file |
+| `--box` | input/`inf` | `"a b c"` for an orthogonal periodic box, or `inf`; anything else is an error. Overrides any cell from the input file |
 | `--out` / `-o` | `refined.pdb` | Output path (format inferred from extension) |
 
 ### Refinement (default command)
@@ -128,7 +95,7 @@ Supply **exactly one** input structure. The output format is chosen from the
 | `--adf-cutoff` | `3.4` | ADF bond cutoff (Å) |
 | `--adf-smooth` | `2` | ADF boxcar smoothing half-width (`0` disables) |
 | `--steps` / `-n` | `100000` | MC trial moves |
-| `--move-gen` | `random` | Move proposer: `random` (classic walk), `langevin` (MALA) or `leapfrog` (HMC). The gradient movers steer atoms along −∇χ² toward the target |
+| `--move-gen` | `random` | Move proposer: `random` (classic walk), `langevin` (MALA) or `leapfrog` (HMC), matched case-insensitively; any other value is an error. The gradient movers steer atoms along −∇χ² toward the target |
 | `--step` | `0.05` | Gradient step ε (Å) for `--move-gen langevin`/`leapfrog` |
 | `--smart` | off | Adaptive selector — successful groups get picked more often |
 | `--ensemble` / `-e` | `1` | Run N replicas in parallel; return the one with the lowest final χ² |
@@ -611,9 +578,10 @@ Over ATAT's `mcsqs` it adds a pluggable acceptance policy (the default
 selection (`SmartRandomSelector`), and optional island-model ensemble
 parallelism.
 
-**corrdump pipeline** — start from an ATAT `rndstr.in` primitive lattice.
-`corrdump` (the vendored ATAT binary, driven via `boost::process`) enumerates
-the cluster orbits, which are then expanded over the requested supercell:
+Start from an ATAT `rndstr.in` primitive lattice. The cluster orbits up to the
+requested diameters are enumerated with seitz (`seitz::alloy::ClustersPool`,
+using the lattice's own space group) and mapped onto the supercell; no ATAT
+tool is run:
 
 ```bash
 mcsqs_rmc --lattice rndstr.in --supercell "2 2 2" \
@@ -621,35 +589,30 @@ mcsqs_rmc --lattice rndstr.in --supercell "2 2 2" \
           --replicas 8 --steps 500000 --out bestsqs.pdb
 ```
 
-This writes `bestsqs.pdb` plus an ATAT `bestsqs.out` (`str.out`) and prints the
-result's correlations recomputed by `corrdump` as an independent cross-check.
+This writes `bestsqs.pdb` plus `bestsqs.out` in ATAT's `str.out` format and
+prints the best error.
 
-**Legacy pipeline** — when `corrdump` is unavailable (or the cluster orbits were
-enumerated elsewhere), supply a fixed-site PDB, a pre-enumerated cluster-orbit
-file, and a binary/linear species map directly. No ATAT/`corrdump` is invoked,
-so the `str.out` cross-check is skipped:
+- **Species order matters.** As in ATAT, a site's species are numbered in the
+  order `rndstr.in` lists them, and that order fixes the sign of odd-body
+  (triplet, …) correlations: `Cu=0.5,Au=0.5` and `Au=0.5,Cu=0.5` give the same
+  pair targets but opposite triplet signs.
+- **Sublattices** are the sets of sites admitting the same species. Sites with
+  equal species sets merge into one sublattice, numbered by and filled at the
+  fractions of its first site; swaps only ever exchange occupancy within a
+  sublattice. Sublattices with different species sets are supported.
+- **Cross-check (optional).** ATAT's `corrdump` is not needed to build or run
+  `mcsqs_rmc`. With `RMC_CORRDUMP=/path/to/corrdump` set, the `[corrdump]` test
+  compares the enumerated correlations of random supercells (pairs, triplets,
+  two sublattices) against corrdump's to 1e-9.
 
-```bash
-mcsqs_rmc --structure rndstr.pdb --clusters clusters.out \
-          --species Cu:+1,Au:-1 --replicas 8
-```
-
-The cluster file lists one orbit per block: a header line `<target> <weight>
-<n_points>` followed by one line of space-separated supercell site indices per
-symmetry-equivalent instance, with blank lines or `#` comments between orbits.
-Sublattices are inferred from PDB residue names (one per distinct residue).
-
-`--lattice` and `--structure` are mutually exclusive; supply exactly one.
+The legacy `--structure` / `--clusters` / `--species` pipeline and the
+`--corrdump` option were removed; describe the lattice in a `rndstr.in` instead.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--lattice` / `-L` | — | ATAT `rndstr.in` primitive lattice — enables the `corrdump` pipeline |
-| `--supercell` | `2 2 2` | Supercell for `--lattice`: `n` (cubic), `nx ny nz`, or nine ints |
-| `--d2` / `--d3` / `--d4` | `0` | Max pair / triplet / quadruplet cluster diameter (`--d2` required with `--lattice`) |
-| `--corrdump` | vendored | Path to a `corrdump` binary (overrides the vendored build) |
-| `--structure` / `-s` | — | [legacy] Fixed-site input PDB — enables the no-`corrdump` pipeline |
-| `--clusters` / `-c` | — | [legacy] Pre-enumerated cluster-orbit file |
-| `--species` / `-S` | — | [legacy] Species occupation map, e.g. `Cu:+1,Au:-1` |
+| `--lattice` / `-L` | — | ATAT `rndstr.in` primitive lattice (required) |
+| `--supercell` | `2 2 2` | Supercell of the primitive cell: `n` (cubic), `nx ny nz`, or nine ints (row-major) |
+| `--d2` / `--d3` / `--d4` | `0` | Max pair / triplet / quadruplet cluster diameter in Å (`--d2` required) |
 | `--steps` / `-n` | `500000` | MC steps per replica |
 | `--replicas` / `-r` | `1` | Island-model replicas (> 1 enables the ensemble) |
 | `--sampler` | `anneal` | Acceptance policy: `greedy` \| `metropolis` \| `anneal` |
@@ -657,8 +620,5 @@ Sublattices are inferred from PDB residue names (one per distinct residue).
 | `--cooling` | `0.9` | Annealing geometric cooling factor in (0,1) |
 | `--cool-interval` | `0` | Steps between cooling updates (0 → `steps/20`) |
 | `--seed` | `42` | RNG seed |
-| `--out` / `-o` | `bestsqs.pdb` | Output SQS PDB |
+| `--out` / `-o` | `bestsqs.pdb` | Output SQS PDB; `bestsqs.out` (ATAT `str.out`) is written beside it |
 | `--log-every` / `-l` | `10000` | Print progress every N steps |
-
-Sublattices are inferred from PDB residue names (one sublattice per distinct
-residue); swaps only ever exchange occupancy within a sublattice.

@@ -3,10 +3,13 @@
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Structure.hpp>
 #include <RMC/core/Types.hpp>
+#include <RMC/io/StructFormat.hpp>
 
+#include <boost/describe/enum.hpp>
 #include <boost/program_options.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -19,20 +22,23 @@ namespace RMC {
 // Leapfrog (HMC) steer atoms along −∇χ² (costs ~6k constraint evals/move for the
 // finite-difference gradient).
 enum class MoveGenKind { Random, Langevin, Leapfrog };
+BOOST_DESCRIBE_ENUM(MoveGenKind, Random, Langevin, Leapfrog)
 
-// Plain inputs mirroring the CLI knobs.
+// Plain inputs mirroring the CLI knobs. RMCRunner binds its options straight to
+// these fields, so the defaults below are the CLI defaults too. An empty path
+// means "not supplied".
 struct RMCConfig {
   // ---- input structure (exactly one of these paths non-empty) ----
   std::string pdb_path;
   std::string lammps_path;
   std::string vasp_path;
-  std::vector<std::string> lammps_types;   // 'Zr Cu Ag' type→element legend
-  std::optional<std::string> box_override; // "a b c" orthogonal, or "inf"
+  std::vector<std::string> lammps_types; // 'Zr Cu Ag' type→element legend
+  std::string box_override;              // "a b c" orthogonal, or "inf"
 
-  // ---- experimental targets (engaged optional = supplied) ----
-  std::optional<std::string> pdf_path;
-  std::optional<std::string> sq_path;
-  std::optional<std::string> adf_path;
+  // ---- experimental targets ----
+  std::string pdf_path;
+  std::string sq_path;
+  std::string adf_path;
 
   // ---- numeric parameters ----
   double rho0 = 0.1;
@@ -45,16 +51,13 @@ struct RMCConfig {
   double group_max_amp = 0.2;
   MoveGenKind move_gen = MoveGenKind::Random; // CLI default keeps the classic walk
   double move_step = 0.05; // ε (Å) for Langevin/Leapfrog gradient moves
-  std::optional<std::string> checkpoint_path;
+  std::string checkpoint_path;
   std::uint64_t log_every = 1000;
 
   std::string out_path = "refined.pdb";
 };
 
-struct LoadedStructure {
-  AtomicStructure structure;
-  BoundaryConditions bc = InfiniteBC(1.0);
-};
+using LoadedStructure = io::LoadedStructure;
 
 struct ExperimentalData {
   std::optional<mat_t> pdf, sq, adf;
@@ -91,11 +94,22 @@ void apply_move_generator(Engine &engine, const RMCConfig &cfg);
                                                   const mat3_t &box,
                                                   const std::string &path);
 
+// Command-line driver shared by the RMC tools: parse argv against `options`
+// (answering --help and reporting usage errors), then return body(vm).
+int run_cli(int argc, char **argv,
+            const boost::program_options::options_description &options,
+            const std::function<int(const boost::program_options::variables_map &)>
+                &body);
+
 class RMCRunner {
 public:
   RMCRunner();
+  RMCRunner(const RMCRunner &) = delete; // options_ writes into cfg_
+  RMCRunner &operator=(const RMCRunner &) = delete;
   int run(int argc, char **argv);
+
 private:
+  RMCConfig cfg_;
   boost::program_options::options_description options_;
 };
 
