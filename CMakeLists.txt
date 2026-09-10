@@ -314,6 +314,9 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
         target_compile_options(RMC_tests PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
     endif ()
     include(Catch)
-    catch_discover_tests(RMC_tests DISCOVERY_MODE POST_BUILD)
+    # Catch2 exits 4 when every selected test SKIP()s (the corrdump oracle
+    # without RMC_CORRDUMP); report that as skipped, not failed.
+    catch_discover_tests(RMC_tests DISCOVERY_MODE POST_BUILD
+            PROPERTIES SKIP_RETURN_CODE 4)
 endif ()
 

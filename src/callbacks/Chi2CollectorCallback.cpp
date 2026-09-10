@@ -33,9 +33,8 @@ void Chi2CollectorCallback::write_csv() const {
 
 void Chi2CollectorCallback::print_ascii() const {
   constexpr int bar_width = 40;
-  const double chi2_max =
-      std::ranges::max(history_, {}, &std::pair<std::uint64_t, double>::second)
-          .second;
+  const auto [_, chi2_max] =
+      std::ranges::max(history_, {}, &std::pair<std::uint64_t, double>::second);
 
   std::cout << std::format("\nChi² convergence ({} samples):\n",
                            history_.size());

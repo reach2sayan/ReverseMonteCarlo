@@ -41,7 +41,7 @@ make_random_amorphous(std::span<const std::string> elements,
                    return std::views::repeat(static_cast<std::size_t>(e), count);
                  }) |
                  std::views::join | std::ranges::to<std::vector>();
-  Rng rng(seed);
+  Rng rng{seed};
   std::ranges::shuffle(species, rng.engine());
 
   // Body-centred grid in lattice units: two sites per cell (corner + centre).
@@ -56,9 +56,7 @@ make_random_amorphous(std::span<const std::string> elements,
                }) |
                std::views::join | std::views::take(total);
 
-  RandomStructure out;
-  out.box = mat3_t::Identity() * (n * spacing);
-  AtomicStructure &s = out.structure;
+  AtomicStructure s;
   s.coordinates.resize(static_cast<Eigen::Index>(total), 3);
   for (const auto [a, site] : sites | std::views::enumerate) {
     s.coordinates.row(a) = spacing * site.transpose();
@@ -74,6 +72,8 @@ make_random_amorphous(std::span<const std::string> elements,
         return seitz::data::atomic_number(s.elements[static_cast<std::size_t>(a)])
             .value_or(0);
       });
+
+  RandomStructure out{.structure = std::move(s), .box=mat3_t::Identity() * (n * spacing) };
   return out;
 }
 
