@@ -263,9 +263,11 @@ endif ()
 # over the system libstdc++.
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     include(GNUInstallDirs)
-    set_target_properties(RMC PROPERTIES INSTALL_RPATH "$ORIGIN")
+    # seitz is listed explicitly: a target built in this tree (FetchContent) is
+    # never collected as a runtime dependency unless it is itself installed.
+    set_target_properties(RMC seitz PROPERTIES INSTALL_RPATH "$ORIGIN")
     set_target_properties(RMC_run PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
-    install(TARGETS RMC RMC_run COMPONENT runtime RUNTIME_DEPENDENCY_SET rmc_runtime)
+    install(TARGETS RMC RMC_run seitz COMPONENT runtime RUNTIME_DEPENDENCY_SET rmc_runtime)
     install(RUNTIME_DEPENDENCY_SET rmc_runtime COMPONENT runtime
             DESTINATION ${CMAKE_INSTALL_LIBDIR}
             PRE_EXCLUDE_REGEXES "^(ld-linux-x86-64|libc|libm|libdl|libpthread|librt)\\.so")

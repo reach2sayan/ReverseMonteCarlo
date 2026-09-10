@@ -64,9 +64,10 @@ Result<GrResult> compute_gr(const coords_t &coords,
         g.array() = hist.array() * (V / (pair_factor * Na * Nb)) / shell.array();
       }
       out.partials.push_back(
-          {std::format("{}-{}", sp.symbols[static_cast<std::size_t>(a)],
-                       sp.symbols[static_cast<std::size_t>(b)]),
-           std::move(g)});
+          {.label =
+               std::format("{}-{}", sp.symbols[static_cast<std::size_t>(a)],
+                           sp.symbols[static_cast<std::size_t>(b)]),
+           .values = std::move(g)});
     }
   }
 

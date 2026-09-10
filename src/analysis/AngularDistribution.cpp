@@ -72,12 +72,15 @@ Result<AdfResult> compute_adf(const coords_t &coords,
   // Split into partials (canonical column order) and accumulate the total.
   out.total = vec_t::Zero(params.n_bins);
   Eigen::Map<const RowMajMat> H(hist.data(), params.n_bins, n_cols);
-  const auto sym = [&](int s) { return sp.symbols[static_cast<std::size_t>(s)]; };
+  const auto sym = [&](int s) {
+    return sp.symbols[static_cast<std::size_t>(s)];
+  };
   for (const auto &[a, p, q, col] : adf_columns(S)) {
     vec_t partial = H.col(col);
     out.total += partial;
     out.partials.push_back(
-        {std::format("{}-{}-{}", sym(a), sym(p), sym(q)), std::move(partial)});
+        {.label = std::format("{}-{}-{}", sym(a), sym(p), sym(q)),
+         .values = std::move(partial)});
   }
 
   return out;
@@ -87,7 +90,8 @@ Result<AdfResult> compute_adf(const std::filesystem::path &path,
                               const BoundaryConditions &bc,
                               const AdfParams &params,
                               const std::vector<std::string> &type_to_element) {
-  // Format from path: PDB uses bc; VASP/LAMMPS use the file's cell (default LAMMPS).
+  // Format from path: PDB uses bc; VASP/LAMMPS use the file's cell (default
+  // LAMMPS).
   BOOST_LEAF_AUTO(loaded, io::read_structure_by_ext(path, bc, type_to_element));
   return compute_adf(loaded.structure.coordinates, loaded.bc,
                      loaded.structure.elements, params);
