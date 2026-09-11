@@ -1,0 +1,70 @@
+[build-system]
+# numpy, pandas and pygments are seitz's: it transcribes its data tables at
+# configure time under the build interpreter.
+requires = ["scikit-build-core>=0.10", "numpy>=1.24", "pandas>=2.0", "pygments>=2.15"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "reverse-monte-carlo"
+dynamic = ["version"]
+description = "Reverse Monte Carlo structural refinement against G(r), S(Q) and ADF data"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["numpy>=1.24", "pydantic>=2.9"]
+
+[project.urls]
+Homepage = "https://github.com/reach2sayan/ReverseMonteCarlo"
+
+# One version, CMake's: the project() line release.yml's version job reads.
+[[tool.dynamic-metadata]]
+field = "version"
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = 'project\(ReverseMonteCarlo VERSION (?P<value>[0-9]+\.[0-9]+\.[0-9]+)'
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.28"
+# Only the knobs a wheel needs differently; the compiler gate, warnings and IPO
+# stay in CMakeLists.txt so `cmake --preset python` and `pip install .` build
+# the same target. This path does not read CMakePresets.json and picks up
+# whatever `c++` is on PATH: the library needs GCC 15, so export CXX=g++-15.
+cmake.define.RMC_BUILD_PYTHON = "ON"
+cmake.define.RMC_BUILD_TESTS = "OFF"
+cmake.define.RMC_BUILD_EXAMPLES = "OFF"
+cmake.define.RMC_BUILD_MCSQS = "ON"
+cmake.define.ENABLE_NATIVE_ARCH = "OFF"
+cmake.define.ENABLE_MKL = "OFF"
+cmake.define.ENABLE_LTO = "ON"
+install.components = ["python"]
+wheel.packages = ["python/rmc"]
+build-dir = "build/{wheel_tag}"
+sdist.exclude = ["cmake-build-*", "build", ".deps", ".venv", "*.png", "examples/benchmark/data"]
+
+# No [tool.scikit-build.editable] section, deliberately. scikit-build-core's
+# editable install works through a meta-path finder that maps rmc._core to
+# whichever artifact it installed -- and a meta-path finder wins over PYTHONPATH
+# unconditionally, so an editable install silently shadows the build tree that
+# `ctest` compiles and points at. `cmake --build` IS the edit-rebuild loop.
+[tool.uv]
+# `uv sync` provisions the dev tools; it does not install this project, for the
+# reason above. Reach the package through the CMake build tree (ctest does this
+# for you) or install it non-editably with `pip install .`.
+package = false
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pygments>=2.15",
+  "pydantic>=2.9",
+  "pybind11-stubgen>=2.5",
+  "scikit-build-core>=0.10",
+  "cmake>=3.28",
+  "ninja",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]

@@ -34,6 +34,7 @@ if (ENABLE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
 endif ()
 
 option(RMC_BUILD_TESTS "Build Catch2 test suite" ON)
+option(RMC_BUILD_PYTHON "Build the pybind11 extension module (rmc._core)" OFF)
 option(ENABLE_NATIVE_ARCH "Optimise for the current machine" ON)
 option(ENABLE_MKL "Use Intel MKL backend for Eigen" ON)
 
@@ -112,6 +113,19 @@ endif ()
 
 include(FetchContent)
 
+# The Python extension. Its find_package(Python) runs before anything else asks:
+# the first call caches the interpreter, and seitz's configure step (and
+# pybind11's) would otherwise pin whatever python is first on PATH -- conda's
+# 3.10 on a machine that has one. The python preset points it at .venv.
+if (RMC_BUILD_PYTHON)
+    find_package(Python 3.11 REQUIRED COMPONENTS Interpreter Development.Module)
+    # seitz as a static archive too, so _core absorbs it like RMC.
+    set(SEITZ_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
+    # Everything linked into _core.so (RMC, mcsqs_core, a fetched spdlog) has
+    # to be relocatable.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif ()
+
 # Eigen3 and Boost are declared before seitz, so its own FetchContent_Declare
 # calls for them are ignored (first declaration wins) and it links these.
 # Eigen3::Eigen is IMPORTED so seitz's install(EXPORT) accepts it.
@@ -136,7 +150,15 @@ foreach (lib leaf flyweight parser algorithm range)
         target_link_libraries(Boost::${lib} INTERFACE Boost::headers)
     endif ()
 endforeach ()
-find_package(spdlog REQUIRED)
+# The system spdlog when there is one (locally, in CI); otherwise a static one,
+# which is what the manylinux wheel container gets.
+set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "")
+FetchContent_Declare(spdlog
+        GIT_REPOSITORY https://github.com/gabime/spdlog.git
+        GIT_TAG v1.15.3
+        GIT_SHALLOW TRUE
+        FIND_PACKAGE_ARGS 1.12)
+FetchContent_MakeAvailable(spdlog)
 
 add_library(eigen_backend INTERFACE)
 if (ENABLE_MKL)
@@ -181,11 +203,32 @@ set(SEITZ_BUILD_TESTS OFF)
 set(SEITZ_BUILD_DEMO OFF)
 FetchContent_Declare(Seitz
         GIT_REPOSITORY https://github.com/reach2sayan/Seitz.git
-        GIT_TAG de0851f6d6b08eec1979365cd4079b3ba1b8cd1f # v0.1.2+5
+        GIT_TAG b2c96d194a469daec93b4160cdd47861f8fb8c91 # v0.1.4 + SEITZ_STATIC_LIBRARY
         SYSTEM)
 FetchContent_MakeAvailable(Seitz)
 
-add_library(RMC SHARED
+# pybind11 3.x (py::native_enum), pinned like seitz pins it. FETCHCONTENT_SOURCE_
+# DIR_PYBIND11 points it at a local clone for offline builds.
+if (RMC_BUILD_PYTHON)
+    set(PYBIND11_FINDPYTHON ON CACHE BOOL "" FORCE)
+    set(PYBIND11_INSTALL OFF CACHE BOOL "" FORCE)
+    set(PYBIND11_TEST OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            GIT_TAG v3.0.4
+            GIT_SHALLOW TRUE
+            SYSTEM)
+    FetchContent_MakeAvailable(pybind11)
+endif ()
+
+# STATIC when the Python extension absorbs it: one module, one set of
+# Boost.LEAF thread-local error slots, nothing to locate at import time.
+if (RMC_BUILD_PYTHON)
+    set(RMC_LIBRARY_TYPE STATIC)
+else ()
+    set(RMC_LIBRARY_TYPE SHARED)
+endif ()
+add_library(RMC ${RMC_LIBRARY_TYPE}
         src/core/Structure.cpp
         src/core/NeighborGrid.cpp
         src/core/Parallel.cpp
@@ -261,7 +304,8 @@ endif ()
 # and GCC 15's libstdc++, which stock distros do not ship yet). The RPATH is a
 # DT_RPATH (--disable-new-dtags above), so it also covers indirect deps and wins
 # over the system libstdc++.
-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# Not for the wheel, which installs COMPONENT python only.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT RMC_BUILD_PYTHON)
     include(GNUInstallDirs)
     # seitz is listed explicitly: a target built in this tree (FetchContent) is
     # never collected as a runtime dependency unless it is itself installed.
@@ -337,3 +381,10 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
             PROPERTIES SKIP_RETURN_CODE 4)
 endif ()
 
+# Last, after include(CTest), so the pytest suite registers as a ctest.
+if (RMC_BUILD_PYTHON)
+    if (NOT TARGET mcsqs_core)
+        message(FATAL_ERROR "RMC_BUILD_PYTHON needs RMC_BUILD_MCSQS=ON (rmc.mcsqs binds mcsqs_core)")
+    endif ()
+    add_subdirectory(python)
+endif ()
