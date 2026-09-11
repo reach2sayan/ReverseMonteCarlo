@@ -153,6 +153,7 @@ TEST_CASE("HistogramCallback - writes CSV with correct header and data",
   }
   REQUIRE(rows == 5);
 
+  f.close(); // Windows refuses to remove a file another handle still holds open
   fs::remove_all(dir);
 }
 
@@ -194,6 +195,7 @@ TEST_CASE("HistogramCallback - truncates to shortest vector", "[callbacks]") {
       ++rows;
   REQUIRE(rows == 3);
 
+  f.close(); // Windows refuses to remove a file another handle still holds open
   fs::remove_all(dir);
 }
 
@@ -245,6 +247,7 @@ TEST_CASE("Chi2CollectorCallback - finalize writes CSV", "[callbacks]") {
   }
   REQUIRE(rows == 3);
 
+  f.close(); // Windows refuses to remove a file another handle still holds open
   fs::remove_all(csv.parent_path());
 }
 
