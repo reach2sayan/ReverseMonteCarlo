@@ -56,3 +56,7 @@ dist/
 wheelhouse/
 __pycache__/
 *.egg-info/
+
+# Internal fullrmc comparison harness (never committed; see compare/README.md)
+/compare/
+/build_compare/
