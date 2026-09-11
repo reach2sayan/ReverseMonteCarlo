@@ -76,9 +76,21 @@ void def_init(py::class_<T> &cls, L<D...>) {
           py::kw_only(), (py::arg(D::name) = defaults.*D::pointer)...);
 }
 
+// Field equality that is safe for Eigen matrices (their == asserts equal
+// shapes, which a release build does not check) and optionals of them.
+template <class F> [[nodiscard]] bool field_equal(const F &a, const F &b) {
+  if constexpr (requires { a.rows(); a.cols(); }) {
+    return a.rows() == b.rows() && a.cols() == b.cols() && a == b;
+  } else if constexpr (requires { a.has_value(); *a; }) {
+    return a.has_value() == b.has_value() && (!a || field_equal(*a, *b));
+  } else {
+    return a == b;
+  }
+}
+
 template <class T, template <class...> class L, class... D>
 [[nodiscard]] bool equal(const T &a, const T &b, L<D...>) {
-  return ((a.*D::pointer == b.*D::pointer) && ...);
+  return (field_equal(a.*D::pointer, b.*D::pointer) && ...);
 }
 
 } // namespace detail

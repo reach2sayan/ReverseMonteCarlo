@@ -5,6 +5,7 @@
 #include <RMC/core/Types.hpp>
 #include <RMC/io/StructFormat.hpp>
 
+#include <boost/describe/class.hpp>
 #include <boost/describe/enum.hpp>
 #include <boost/program_options.hpp>
 
@@ -56,12 +57,19 @@ struct RMCConfig {
 
   std::string out_path = "refined.pdb";
 };
+BOOST_DESCRIBE_STRUCT(RMCConfig, (),
+                      (pdb_path, lammps_path, vasp_path, lammps_types,
+                       box_override, pdf_path, sq_path, adf_path, rho0,
+                       adf_cutoff, adf_smooth, steps, seed, use_smart,
+                       group_min_amp, group_max_amp, move_gen, move_step,
+                       checkpoint_path, log_every, out_path))
 
 using LoadedStructure = io::LoadedStructure;
 
 struct ExperimentalData {
   std::optional<mat_t> pdf, sq, adf;
 };
+BOOST_DESCRIBE_STRUCT(ExperimentalData, (), (pdf, sq, adf))
 
 [[nodiscard]] Result<LoadedStructure> load_structure(const RMCConfig &cfg);
 

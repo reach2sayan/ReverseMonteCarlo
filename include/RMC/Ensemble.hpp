@@ -10,6 +10,7 @@
 #include <functional>
 #include <future>
 #include <ranges>
+#include <span>
 #include <vector>
 
 #if defined(RMC_USE_TBB)
@@ -80,10 +81,57 @@ Engine run_ensemble(F make_engine, std::size_t n_replicas,
   return std::move(*std::ranges::min_element(engines, {}, &Engine::best_error));
 }
 
-// Runs n_replicas engines in parallel. Every sync_every steps the best replica's
-// structure is broadcast to all laggards (each keeps its own selector/RNG, so
-// they re-diverge). Stops when any replica reaches target_chi2 (or max_steps);
-// returns the replica with the lowest current chi2.
+// Cooperative refinement over engines the caller owns; they run in place.
+// Every sync_every steps the best replica's structure is broadcast to the
+// laggards (each keeps its own selector/RNG, so they re-diverge). Stops when
+// any replica reaches target_chi2 (or max_steps); returns the index of the
+// replica with the lowest current chi2.
+inline std::size_t run_cooperative(std::span<Engine *const> engines,
+                                   double target_chi2,
+                                   std::uint64_t sync_every = 1000,
+                                   std::uint64_t max_steps = 0,
+                                   std::size_t tbb_threads_per_replica = 0) {
+  const std::size_t n_replicas = engines.size();
+  const auto best = [&] {
+    return std::ranges::min_element(engines, {}, [](const Engine *e) {
+      return e->stats().last_total_err;
+    });
+  };
+
+  // Broadcast only the mutable state (not the whole Engine): each laggard copies
+  // it into its own engine, keeping its constraints/generators bound.
+  AtomicStructure shared_best = engines.front()->structure();
+  std::atomic<bool> done{false};
+  std::atomic<std::size_t> best_i{0};
+  std::barrier sync_point(static_cast<std::ptrdiff_t>(n_replicas), [&]() noexcept {
+    const auto b = best();
+    done.store((*b)->stats().last_total_err <= target_chi2,
+               std::memory_order_relaxed);
+    best_i.store(static_cast<std::size_t>(b - engines.begin()),
+                 std::memory_order_relaxed);
+    shared_best.assign_mutable_state((*b)->structure());
+  });
+
+  detail::run_replicas(n_replicas, tbb_threads_per_replica, [&](std::size_t i) {
+    for (std::uint64_t steps = 0;;) {
+      const auto n = max_steps > 0 ? std::min(sync_every, max_steps - steps)
+                                   : sync_every;
+      engines[i]->run(n);
+      steps += n;
+      sync_point.arrive_and_wait();
+      if (done || (max_steps > 0 && steps >= max_steps)) {
+        return;
+      }
+      if (i != best_i.load(std::memory_order_relaxed)) {
+        engines[i]->structure().assign_mutable_state(shared_best);
+      }
+    }
+  });
+  return static_cast<std::size_t>(best() - engines.begin());
+}
+
+// run_cooperative over n_replicas engines built by make_engine(i); returns the
+// replica with the lowest current chi2.
 template <std::invocable<std::size_t> F>
   requires std::same_as<std::invoke_result_t<F, std::size_t>, Engine>
 Engine run_ensemble_cooperative(F make_engine, std::size_t n_replicas,
@@ -92,40 +140,11 @@ Engine run_ensemble_cooperative(F make_engine, std::size_t n_replicas,
                                 std::uint64_t max_steps = 0,
                                 std::size_t tbb_threads_per_replica = 0) {
   auto engines = detail::make_engines(make_engine, n_replicas);
-  const auto best = [&] {
-    return std::ranges::min_element(
-        engines, {}, [](const Engine &e) { return e.stats().last_total_err; });
-  };
-
-  // Broadcast only the mutable state (not the whole Engine): each laggard copies
-  // it into its own engine, keeping its constraints/generators bound.
-  AtomicStructure shared_best = engines[0].structure();
-  std::atomic<bool> done{false};
-  std::atomic<std::size_t> best_i{0};
-  std::barrier sync_point(static_cast<std::ptrdiff_t>(n_replicas), [&]() noexcept {
-    const auto b = best();
-    done.store(b->stats().last_total_err <= target_chi2, std::memory_order_relaxed);
-    best_i.store(static_cast<std::size_t>(b - engines.begin()),
-                 std::memory_order_relaxed);
-    shared_best.assign_mutable_state(b->structure());
-  });
-
-  detail::run_replicas(n_replicas, tbb_threads_per_replica, [&](std::size_t i) {
-    for (std::uint64_t steps = 0;;) {
-      const auto n = max_steps > 0 ? std::min(sync_every, max_steps - steps)
-                                   : sync_every;
-      engines[i].run(n);
-      steps += n;
-      sync_point.arrive_and_wait();
-      if (done || (max_steps > 0 && steps >= max_steps)) {
-        return;
-      }
-      if (i != best_i.load(std::memory_order_relaxed)) {
-        engines[i].structure().assign_mutable_state(shared_best);
-      }
-    }
-  });
-  return std::move(*best());
+  const auto replicas = engines |
+                        std::views::transform([](Engine &e) { return &e; }) |
+                        std::ranges::to<std::vector>();
+  return std::move(engines[run_cooperative(replicas, target_chi2, sync_every,
+                                           max_steps, tbb_threads_per_replica)]);
 }
 
 } // namespace RMC

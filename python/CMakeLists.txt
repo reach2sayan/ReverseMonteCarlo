@@ -9,7 +9,8 @@ pybind11_add_module(_core
         src/generators.cpp
         src/sampling.cpp
         src/selectors.cpp
-        src/engine.cpp)
+        src/engine.cpp
+        src/runner.cpp)
 
 # Linking the targets, not naming their include directories, keeps _core's ABI
 # in step with the library's: cxx_std_23, RMC_USE_TBB and the global -march

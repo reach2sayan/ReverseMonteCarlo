@@ -109,3 +109,11 @@ def test_recursive_selector_nests_and_copies() -> None:
     assert outer.mode == rmc.RecursiveMode.Explore
     assert 0 <= outer.select(3) < 3
     assert inner.select(3) == 0  # the outer holds its own copy
+
+
+def test_recursive_copies_reproduce_the_inner_stream() -> None:
+    """Each RecursiveGroupSelector deep-copies its inner selector, RNG included."""
+    inner = rmc.RandomSelector(seed=5)
+    a = rmc.RecursiveGroupSelector(inner, max_retries=0)
+    b = rmc.RecursiveGroupSelector(inner, max_retries=0)
+    assert [a.select(50) for _ in range(20)] == [b.select(50) for _ in range(20)]

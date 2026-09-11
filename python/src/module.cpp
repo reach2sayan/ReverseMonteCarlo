@@ -17,6 +17,7 @@ void bind_generators(py::module_ &m);
 void bind_sampling(py::module_ &m);
 void bind_selectors(py::module_ &m);
 void bind_engine(py::module_ &m);
+void bind_runner(py::module_ &m);
 
 } // namespace rmc::python
 
@@ -41,4 +42,5 @@ PYBIND11_MODULE(_core, m) {
   rp::bind_sampling(m);
   rp::bind_selectors(m);
   rp::bind_engine(m);
+  rp::bind_runner(m);
 }
