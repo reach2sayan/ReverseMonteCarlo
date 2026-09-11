@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/class.hpp>
 #include <RMC/core/Structure.hpp>
 #include <RMC/core/Types.hpp>
 #include <cstdint>
@@ -13,6 +14,8 @@ struct EngineStats {
   std::uint64_t steps_tried{0};
   double last_total_err{0.0};
 };
+BOOST_DESCRIBE_STRUCT(EngineStats, (),
+                      (steps_total, steps_accepted, steps_tried, last_total_err))
 
 // Save coordinates + stats to a binary archive (Boost.Serialization).
 [[nodiscard]] Result<void> save_checkpoint(const AtomicStructure &s,

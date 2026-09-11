@@ -252,13 +252,9 @@ void bind_collector(py::module_ &m) {
 
 void bind_random(py::module_ &m) {
   using RMC::RandomStructure;
-  py::class_<RandomStructure>(m, "RandomStructure",
-                              "A random amorphous configuration and its cubic "
-                              "periodic cell.")
-      .def_readonly("structure", &RandomStructure::structure)
-      .def_readonly("box", &RandomStructure::box, "The cell matrix, read-only.")
-      .def("periodic_bc", &RandomStructure::periodic_bc,
-           "PeriodicBC over box.")
+  bind_structure_result<RandomStructure>(
+      m, "RandomStructure",
+      "A random amorphous configuration and its cubic periodic cell.")
       .def("__repr__", [](const RandomStructure &r) {
         return std::format("RandomStructure({}, box side {:g})",
                            repr(r.structure), r.box(0, 0));

@@ -7,6 +7,7 @@
 
 #include <string>
 #include <type_traits>
+#include <utility>
 
 // The one place a Result<T> becomes a Python exception. Everything else in
 // this module is ordinary pybind11.
@@ -69,6 +70,25 @@ auto unwrap_nogil(py::handle type, F &&call) {
     const py::gil_scoped_release unlocked;
     return call();
   });
+}
+
+namespace detail {
+
+template <auto Fn, class R, class... Args>
+auto checked(py::handle ErrorTypes::*kind, R (*)(Args...)) {
+  return [kind](Args... args) {
+    return unwrap_nogil(error_types().*kind,
+                        [&]() -> R { return Fn(std::forward<Args>(args)...); });
+  };
+}
+
+} // namespace detail
+
+// A free function returning Result<T>, as something pybind11 can bind: the
+// same parameters, the value on success, the `kind` exception on failure, the
+// GIL released around the call.
+template <auto Fn> auto checked(py::handle ErrorTypes::*kind) {
+  return detail::checked<Fn>(kind, Fn);
 }
 
 } // namespace rmc::python

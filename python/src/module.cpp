@@ -11,6 +11,7 @@
 namespace rmc::python {
 
 void bind_core(py::module_ &m);
+void bind_io(py::module_ &m);
 
 } // namespace rmc::python
 
@@ -26,4 +27,5 @@ PYBIND11_MODULE(_core, m) {
   // Then vocabulary before the things phrased in it, so later signatures name
   // AtomicStructure and BoundaryConditions rather than raw C++ types.
   rp::bind_core(m);
+  rp::bind_io(m);
 }

@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <format>
+#include <string>
 
 // The conversions and checks that are not pybind11's job out of the box.
 // Arrays, lists and optionals go through pybind11/eigen.h and pybind11/stl.h.
@@ -30,6 +31,29 @@ inline std::size_t require_atom(std::size_t i, std::size_t n_atoms) {
         std::format("atom index {} out of range for {} atoms", i, n_atoms));
   }
   return i;
+}
+
+// A reader's result: a structure plus whatever cell it carries (box, bc,
+// origin). One binder for LoadedStructure, VaspData, LammpsData and
+// RandomStructure; members are read-only views that keep the result alive.
+template <class T>
+py::class_<T> bind_structure_result(py::handle scope, const char *name,
+                                    const char *doc) {
+  py::class_<T> cls{scope, name, doc};
+  cls.def_readonly("structure", &T::structure);
+  if constexpr (requires { &T::box; }) {
+    cls.def_readonly("box", &T::box, "The cell matrix, read-only.");
+  }
+  if constexpr (requires { &T::origin; }) {
+    cls.def_readonly("origin", &T::origin, "The cell's lower corner.");
+  }
+  if constexpr (requires { &T::bc; }) {
+    cls.def_readonly("bc", &T::bc);
+  }
+  if constexpr (requires(const T &t) { t.periodic_bc(); }) {
+    cls.def("periodic_bc", &T::periodic_bc, "PeriodicBC over box.");
+  }
+  return cls;
 }
 
 } // namespace rmc::python
