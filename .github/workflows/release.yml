@@ -227,7 +227,8 @@ jobs:
               ext = [n for n in names if re.fullmatch(r"rmc/_core\.[^/]+\.so", n)]
               if len(ext) != 1:
                   print(f"::error::{w}: expected exactly one extension, got {ext}"); bad = True
-              vendored = [n for n in names if n.startswith("reverse_monte_carlo.libs/")]
+              # Files only: the zip also lists the directory entry itself.
+              vendored = [n for n in names if n.startswith("reverse_monte_carlo.libs/") and not n.endswith("/")]
               stray = [n for n in vendored if not re.search(r"/lib(boost_|tbb)", n)]
               if stray:
                   print(f"::error::{w}: unexpected vendored libraries {stray}"); bad = True

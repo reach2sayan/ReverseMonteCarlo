@@ -19,6 +19,12 @@ endif ()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
+# RMC uses no C++20 modules. With C++23 CMake would still scan every TU for
+# them (-fdeps-format=p1689r5 -fmodules-ts), which costs a scan step per file
+# and breaks under the manylinux image's ccache 3.x: it handles -MD/-MF itself,
+# leaving GCC the scan flags alone ("to generate dependencies you must specify
+# either -M or -MM"). seitz turns it off for the same reason.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ENABLE_CCACHE "Use ccache to speed up rebuilds when available" ON)
