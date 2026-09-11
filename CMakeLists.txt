@@ -183,7 +183,9 @@ FetchContent_MakeAvailable(Boost)
 # A b2-installed Boost ships CMake configs only for compiled libraries; the
 # header-only ones seitz names get interface targets over Boost::headers. When
 # the superproject above supplied them instead, these are already real targets.
-foreach (lib leaf flyweight parser algorithm range)
+foreach (lib leaf flyweight parser algorithm range
+        assert describe dynamic_bitset math mp11 mpl random
+        stl_interfaces type_erasure)
     if (NOT TARGET Boost::${lib})
         add_library(Boost::${lib} INTERFACE IMPORTED GLOBAL)
         target_link_libraries(Boost::${lib} INTERFACE Boost::headers)
@@ -312,6 +314,22 @@ target_link_libraries(RMC PUBLIC
         Boost::serialization
         Boost::container
         Boost::nowide
+        # Header-only modules this tree includes directly. A find_package'd Boost
+        # puts every header behind Boost::headers, but the CMake superproject
+        # (Windows) carries each module's include dir on its own target only, so
+        # naming them here is what makes those headers reachable there.
+        Boost::algorithm
+        Boost::assert
+        Boost::describe
+        Boost::dynamic_bitset
+        Boost::leaf
+        Boost::math
+        Boost::mp11
+        Boost::mpl
+        Boost::parser
+        Boost::random
+        Boost::stl_interfaces
+        Boost::type_erasure
         Threads::Threads
         seitz::seitz
 )
