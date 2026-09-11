@@ -75,7 +75,8 @@ def sqs_engine(sqs: EnumeratedSqs, *, sampler: Sampler | None = None, seed: int 
     swap = SpeciesSwapGenerator(engine.structure, build_sublattices(engine.structure), seed=seed)
     for site in range(len(engine.structure)):
         engine.add_group(Group(f"site_{site}", [site], swap))
-    engine.set_selector(SmartRandomSelector(seed=seed))
+    # Seeded apart from the swap generator's stream, as mcsqs_rmc does.
+    engine.set_selector(SmartRandomSelector(seed=(seed + 1) % 2**32))
     engine.set_sampler(sampler if sampler is not None else GreedySampler(), seed=seed)
     engine.set_track_best()
     return engine
