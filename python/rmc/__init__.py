@@ -6,10 +6,14 @@ distribution data. The C++ engine lives in :mod:`rmc._core`; import from
 
     import rmc
 
+    config = rmc.RMCConfig(pdb_path="start.pdb", pdf_path="gr.dat", rho0=0.07, steps=50_000)
+    engine = rmc.refine(config, chi2_csv="chi2.csv")  # writes config.out_path
+    print(engine.stats, engine.constraints.error_breakdown())
+
     start = rmc.make_random_amorphous(["Cu", "Zr"], [32, 32], seed=7)
-    atoms = start.structure             # AtomicStructure; atoms.coordinates is (N, 3)
-    bc = start.periodic_bc()            # PeriodicBC over the generated cell
-    rmc.write_vasp(atoms, start.box, "POSCAR")
+    engine = rmc.Engine(start.structure, start.periodic_bc())
+    engine.build_atomic_groups(0.0, 0.2)
+    engine.run(10_000)                                # the GIL is released
 """
 
 from __future__ import annotations
@@ -24,6 +28,18 @@ from ._core import __version__
 # it first: rmc.mcsqs is the Python module over _core.mcsqs.
 del mcsqs  # noqa: F821
 from . import mcsqs
+from . import errors
+from ._protocols import (
+    ConstraintProtocol,
+    MoveGeneratorProtocol,
+    python_constraint,
+    python_generator,
+)
+
+# The validated model replaces the raw struct the star import bound: the
+# builder functions still take rmc._core.RMCConfig, which RMCConfig.to_core()
+# returns.
+from .config import RMCConfig, refine, refine_ensemble
 
 __all__ = sorted(
     [
@@ -45,6 +61,7 @@ __all__ = sorted(
         "ConfigError",
         "Constraint",
         "ConstraintCollection",
+        "ConstraintProtocol",
         "CoordinationConstraint",
         "DihedralAngleConstraint",
         "DirectionalOrderSelector",
@@ -75,6 +92,7 @@ __all__ = sorted(
         "MoveGenKind",
         "MoveGenerator",
         "MoveGeneratorCollector",
+        "MoveGeneratorProtocol",
         "OrderedSelector",
         "OrientationGenerator",
         "PDBSnapshotCallback",
@@ -120,6 +138,7 @@ __all__ = sorted(
         "compute_adf",
         "compute_gr",
         "default_concurrency",
+        "errors",
         "has_tbb",
         "load_checkpoint",
         "load_experimental_data",
@@ -127,6 +146,8 @@ __all__ = sorted(
         "make_random_amorphous",
         "mcsqs",
         "periodic_box_or_zero",
+        "python_constraint",
+        "python_generator",
         "read_columns",
         "read_lammps_data",
         "read_pdb",
@@ -134,6 +155,8 @@ __all__ = sorted(
         "read_structure_by_ext",
         "read_vasp",
         "read_xy_data",
+        "refine",
+        "refine_ensemble",
         "run_ensemble",
         "run_ensemble_cooperative",
         "save_checkpoint",

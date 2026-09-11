@@ -97,31 +97,25 @@ def test_cooperative_ensemble_terminates_on_the_best_replica() -> None:
 
 
 def test_config_is_a_described_struct_with_the_cli_defaults() -> None:
-    config = rmc.RMCConfig()
+    config = rmc._core.RMCConfig()
     assert (config.rho0, config.steps, config.seed) == (0.1, 100000, 42)
     assert config.move_gen == rmc.MoveGenKind.Random
     assert config.out_path == "refined.pdb"
     assert config.pdb_path == ""
-    assert rmc.RMCConfig(seed=7) == rmc.RMCConfig(seed=7) != config
+    assert rmc._core.RMCConfig(seed=7) == rmc._core.RMCConfig(seed=7) != config
     assert repr(config).startswith("RMCConfig(pdb_path='', lammps_path=''")
 
 
 @pytest.fixture
-def inputs(tmp_path: Path) -> rmc.RMCConfig:
-    start = rmc.make_random_amorphous(["Cu", "Zr"], [16, 16], seed=3)
-    pdb = tmp_path / "start.pdb"
-    rmc.write_pdb(start.structure, pdb)
-    r = np.linspace(0.5, 8.0, 60)
-    gr = tmp_path / "gr.dat"
-    np.savetxt(gr, np.column_stack([r, np.ones_like(r)]))
-    side = start.box[0, 0]
-    return rmc.RMCConfig(
+def inputs(refinement_files: tuple[Path, Path, float]) -> rmc._core.RMCConfig:
+    pdb, gr, side = refinement_files
+    return rmc._core.RMCConfig(
         pdb_path=str(pdb), pdf_path=str(gr), box_override=f"{side} {side} {side}",
         rho0=0.05, seed=3,
     )
 
 
-def test_build_engine_from_a_config(inputs: rmc.RMCConfig) -> None:
+def test_build_engine_from_a_config(inputs: rmc._core.RMCConfig) -> None:
     engine = rmc.build_engine(inputs)
     assert engine.n_groups == 32
     assert [c.name for c in engine.constraints] == ["PairDistributionConstraint"]
@@ -130,21 +124,21 @@ def test_build_engine_from_a_config(inputs: rmc.RMCConfig) -> None:
     assert engine.steps_total == 50
 
 
-def test_build_engine_from_loaded_inputs(inputs: rmc.RMCConfig) -> None:
+def test_build_engine_from_loaded_inputs(inputs: rmc._core.RMCConfig) -> None:
     loaded = rmc.load_structure(inputs)
     data = rmc.load_experimental_data(inputs)
     assert data.pdf is not None and data.pdf.shape == (60, 2)
     assert data.sq is None and data.adf is None
     assert data == rmc.load_experimental_data(inputs)
-    engines = [rmc.build_engine(loaded, data, rmc.RMCConfig(**{**_fields(inputs), "seed": s})) for s in (1, 2)]
+    engines = [rmc.build_engine(loaded, data, rmc._core.RMCConfig(**{**_fields(inputs), "seed": s})) for s in (1, 2)]
     assert all(len(e.structure) == 32 for e in engines)
 
 
-def _fields(config: rmc.RMCConfig) -> dict[str, object]:
+def _fields(config: rmc._core.RMCConfig) -> dict[str, object]:
     return {name: getattr(config, name) for name in ("pdb_path", "pdf_path", "box_override", "rho0")}
 
 
-def test_gradient_move_generator_is_applied(inputs: rmc.RMCConfig) -> None:
+def test_gradient_move_generator_is_applied(inputs: rmc._core.RMCConfig) -> None:
     inputs.move_gen = rmc.MoveGenKind.Langevin
     inputs.move_step = 0.01
     engine = rmc.build_engine(inputs)
@@ -155,7 +149,7 @@ def test_gradient_move_generator_is_applied(inputs: rmc.RMCConfig) -> None:
 
 def test_config_errors_are_config_errors() -> None:
     with pytest.raises(rmc.ConfigError, match="exactly one input structure"):
-        rmc.build_engine(rmc.RMCConfig())
+        rmc.build_engine(rmc._core.RMCConfig())
 
 
 @pytest.mark.parametrize("name", ["out.vasp", "out.lammps", "out.pdb"])

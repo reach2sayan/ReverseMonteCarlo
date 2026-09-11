@@ -42,6 +42,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 | `RMC_BUILD_TESTS` | `ON` | Build the Catch2 test suite (`RMC_tests`). |
 | `RMC_BUILD_EXAMPLES` | `ON` | Build the bundled C++ examples under `examples/`. |
 | `RMC_BUILD_MCSQS` | `ON` | Build the `mcsqs_rmc` SQS-search extension. |
+| `RMC_BUILD_PYTHON` | `OFF` | Build the `rmc._core` Python extension, with RMC and seitz linked in statically (the `python` preset turns it on). |
 | `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer + UBSan on all targets. |
 
 Example — release build with the kernels run serially:
@@ -50,6 +51,63 @@ Example — release build with the kernels run serially:
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DRMC_USE_TBB=OFF
 cmake --build build -j$(nproc)
 ```
+
+## Python
+
+Tagged releases publish Linux x86-64 wheels for CPython 3.11–3.14:
+
+```bash
+pip install reverse-monte-carlo
+```
+
+From source, the `python` preset builds the extension beside a static libRMC and runs the pytest suite as a ctest. `uv sync` makes the `.venv` (Python 3.12 and the dev tools) the preset points at:
+
+```bash
+uv sync
+cmake --preset python && cmake --build --preset python
+ctest --preset python
+```
+
+`pip install .` builds a wheel the same way. It uses whatever `c++` is on `PATH`, so export `CXX=g++-15` first.
+
+The package is `rmc`. A config-driven refinement does what `RMC_run` does:
+
+```python
+import rmc
+
+config = rmc.RMCConfig(pdb_path="input.pdb", pdf_path="experimental_gr.dat",
+                       rho0=0.033, box_override=(20.0, 20.0, 20.0), steps=100_000)
+engine = rmc.refine(config, chi2_csv="chi2.csv")    # writes config.out_path
+print(engine.stats, engine.constraints.error_breakdown())
+```
+
+Or drive the engine yourself. Structures, boundary conditions, constraints, generators, samplers and selectors are the C++ types, and coordinates are zero-copy numpy views:
+
+```python
+start = rmc.make_random_amorphous(["Cu", "Zr"], [32, 32], seed=7)
+engine = rmc.Engine(start.structure, start.periodic_bc())
+engine.build_atomic_groups(0.0, 0.2)
+
+pdf = rmc.PairDistributionConstraint()
+pdf.set_experimental_data(rmc.read_xy_data("experimental_gr.dat"))
+pdf.set_number_density(0.06)
+pdf.set_elements(engine.structure)     # bind to engine.structure, not start.structure
+engine.add_constraint(pdf)
+
+engine.set_sampler(rmc.MetropolisSampler(0.01))
+engine.run(50_000)                     # releases the GIL
+curve = engine.constraints[0].concrete().computed
+```
+
+Constraints and move generators can be written in Python. `Constraint(obj)` wraps any object with `compute_error(coords, moved) -> float`, and `MoveGenerator(obj)` wraps one with `generate(coords, indices)`. `rmc.ConstraintProtocol` and `rmc.MoveGeneratorProtocol` spell out the optional hooks. Each call re-acquires the GIL, so Python constraints cost more per step than C++ ones.
+
+Three rules keep borrowed data valid:
+
+- **The engine copies the structure it is given.** Bind constraints to `engine.structure`.
+- **Constraints borrow per-atom arrays.** A structure keeps its atom count once built, and setters that would change it raise `ValueError`.
+- **Gradient generators point into `engine.constraints`.** Build them after every constraint is added, with `build_langevin_groups` or `run_ensemble(..., prepare=...)`.
+
+`rmc.mcsqs` is the SQS pipeline: `parse_lattice`, `enumerate` and `sqs_engine`. Every library failure raises a subclass of `rmc.RmcError`.
 
 ## CLI
 
