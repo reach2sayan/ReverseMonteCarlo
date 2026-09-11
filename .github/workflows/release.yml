@@ -11,8 +11,9 @@
 # ubuntu-24.04 means they need glibc 2.39 or newer.
 #
 # The same tag also builds the Python wheels (cibuildwheel, manylinux_2_28,
-# CPython 3.11-3.14) and an sdist, attaches them to the GitHub Release, and
-# uploads them to PyPI as reverse-monte-carlo by Trusted Publishing: the `pypi`
+# CPython 3.11-3.14) and an sdist. Binaries live on GitHub, Python on PyPI: the
+# GitHub Release carries only the RMC_run tarballs, and the wheels and sdist go
+# to PyPI as reverse-monte-carlo by Trusted Publishing: the `pypi`
 # job's OIDC token is exchanged for a one-off upload credential against the
 # publisher registered for this repository, this workflow file and the `pypi`
 # environment (deployable from v* tags only). No API token is stored anywhere.
@@ -276,14 +277,16 @@ jobs:
   # makes a dispatch a rehearsal.
   publish:
     if: github.ref_type == 'tag'
-    needs: [version, native, wheels, sdist]
+    needs: [version, native]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      # The RMC_run tarballs only; the wheels and sdist go to PyPI.
       - uses: actions/download-artifact@v4
         with:
+          pattern: native-*
           path: dist
           merge-multiple: true
       - run: ls -l dist
@@ -296,7 +299,7 @@ jobs:
   pypi:
     name: PyPI
     if: github.ref_type == 'tag'
-    needs: [version, publish]
+    needs: [version, wheels, sdist]
     runs-on: ubuntu-24.04
     environment:
       name: pypi
