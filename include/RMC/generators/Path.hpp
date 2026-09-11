@@ -1,5 +1,6 @@
 #pragma once
 #include <RMC/generators/MoveGenerator.hpp>
+#include <utility>
 #include <vector>
 
 namespace RMC {

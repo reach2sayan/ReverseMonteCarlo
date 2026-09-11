@@ -3,6 +3,7 @@
 #include <RMC/core/Types.hpp>
 #include <algorithm>
 #include <boost/container/small_vector.hpp>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>

@@ -12,6 +12,7 @@
 #include <cctype>
 #include <span>
 #include <string_view>
+#include <utility>
 
 namespace RMC::io {
 namespace {

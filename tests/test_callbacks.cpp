@@ -9,6 +9,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <random>
 #include <fstream>
 #include <sstream>
