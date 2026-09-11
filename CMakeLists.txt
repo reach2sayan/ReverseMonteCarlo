@@ -161,6 +161,13 @@ message(STATUS "Eigen: fetched 5.0.0 source at ${eigen3_SOURCE_DIR}")
 # _core.pyd and oneTBB is the only DLL left to ship.
 # BOOST_INCLUDE_LIBRARIES is the union of the modules this tree includes and the
 # ones seitz links; the superproject resolves each module's own dependencies.
+# seitz install(EXPORT)s a target whose usage requirements name these Boost
+# targets, and CMake refuses to export a target that depends on one which is in
+# no export set. Boost's own install rules put them in one, so they must not be
+# skipped. seitz sets this too, but its Dependencies.cmake runs after the
+# MakeAvailable below -- by then Boost has already been configured, and the
+# variable no longer has any effect. It is inert when find_package wins.
+set(BOOST_SKIP_INSTALL_RULES OFF CACHE BOOL "" FORCE)
 set(BOOST_INCLUDE_LIBRARIES
         program_options serialization container graph nowide
         leaf flyweight parser algorithm range
@@ -413,8 +420,11 @@ elseif (WIN32 AND NOT RMC_BUILD_PYTHON)
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_COMPONENT runtime)
     set(CMAKE_INSTALL_UCRT_LIBRARIES TRUE)
     include(InstallRequiredSystemLibraries)
-    install(TARGETS RMC_run COMPONENT runtime
-            RUNTIME DESTINATION bin RUNTIME_DEPENDENCY_SET rmc_runtime)
+    # RUNTIME_DEPENDENCY_SET before the RUNTIME artifact group: once an
+    # artifact group is open, later keywords are parsed as part of it.
+    install(TARGETS RMC_run
+            RUNTIME_DEPENDENCY_SET rmc_runtime
+            RUNTIME DESTINATION bin COMPONENT runtime)
     install(RUNTIME_DEPENDENCY_SET rmc_runtime COMPONENT runtime
             DESTINATION bin
             DIRECTORIES $<TARGET_FILE_DIR:TBB::tbb>
