@@ -109,7 +109,7 @@ jobs:
           CXX: ${{ matrix.cxx }}
         run: >
           cmake -S . -B build -G Ninja
-          -DBOOST_ROOT=$HOME/boost
+          -DBOOST_ROOT="$HOME/boost"
           -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
           -DCMAKE_BUILD_TYPE=Release
           -DENABLE_MKL=OFF
