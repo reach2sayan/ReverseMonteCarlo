@@ -68,3 +68,40 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["python/tests"]
+
+# --- release wheels -----------------------------------------------------------
+# One wheel per CPython (pybind11 has no stable-ABI mode), manylinux_2_28
+# x86_64 only: the tree is written to libstdc++'s C++23, and there is no
+# Windows CI. As seitz does: no image ships GCC 15, but AlmaLinux 8's
+# AppStream carries gcc-toolset-15, whose libstdc++.so is a linker script over
+# libstdc++_nonshared.a -- post-baseline symbols link statically, the rest
+# resolve against the system libstdc++.so.6. release.yml re-checks that with
+# `nm -D`. The wheels need an AVX2 CPU: ENABLE_NATIVE_ARCH=OFF is
+# -march=x86-64-v3, the same floor as the release tarballs.
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux* *_i686 cp3??t-*"
+build-frontend = "build[uv]"
+build-verbosity = 1
+test-requires = "pytest"
+test-command = "pytest -q {package}/python/tests"
+
+# RMC_CACHE_DIR is /host<runner.temp>/rmc-cache under release.yml: cibuildwheel
+# copies only the wheelhouse out of the container, so caches live on the
+# runner's filesystem through /host. It holds the FetchContent tree (fc), the
+# Boost + oneTBB prefix tools/wheel_deps.sh builds, and ccache. CMAKE_ARGS, not
+# SKBUILD_CMAKE_ARGS: scikit-build-core appends the former and lets the latter
+# replace cmake.define. PATH as well as CC/CXX so IPO over the static archives
+# finds gcc-toolset-15's gcc-ar and ld.
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+manylinux-x86_64-image = "manylinux_2_28"
+before-all = [
+  "dnf -y --setopt=retries=5 install gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ gcc-toolset-15-binutils gcc-toolset-15-libatomic-devel ccache",
+  "CXX=/opt/rh/gcc-toolset-15/root/usr/bin/g++ bash {project}/tools/wheel_deps.sh ${RMC_CACHE_DIR:-/project/.cache}",
+]
+environment-pass = ["RMC_CACHE_DIR"]
+environment = { CC = "/opt/rh/gcc-toolset-15/root/usr/bin/gcc", CXX = "/opt/rh/gcc-toolset-15/root/usr/bin/g++", PATH = "/opt/rh/gcc-toolset-15/root/usr/bin:$PATH", CMAKE_ARGS = "-DFETCHCONTENT_BASE_DIR=${RMC_CACHE_DIR:-/project/.cache}/fc -DBOOST_ROOT=${RMC_CACHE_DIR:-/project/.cache}/prefix -DCMAKE_PREFIX_PATH=${RMC_CACHE_DIR:-/project/.cache}/prefix", CCACHE_DIR = "${RMC_CACHE_DIR:-/project/.cache}/ccache", CCACHE_MAXSIZE = "3G", CCACHE_COMPILERCHECK = "content" }
+# The installed _core carries no RPATH to the Boost/TBB prefix; point
+# auditwheel at it so it can find, and bundle, those libraries.
+repair-wheel-command = "LD_LIBRARY_PATH=${RMC_CACHE_DIR:-/project/.cache}/prefix/lib:$LD_LIBRARY_PATH auditwheel repair -w {dest_dir} {wheel}"

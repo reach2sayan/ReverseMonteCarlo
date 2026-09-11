@@ -67,8 +67,22 @@ template <class T, class D>
 using FieldType =
     std::remove_cvref_t<decltype(std::declval<T &>().*D::pointer)>;
 
-// T(*, field=default, ...) with one keyword per described field; defaults are
-// T{}'s, so the Python signature documents the C++ defaults exactly.
+// One keyword argument defaulting to T{}'s field. A registered class that is
+// not itself described (AtomicStructure) has a repr that is not a Python
+// expression, so its default is shown as `...`; everything else shows its
+// repr, which documents the C++ default exactly.
+template <class T, class D> [[nodiscard]] py::arg_v keyword(const T &defaults) {
+  using F = FieldType<T, D>;
+  if constexpr (std::is_base_of_v<py::detail::type_caster_generic,
+                                  py::detail::make_caster<F>> &&
+                !std::is_enum_v<F> && !DescribedStruct<F>) {
+    return py::arg_v(D::name, defaults.*D::pointer, "...");
+  } else {
+    return py::arg(D::name) = defaults.*D::pointer;
+  }
+}
+
+// T(*, field=default, ...) with one keyword per described field.
 template <class T, template <class...> class L, class... D>
 void def_init(py::class_<T> &cls, L<D...>) {
   const T defaults{};
@@ -77,7 +91,7 @@ void def_init(py::class_<T> &cls, L<D...>) {
             ((t.*D::pointer = std::move(values)), ...);
             return t;
           }),
-          py::kw_only(), (py::arg(D::name) = defaults.*D::pointer)...);
+          py::kw_only(), keyword<T, D>(defaults)...);
 }
 
 // Whether a field compares: Eigen matrices (shape-checked in field_equal),
