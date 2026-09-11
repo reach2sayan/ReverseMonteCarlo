@@ -9,9 +9,15 @@ option(ENABLE_LTO "Enable link-time optimization" ON)
 include(CheckIPOSupported)
 check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
 
-if (ENABLE_LTO AND ipo_supported)
+# Never on MSVC. CMAKE_INTERPROCEDURAL_OPTIMIZATION is set here, before seitz
+# is fetched, so it initialises INTERPROCEDURAL_OPTIMIZATION on the seitz target
+# as well -- putting /GL on its 70k-line constexpr table TUs, which seitz itself
+# declines on MSVC for the link-time cost.
+if (ENABLE_LTO AND ipo_supported AND NOT MSVC)
     message(STATUS "LTO: enabled")
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+elseif (ENABLE_LTO AND MSVC)
+    message(STATUS "LTO: disabled (MSVC — seitz's tables would compile with /GL)")
 else ()
     message(STATUS "LTO: not supported: ${ipo_error}")
 endif ()
@@ -27,8 +33,10 @@ set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Not on MSVC: ccache's cl.exe support is narrow. CI passes
+# -DCMAKE_CXX_COMPILER_LAUNCHER=sccache there, which this block leaves alone.
 option(ENABLE_CCACHE "Use ccache to speed up rebuilds when available" ON)
-if (ENABLE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+if (ENABLE_CCACHE AND NOT MSVC AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     find_program(CCACHE_PROGRAM ccache)
     if (CCACHE_PROGRAM)
         message(STATUS "ccache: enabled (${CCACHE_PROGRAM})")
@@ -145,11 +153,29 @@ add_library(Eigen3::Eigen INTERFACE IMPORTED GLOBAL)
 set_target_properties(Eigen3::Eigen PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${eigen3_SOURCE_DIR}")
 message(STATUS "Eigen: fetched 5.0.0 source at ${eigen3_SOURCE_DIR}")
 
-# A b2-installed Boost ships CMake configs only for compiled libraries; the
-# header-only ones seitz names get interface targets over Boost::headers.
-FetchContent_Declare(Boost FIND_PACKAGE_ARGS 1.88 REQUIRED CONFIG COMPONENTS
+# find_package first (locally /opt/boost, in CI ~/boost), and the CMake-ready
+# release archive only when that fails -- which is how Windows gets a Boost with
+# no b2 script to maintain. Deliberately no REQUIRED in FIND_PACKAGE_ARGS: it
+# makes a failed find fatal, so CMake would error out before reaching the URL.
+# The superproject builds static, so Boost is absorbed into RMC_run.exe and
+# _core.pyd and oneTBB is the only DLL left to ship.
+# BOOST_INCLUDE_LIBRARIES is the union of the modules this tree includes and the
+# ones seitz links; the superproject resolves each module's own dependencies.
+set(BOOST_INCLUDE_LIBRARIES
+        program_options serialization container graph nowide
+        leaf flyweight parser algorithm range
+        assert describe dynamic_bitset math mp11 mpl random
+        stl_interfaces type_erasure)
+FetchContent_Declare(Boost
+        URL https://github.com/boostorg/boost/releases/download/boost-1.89.0/boost-1.89.0-cmake.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP ON
+        SYSTEM
+        FIND_PACKAGE_ARGS 1.88 CONFIG COMPONENTS
         program_options serialization container graph nowide)
 FetchContent_MakeAvailable(Boost)
+# A b2-installed Boost ships CMake configs only for compiled libraries; the
+# header-only ones seitz names get interface targets over Boost::headers. When
+# the superproject above supplied them instead, these are already real targets.
 foreach (lib leaf flyweight parser algorithm range)
     if (NOT TARGET Boost::${lib})
         add_library(Boost::${lib} INTERFACE IMPORTED GLOBAL)
@@ -229,7 +255,15 @@ endif ()
 
 # STATIC when the Python extension absorbs it: one module, one set of
 # Boost.LEAF thread-local error slots, nothing to locate at import time.
-if (RMC_BUILD_PYTHON)
+# STATIC on Windows for the same reason, and there it is not optional: PE has no
+# symbol interposition, LEAF keeps its active-context slots in thread_local
+# static members of a class template, and a DLL boundary would give the library
+# and its consumer separate slots -- an error raised inside RMC.dll would arrive
+# with its payload gone. WINDOWS_EXPORT_ALL_SYMBOLS cannot fix that (the
+# consumer's own COMDAT definition wins), and a DLL with no dllexport would
+# anyway produce no import library to link against. seitz forces STATIC on WIN32
+# for the identical reason.
+if (RMC_BUILD_PYTHON OR WIN32)
     set(RMC_LIBRARY_TYPE STATIC)
 else ()
     set(RMC_LIBRARY_TYPE SHARED)
@@ -275,12 +309,26 @@ target_link_libraries(RMC PUBLIC
         seitz::seitz
 )
 
-option(RMC_USE_TBB "Use Intel TBB for parallel kernels (par_unseq) inside a shared task arena" ON)
+option(RMC_USE_TBB "Use Intel TBB for parallel kernels inside a shared task arena" ON)
 if (RMC_USE_TBB)
-    find_package(TBB REQUIRED)
+    # find_package first, so a system oneTBB (libtbb-dev, or the wheel prefix
+    # tools/wheel_deps.sh builds) is still what Linux uses; the source archive is
+    # the Windows fallback. The version matches tools/wheel_deps.sh so both paths
+    # agree. It stays a shared library: tbb12.dll is bundled into the wheel and
+    # installed next to RMC_run.exe.
+    set(TBB_TEST OFF CACHE BOOL "" FORCE)
+    set(TBB_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(TBB_STRICT OFF CACHE BOOL "" FORCE)  # its -Werror/-WX vs. newer compilers
+    set(TBBMALLOC_BUILD OFF CACHE BOOL "" FORCE)  # nothing here links tbbmalloc
+    FetchContent_Declare(TBB
+            URL https://github.com/uxlfoundation/oneTBB/archive/refs/tags/v2022.3.0.tar.gz
+            DOWNLOAD_EXTRACT_TIMESTAMP ON
+            SYSTEM
+            FIND_PACKAGE_ARGS)
+    FetchContent_MakeAvailable(TBB)
     target_link_libraries(RMC PUBLIC TBB::tbb)
     target_compile_definitions(RMC PUBLIC RMC_USE_TBB)
-    message(STATUS "TBB: enabled — parallel kernels run via par_unseq in a shared arena")
+    message(STATUS "TBB: enabled — parallel kernels run via parallel_for_each in a shared arena")
 else ()
     message(STATUS "TBB: disabled (RMC_USE_TBB=OFF) — parallel kernels run serially")
 endif ()
@@ -290,6 +338,37 @@ if (RMC_COMPILER_MSVC)
 elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
     target_compile_options(RMC PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
 endif ()
+
+# PUBLIC, and not negotiable: boost/parser/error_handling.hpp includes
+# <Windows.h> under _MSC_VER, whose min/max macros then break every std::min and
+# std::max that follows -- in the five TUs that include Boost.Parser (three in
+# src/io, two in extensions/mcsqs, i.e. another target) and in any inline header
+# function pulled in after them.
+if (WIN32)
+    target_compile_definitions(RMC PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+endif ()
+if (RMC_COMPILER_MSVC)
+    # Inherited from seitz::seitz today; restated so the tree does not depend on
+    # another project's flag list. /utf-8 is a hard requirement -- RMC's own
+    # sources carry narrow string literals with Å, χ² and box-drawing characters.
+    # _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR guards against an older msvcp140.dll
+    # loading ahead of the bundled one (the VS 17.10 std::mutex ABI trap).
+    target_compile_options(RMC PUBLIC /utf-8 /bigobj /Zc:__cplusplus /wd4068)
+    target_compile_definitions(RMC PUBLIC _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
+endif ()
+
+# Windows resolves a DLL beside the executable that needs it, and has no RPATH.
+# This is what makes ctest work at all: catch_discover_tests(... POST_BUILD) runs
+# RMC_tests.exe during the build, so tbb12.dll has to be there by then.
+function(rmc_windows_runtime_dlls tgt)
+    if (WIN32 AND TARGET ${tgt})
+        add_custom_command(TARGET ${tgt} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:${tgt}> $<TARGET_FILE_DIR:${tgt}>
+                COMMAND_EXPAND_LISTS)
+    endif ()
+endfunction()
+
 # RMCRunner.cpp (now in the library) uses BOOST_LEAF_AUTO, which expands to a GNU
 # statement-expression; silence the resulting Clang diagnostic.
 if (RMC_COMPILER_CLANG)
@@ -298,6 +377,7 @@ endif ()
 
 add_executable(RMC_run src/main.cpp)
 target_link_libraries(RMC_run PRIVATE RMC)
+rmc_windows_runtime_dlls(RMC_run)
 
 if (RMC_COMPILER_MSVC)
     target_compile_options(RMC_run PRIVATE /W4 /permissive-)
@@ -321,6 +401,25 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT RMC_BUILD_PYTHON)
     install(RUNTIME_DEPENDENCY_SET rmc_runtime COMPONENT runtime
             DESTINATION ${CMAKE_INSTALL_LIBDIR}
             PRE_EXCLUDE_REGEXES "^(ld-linux-x86-64|libc|libm|libdl|libpthread|librt)\\.so")
+elseif (WIN32 AND NOT RMC_BUILD_PYTHON)
+    # The zip is bin/ and nothing else: DLLs live beside the executable, because
+    # Windows has no RPATH. RMC and seitz are absent on purpose -- both are static
+    # archives here, so there is nothing of them left to install. DIRECTORIES is
+    # needed because TBB::tbb is built in this tree (or imported from a prefix)
+    # and its DLL is on no default search path. InstallRequiredSystemLibraries
+    # brings msvcp140/vcruntime140: the zip has no Python interpreter to inherit a
+    # redistributable from, and the System32 copies are excluded below.
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION bin)
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_COMPONENT runtime)
+    set(CMAKE_INSTALL_UCRT_LIBRARIES TRUE)
+    include(InstallRequiredSystemLibraries)
+    install(TARGETS RMC_run COMPONENT runtime
+            RUNTIME DESTINATION bin RUNTIME_DEPENDENCY_SET rmc_runtime)
+    install(RUNTIME_DEPENDENCY_SET rmc_runtime COMPONENT runtime
+            DESTINATION bin
+            DIRECTORIES $<TARGET_FILE_DIR:TBB::tbb>
+            PRE_EXCLUDE_REGEXES "api-ms-.*" "ext-ms-.*"
+            POST_EXCLUDE_REGEXES ".*[/\\\\][Ss]ystem32[/\\\\].*")
 endif ()
 
 option(RMC_BUILD_MCSQS "Build mcsqs_rmc SQS extension" ON)
@@ -335,7 +434,18 @@ endif ()
 
 include(CTest)
 if (BUILD_TESTING AND RMC_BUILD_TESTS)
-    find_package(Catch2 3 REQUIRED)
+    # Fetched only when the system has none -- apt's catch2 on Linux CI, the
+    # archive on Windows, where there is no package manager in the build.
+    FetchContent_Declare(Catch2
+            GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+            GIT_TAG v3.8.1
+            GIT_SHALLOW TRUE
+            SYSTEM
+            FIND_PACKAGE_ARGS 3)
+    FetchContent_MakeAvailable(Catch2)
+    if (catch2_SOURCE_DIR)  # fetched: include(Catch) comes from extras/
+        list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
+    endif ()
     add_executable(RMC_tests
             tests/test_boundary_conditions.cpp
             tests/test_generators.cpp
@@ -363,7 +473,6 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
     if (RMC_COMPILER_MSVC)
         target_compile_options(RMC_tests PRIVATE
                 /W4 /permissive- /Zc:__cplusplus /external:W0 /external:anglebrackets)
-        set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
         foreach (tgt Catch2 Catch2WithMain)
             if (TARGET ${tgt})
                 # Skip alias/imported targets: target_compile_options can only set
@@ -380,6 +489,7 @@ if (BUILD_TESTING AND RMC_BUILD_TESTS)
     elseif (RMC_COMPILER_GCC OR RMC_COMPILER_CLANG)
         target_compile_options(RMC_tests PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
     endif ()
+    rmc_windows_runtime_dlls(RMC_tests)
     include(Catch)
     # Catch2 exits 4 when every selected test SKIP()s (the corrdump oracle
     # without RMC_CORRDUMP); report that as skipped, not failed.

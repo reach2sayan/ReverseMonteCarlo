@@ -152,3 +152,179 @@ jobs:
           export LD_LIBRARY_PATH="$HOME/boost/lib:${LD_LIBRARY_PATH:-}"
           uv run --no-sync python tools/fix_core_stubs.py
           git diff --exit-code python/rmc/_core
+
+  # Windows, MSVC. Required, like the Linux jobs: weekly-release.yml gates the
+  # Monday tag on this workflow concluding success, so a red job here stops the
+  # release. Boost, oneTBB and Catch2 are fetched by CMakeLists.txt (nothing is
+  # installed on the runner), into C:/d because the Boost superproject nested
+  # under the default _deps blows MAX_PATH.
+  windows:
+    name: MSVC 2022 (Windows)
+    runs-on: windows-2022
+    # Bounds a runaway constant evaluation rather than the build: seitz decodes
+    # its magnetic space-group tables at compile time on an evaluator slower and
+    # hungrier than GCC's.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # seitz transcribes its data tables at configure time with Python.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install numpy pandas pygments
+
+      # Puts cl.exe and the SDK on PATH through GITHUB_ENV, which is all the
+      # Ninja generator needs. Written out rather than ilammy/msvc-dev-cmd,
+      # which still declares node20 at its latest release; this script is the
+      # whole of what it does.
+      - name: Set up MSVC (x64)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $root = & $vswhere -latest -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $root) { throw "no Visual Studio with the C++ toolset found" }
+          $vcvars = Join-Path $root 'VC\Auxiliary\Build\vcvars64.bat'
+          # `set` in a fresh cmd after vcvars: the whole environment the toolset
+          # wants. Only what vcvars changed is forwarded, and the banner lines it
+          # prints have no name=value shape, so the match drops them.
+          $env_after = & "$env:COMSPEC" /s /c "`"$vcvars`" && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvars64.bat failed ($LASTEXITCODE)" }
+          foreach ($line in $env_after) {
+            if ($line -notmatch '^([^=\s]+)=(.*)$') { continue }
+            $name, $value = $Matches[1], $Matches[2]
+            if ([Environment]::GetEnvironmentVariable($name) -eq $value) { continue }
+            [Environment]::SetEnvironmentVariable($name, $value)
+            "$name=$value" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          # Fail here, with a name, rather than at configure time with a CMake
+          # message about no working compiler.
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvars64.bat" }
+          Write-Host "cl.exe: $($cl.Source)"
+
+      # sccache, not ccache: ccache's cl.exe support is narrow. CMakeLists.txt
+      # skips its own ccache lookup under MSVC, so the launcher is passed below.
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          variant: sccache
+          key: msvc-release
+          max-size: 500M
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:/d
+          key: deps-msvc-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-msvc-
+
+      # Not the release preset: it turns LTO and native-arch on, and this
+      # workflow's contract is MKL/native/LTO off. Examples are off to stay
+      # inside the timeout; mcsqs is on because two of the five Boost.Parser
+      # translation units the NOMINMAX definition exists for live there.
+      # Embedded debug info is load-bearing: sccache cannot cache a separate PDB.
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          -DCMAKE_BUILD_TYPE=Release
+          -DFETCHCONTENT_BASE_DIR=C:/d
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+          -DPython_EXECUTABLE=${{ env.pythonLocation }}\python.exe
+          -DENABLE_MKL=OFF
+          -DENABLE_LTO=OFF
+          -DENABLE_NATIVE_ARCH=OFF
+          -DRMC_BUILD_TESTS=ON
+          -DRMC_BUILD_MCSQS=ON
+          -DRMC_BUILD_EXAMPLES=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      # No -C: Ninja is single-config. tbb12.dll is already beside the test
+      # executable (CMakeLists.txt copies it post-build, before discovery runs).
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: sccache statistics
+        if: always()
+        run: sccache --show-stats
+
+  # The bindings on Windows, in their own job rather than steps in the one above:
+  # the two fail for unrelated reasons -- compiler and library maturity there,
+  # extension loading and interpreter plumbing here -- and a combined job would
+  # need triage on every red run to tell which.
+  windows-python:
+    name: python bindings (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same vcvars64.bat hand-off as the job above; see the comment there.
+      - name: Set up MSVC (x64)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $root = & $vswhere -latest -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $root) { throw "no Visual Studio with the C++ toolset found" }
+          $vcvars = Join-Path $root 'VC\Auxiliary\Build\vcvars64.bat'
+          $env_after = & "$env:COMSPEC" /s /c "`"$vcvars`" && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvars64.bat failed ($LASTEXITCODE)" }
+          foreach ($line in $env_after) {
+            if ($line -notmatch '^([^=\s]+)=(.*)$') { continue }
+            $name, $value = $Matches[1], $Matches[2]
+            if ([Environment]::GetEnvironmentVariable($name) -eq $value) { continue }
+            [Environment]::SetEnvironmentVariable($name, $value)
+            "$name=$value" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvars64.bat" }
+          Write-Host "cl.exe: $($cl.Source)"
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          variant: sccache
+          key: msvc-python
+          max-size: 500M
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:/d
+          key: deps-msvc-python-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-msvc-python-
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Sync the dev tools
+        run: uv sync
+
+      # The python preset already has native-arch and MKL off and points
+      # Python_ROOT_DIR at .venv, which uv sync creates here too.
+      - name: Configure and build
+        run: |
+          cmake --preset python -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+            -DFETCHCONTENT_BASE_DIR=C:/d -DENABLE_LTO=OFF `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+          cmake --build --preset python
+
+      - name: Test
+        run: ctest --preset python
+
+      # No stub-freshness check, unlike the Linux python job: the runner sets
+      # core.autocrlf=true and the tree carries no .gitattributes, so a
+      # `git diff --exit-code` over generated .pyi files is a line-ending coin
+      # flip. The Linux job already answers that question.
+
+      - name: sccache statistics
+        if: always()
+        run: sccache --show-stats

@@ -4,9 +4,9 @@
 
 C++23 Reverse Monte Carlo structural refinement. Given experimental data (PDF g(r), S(Q)), the engine iteratively perturbs atomic positions via Metropolis acceptance until computed data matches experiment.
 
-**Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 15, or Clang ≥ 20 on GCC 15's libstdc++) · Boost ≥ 1.88 · Intel oneAPI TBB ≥ 2021 (on by default) · spdlog · Python 3 with numpy, pandas and pygments (configure time only) · Catch2 ≥ 3 (tests only)
+**Requirements:** CMake ≥ 3.28 · C++23 compiler (GCC ≥ 15, Clang ≥ 20 on GCC 15's libstdc++, or MSVC ≥ 19.43 / Visual Studio 17.13) · Python 3 with numpy, pandas and pygments (configure time only) · spdlog
 
-**Fetched at configure time (network required):** Eigen 5.0.0 and [seitz](https://github.com/reach2sayan/Seitz) (lattices, periodicity, element data and cluster orbits; BSD-3). GCC 15 is seitz's floor.
+**Fetched at configure time (network required):** Eigen 5.0.0 and [seitz](https://github.com/reach2sayan/Seitz) (lattices, periodicity, element data and cluster orbits; BSD-3). GCC 15 is seitz's floor on Linux, MSVC 19.43 (`<generator>`) on Windows. Boost 1.89, oneAPI TBB 2022.3 and Catch2 3 are looked for on the system first and fetched only when missing — which is what lets Windows build with no package manager.
 
 **Optional:** Intel MKL (`ENABLE_MKL=ON`, default) · ATAT `corrdump`, only for the SQS cross-check test (see [SQS search](#sqs-search-mcsqs_rmc))
 
@@ -23,6 +23,21 @@ ctest --test-dir build --output-on-failure
 If Boost is not on the default path: `-DBOOST_ROOT=/opt/boost`  
 To enable AddressSanitizer + UBSan: `-DENABLE_SANITIZERS=ON`
 
+On Windows, from an x64 Native Tools prompt (Ninja, because the Visual Studio
+generator gets no `/MP` and would compile seitz's tables one at a time):
+
+```bat
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=C:/d
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+`FETCHCONTENT_BASE_DIR` is a short path on purpose: the Boost superproject nested
+under the default `_deps` exceeds `MAX_PATH`. The library is always a static
+archive on Windows — Boost.LEAF keeps its error slots in `thread_local` members of
+a class template, and across a DLL boundary an error would arrive with its payload
+gone, so do not "fix" it back to `SHARED`.
+
 A minimal build (library + CLI only, no extension or examples):
 
 ```bash
@@ -34,7 +49,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 
 | Option | Default | Description |
 |---|---|---|
-| `RMC_USE_TBB` | `ON` | Parallelise the O(N²) pair-histogram build with Intel TBB (`std::execution::par_unseq`) inside a shared task arena. Requires oneAPI TBB ≥ 2021. Set `OFF` to run the kernels serially. |
+| `RMC_USE_TBB` | `ON` | Parallelise the O(N²) pair-histogram build with Intel TBB (`tbb::parallel_for_each`) inside a shared task arena. Requires oneAPI TBB ≥ 2021, fetched when not installed. Set `OFF` to run the kernels serially. |
 | `ENABLE_MKL` | `ON` | Use Intel MKL as the Eigen BLAS/LAPACK backend. Falls back silently if MKL is not found. |
 | `ENABLE_NATIVE_ARCH` | `ON` | Compile with `-march=native` (AVX2 etc.). Set `OFF` for a portable `-march=x86-64-v3` build. |
 | `ENABLE_LTO` | `ON` | Link-time optimisation (IPO), when the toolchain supports it. |

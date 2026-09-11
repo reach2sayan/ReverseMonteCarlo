@@ -9,6 +9,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <random>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -36,11 +37,13 @@ static AtomicStructure make_small_structure() {
   return s;
 }
 
-// Unique per-test scratch directory under the system temp dir.
+// Unique per-test scratch directory under the system temp dir. The suffix is a
+// random_device draw rather than the pid: ::getpid() is POSIX-only, and the
+// directory only has to be unique, not attributable to a process.
 static fs::path make_scratch(const char *tag) {
+  static const auto salt = std::random_device{}();
   auto dir = fs::temp_directory_path() /
-             ("rmc_cb_test_" + std::string(tag) + "_" +
-              std::to_string(static_cast<unsigned>(::getpid())));
+             ("rmc_cb_test_" + std::string(tag) + "_" + std::to_string(salt));
   fs::remove_all(dir);
   return dir;
 }
