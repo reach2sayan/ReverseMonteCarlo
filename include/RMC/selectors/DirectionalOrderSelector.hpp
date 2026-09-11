@@ -23,9 +23,9 @@ struct DirectionalOrderSelector {
   DirectionalOrderSelector() = default;
   DirectionalOrderSelector(const vec3_t &ref,
                            const std::vector<vec3_t> &centroids, bool nf = true)
-      : nearest_first(nf),
-        order_(std::views::iota(std::size_t{0}, centroids.size()) |
-               std::ranges::to<std::vector>()) {
+      : nearest_first{nf},
+        order_{std::views::iota(std::size_t{0}, centroids.size()) |
+               std::ranges::to<std::vector>()} {
     // Descending order sorts on the negated distance.
     std::ranges::sort(order_, {}, [&](std::size_t i) {
       const double d = (centroids[i] - ref).squaredNorm();
