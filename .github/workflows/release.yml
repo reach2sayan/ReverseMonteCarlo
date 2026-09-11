@@ -174,7 +174,12 @@ jobs:
           key: wheels-ccache-manylinux_2_28-${{ github.run_id }}
           restore-keys: wheels-ccache-manylinux_2_28-
 
-      - uses: pypa/cibuildwheel@v3.4.1
+      # v4.2.1, not 3.x: 3.4.1's manylinux_2_28 image (2026.03.20) ships
+      # patchelf 0.17.2, whose rewrite of the bundled libtbb during auditwheel
+      # repair leaves its init code zeroed -- `import rmc` segfaulted in
+      # ld.so. 4.2.1's image (2026.09.05) ships patchelf 0.19.1; this exact
+      # version and pyproject.toml were run locally for cp311-cp314.
+      - uses: pypa/cibuildwheel@v4.2.1
         env:
           RMC_CACHE_DIR: /host${{ runner.temp }}/rmc-cache
 
