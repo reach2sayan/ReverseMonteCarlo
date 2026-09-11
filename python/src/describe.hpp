@@ -6,11 +6,15 @@
 #include <pybind11/native_enum.h>
 #include <pybind11/pybind11.h>
 
+#include <algorithm>
 #include <concepts>
+#include <optional>
+#include <ranges>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 // Binding from Boost.Describe metadata, so adding an enumerator or a field in
 // C++ adds it in Python with no second list to keep in step.
@@ -76,13 +80,38 @@ void def_init(py::class_<T> &cls, L<D...>) {
           py::kw_only(), (py::arg(D::name) = defaults.*D::pointer)...);
 }
 
+// Whether a field compares: Eigen matrices (shape-checked in field_equal),
+// optionals, vectors and pairs of comparable fields, else equality_comparable.
+// Recursive so a vector of a type with no == is not comparable, rather than a
+// compile error inside std::vector's operator==.
+template <class F> constexpr bool comparable_v = std::equality_comparable<F>;
+template <class F>
+  requires requires(const F &a) { a.rows(); a.cols(); }
+constexpr bool comparable_v<F> = true;
+template <class F> constexpr bool comparable_v<std::optional<F>> = comparable_v<F>;
+template <class F, class A>
+constexpr bool comparable_v<std::vector<F, A>> = comparable_v<F>;
+template <class A, class B>
+constexpr bool comparable_v<std::pair<A, B>> = comparable_v<A> && comparable_v<B>;
+
+template <class T, template <class...> class L, class... D>
+consteval bool all_comparable(L<D...>) {
+  return (comparable_v<FieldType<T, D>> && ...);
+}
+
 // Field equality that is safe for Eigen matrices (their == asserts equal
-// shapes, which a release build does not check) and optionals of them.
+// shapes, which a release build does not check), element-wise through
+// optionals and vectors.
 template <class F> [[nodiscard]] bool field_equal(const F &a, const F &b) {
   if constexpr (requires { a.rows(); a.cols(); }) {
     return a.rows() == b.rows() && a.cols() == b.cols() && a == b;
   } else if constexpr (requires { a.has_value(); *a; }) {
     return a.has_value() == b.has_value() && (!a || field_equal(*a, *b));
+  } else if constexpr (std::ranges::contiguous_range<F> &&
+                       !std::same_as<F, std::string>) {
+    return std::ranges::equal(a, b, [](const auto &x, const auto &y) {
+      return field_equal(x, y);
+    });
   } else {
     return a == b;
   }
@@ -118,9 +147,7 @@ py::class_<T> describe_struct(py::handle scope, const char *name,
     return out + ")";
   });
 
-  if constexpr (requires(const T &a) {
-                  { detail::equal(a, a, Members{}) } -> std::same_as<bool>;
-                }) {
+  if constexpr (detail::all_comparable<T>(Members{})) {
     cls.def(
         "__eq__",
         [](const T &a, const T &b) { return detail::equal(a, b, Members{}); },

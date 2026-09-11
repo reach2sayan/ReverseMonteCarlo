@@ -2,6 +2,7 @@
 // SQS problem setup on seitz: the parent lattice and its symmetry-distinct
 // cluster orbits (seitz::alloy), a supercell with a random occupation, and
 // every orbit instance mapped onto supercell sites.
+#include <boost/describe/class.hpp>
 #include "AtatFormats.hpp"
 
 #include <RMC/constraints/ClusterCorrelationConstraint.hpp>
@@ -31,6 +32,9 @@ struct EnumeratedSqs {
   mat3_t supercell{mat3_t::Identity()}; // axes coords
   std::vector<vec3_t> frac_positions;   // axes coords, per atom
 };
+BOOST_DESCRIBE_STRUCT(EnumeratedSqs, (),
+                      (structure, orbits, occ_index, table, axes, supercell,
+                       frac_positions))
 
 // supercell = lat.cell · sc (columns); `seed` drives the random occupation.
 // Sites with equal species sets form one sublattice (residue "SL<id>").

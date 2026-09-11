@@ -19,8 +19,16 @@ from __future__ import annotations
 from ._core import *  # noqa: F403
 from ._core import __version__
 
+# The star import bound `mcsqs` to the raw _core.mcsqs submodule, and
+# `from . import` returns an existing attribute rather than importing, so drop
+# it first: rmc.mcsqs is the Python module over _core.mcsqs.
+del mcsqs  # noqa: F821
+from . import mcsqs
+
 __all__ = sorted(
     [
+        "AdfParams",
+        "AdfResult",
         "Amplitude",
         "AnalysisError",
         "AngleAgitationGenerator",
@@ -45,6 +53,8 @@ __all__ = sorted(
         "Engine",
         "EngineStats",
         "ExperimentalData",
+        "GrParams",
+        "GrResult",
         "GreedySampler",
         "Group",
         "HistogramCallback",
@@ -53,6 +63,7 @@ __all__ = sorted(
         "InterMolecularDistanceConstraint",
         "IntraMolecularDistanceConstraint",
         "IoError",
+        "LabeledCurve",
         "LammpsAtomStyle",
         "LammpsData",
         "LangevinRotationGenerator",
@@ -84,6 +95,7 @@ __all__ = sorted(
         "RotationAboutSymmetryAxisGenerator",
         "RotationGenerator",
         "SmartRandomSelector",
+        "SpeciesCount",
         "SpeciesSwapGenerator",
         "StructFormat",
         "StructureFactorConstraint",
@@ -105,12 +117,15 @@ __all__ = sorted(
         "attach_constraints",
         "build_engine",
         "classify_structure_format",
+        "compute_adf",
+        "compute_gr",
         "default_concurrency",
         "has_tbb",
         "load_checkpoint",
         "load_experimental_data",
         "load_structure",
         "make_random_amorphous",
+        "mcsqs",
         "periodic_box_or_zero",
         "read_columns",
         "read_lammps_data",
@@ -123,6 +138,8 @@ __all__ = sorted(
         "run_ensemble_cooperative",
         "save_checkpoint",
         "set_max_concurrency",
+        "write_adf",
+        "write_gr",
         "write_lammps_data",
         "write_pdb",
         "write_structure_by_ext",

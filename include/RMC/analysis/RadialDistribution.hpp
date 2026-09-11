@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/class.hpp>
 #include <RMC/analysis/Composition.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Types.hpp>
@@ -16,6 +17,7 @@ struct GrParams {
   int n_bins = 200;
   bool exclude_intra = false; // skip same-molecule pairs (needs molecule_ids)
 };
+BOOST_DESCRIBE_STRUCT(GrParams, (), (r_min, r_max, n_bins, exclude_intra))
 
 // Total g(r) plus per-element-pair partials on a shared radial grid.
 struct GrResult {

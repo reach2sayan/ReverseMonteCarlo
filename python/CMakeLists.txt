@@ -10,7 +10,9 @@ pybind11_add_module(_core
         src/sampling.cpp
         src/selectors.cpp
         src/engine.cpp
-        src/runner.cpp)
+        src/runner.cpp
+        src/analysis.cpp
+        src/mcsqs.cpp)
 
 # Linking the targets, not naming their include directories, keeps _core's ABI
 # in step with the library's: cxx_std_23, RMC_USE_TBB and the global -march
@@ -29,17 +31,22 @@ set_target_properties(_core PROPERTIES
 # The pure-Python half, mirrored next to the freshly built _core so that
 # PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR} is an importable package with no wheel
 # and no install step -- which is what the CTest registration below relies on.
+# Its own always-run target rather than a POST_BUILD step on _core: a
+# POST_BUILD only runs when _core relinks, so an edit to a .py file alone
+# would never reach the build tree. copy_if_different keeps it cheap.
 file(GLOB RMC_PY CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/rmc/*.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/rmc/py.typed")
-add_custom_command(TARGET _core POST_BUILD
+add_custom_target(rmc_python_sources ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/rmc"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RMC_PY} "${CMAKE_CURRENT_BINARY_DIR}/rmc"
         # The _core stubs are a directory (the module has an mcsqs submodule, so
         # pybind11-stubgen writes a package); tolerated absent before generation.
         COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/rmc/_core" "${CMAKE_CURRENT_BINARY_DIR}/rmc/_core"
-        COMMENT "Mirroring the pure-Python package next to _core")
+        COMMENT "Mirroring the pure-Python package next to _core"
+        VERBATIM)
+add_dependencies(_core rmc_python_sources)
 
 # Only _core: it already contains the library. COMPONENT python so the wheel
 # build installs the extension without headers or a CMake package config.
