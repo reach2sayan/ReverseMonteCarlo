@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/enum.hpp>
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/constraints/IncrementalCache.hpp>
 #include <RMC/core/SpeciesIndex.hpp>
@@ -11,6 +12,7 @@
 namespace RMC {
 
 enum class DistanceScope : std::uint8_t { Inter, Intra };
+BOOST_DESCRIBE_ENUM(DistanceScope, Inter, Intra)
 
 // Minimum-distance constraint between atom-type pairs.
 // std_err = Σ max(0, d_min - d_ij) for all in-scope pairs (i,j).

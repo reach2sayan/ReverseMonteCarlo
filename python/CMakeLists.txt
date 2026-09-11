@@ -1,7 +1,9 @@
 # The _core extension module. One translation unit per subsystem, mirroring
 # include/RMC/, so a binding lives next to the header group it binds.
 pybind11_add_module(_core
-        src/module.cpp)
+        src/module.cpp
+        src/errors.cpp
+        src/core.cpp)
 
 # Linking the targets, not naming their include directories, keeps _core's ABI
 # in step with the library's: cxx_std_23, RMC_USE_TBB and the global -march

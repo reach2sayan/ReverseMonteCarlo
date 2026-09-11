@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/enum.hpp>
 #include <RMC/selectors/DirectionalOrderSelector.hpp>
 #include <RMC/selectors/OrderedSelector.hpp>
 #include <RMC/selectors/RandomSelector.hpp>
@@ -16,6 +17,7 @@ enum class RecursiveMode {
   Refine,  // retry the same group while moves are ACCEPTED (exploit)
   Explore, // retry the same group while moves are REJECTED (find a good move)
 };
+BOOST_DESCRIBE_ENUM(RecursiveMode, Refine, Explore)
 
 // Wraps another selector and, after a triggering outcome (acceptance for
 // Refine, rejection for Explore), returns the same group for up to

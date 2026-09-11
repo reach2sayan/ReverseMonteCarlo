@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/enum.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Structure.hpp>
 #include <RMC/core/Types.hpp>
@@ -15,6 +16,7 @@ namespace RMC::io {
 //   Molecular : id mol type x y z
 //   Full      : id mol type q x y z
 enum class LammpsAtomStyle { Atomic, Charge, Molecular, Full };
+BOOST_DESCRIBE_ENUM(LammpsAtomStyle, Atomic, Charge, Molecular, Full)
 
 // Atoms plus declared box. `box` holds cell edge vectors as columns (triclinic
 // tilt xy/xz/yz honoured); `origin` is the lower corner (xlo,ylo,zlo).

@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/enum.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/RngGenerator.hpp>
 #include <RMC/core/Types.hpp>
@@ -48,6 +49,7 @@ using MoveGenerator = boost::type_erasure::any<boost::mpl::vector<
     detail::has_modifies_species<bool(), const boost::type_erasure::_self>>>;
 
 enum class SymmetryAxis { X, Y, Z };
+BOOST_DESCRIBE_ENUM(SymmetryAxis, X, Y, Z)
 [[nodiscard]] inline vec3_t unit(SymmetryAxis a) {
   return vec3_t::Unit(static_cast<Eigen::Index>(a));
 }
