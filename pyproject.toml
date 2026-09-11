@@ -93,15 +93,20 @@ test-command = "pytest -q {package}/python/tests"
 # SKBUILD_CMAKE_ARGS: scikit-build-core appends the former and lets the latter
 # replace cmake.define. PATH as well as CC/CXX so IPO over the static archives
 # finds gcc-toolset-15's gcc-ar and ld.
+# RMC_CACHE is the one place the cache path is decided, and before-all and the
+# repair command (which see this table too) use it. It goes through sh -c
+# because cibuildwheel evaluates this table with its own parser, which drops
+# ${VAR:-default} to "" (even inside $(...)); that once gave CMake
+# BOOST_ROOT=/prefix while before-all had built Boost under /project/.cache.
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
 manylinux-x86_64-image = "manylinux_2_28"
 before-all = [
   "dnf -y --setopt=retries=5 install gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ gcc-toolset-15-binutils gcc-toolset-15-libatomic-devel ccache",
-  "CXX=/opt/rh/gcc-toolset-15/root/usr/bin/g++ bash {project}/tools/wheel_deps.sh ${RMC_CACHE_DIR:-/project/.cache}",
+  "CXX=/opt/rh/gcc-toolset-15/root/usr/bin/g++ bash {project}/tools/wheel_deps.sh \"$RMC_CACHE\"",
 ]
 environment-pass = ["RMC_CACHE_DIR"]
-environment = { CC = "/opt/rh/gcc-toolset-15/root/usr/bin/gcc", CXX = "/opt/rh/gcc-toolset-15/root/usr/bin/g++", PATH = "/opt/rh/gcc-toolset-15/root/usr/bin:$PATH", CMAKE_ARGS = "-DFETCHCONTENT_BASE_DIR=${RMC_CACHE_DIR:-/project/.cache}/fc -DBOOST_ROOT=${RMC_CACHE_DIR:-/project/.cache}/prefix -DCMAKE_PREFIX_PATH=${RMC_CACHE_DIR:-/project/.cache}/prefix", CCACHE_DIR = "${RMC_CACHE_DIR:-/project/.cache}/ccache", CCACHE_MAXSIZE = "3G", CCACHE_COMPILERCHECK = "content" }
+environment = { RMC_CACHE = "$(sh -c 'echo ${RMC_CACHE_DIR:-/project/.cache}')", CC = "/opt/rh/gcc-toolset-15/root/usr/bin/gcc", CXX = "/opt/rh/gcc-toolset-15/root/usr/bin/g++", PATH = "/opt/rh/gcc-toolset-15/root/usr/bin:$PATH", CMAKE_ARGS = "-DFETCHCONTENT_BASE_DIR=$RMC_CACHE/fc -DBOOST_ROOT=$RMC_CACHE/prefix -DCMAKE_PREFIX_PATH=$RMC_CACHE/prefix", CCACHE_DIR = "$RMC_CACHE/ccache", CCACHE_MAXSIZE = "3G", CCACHE_COMPILERCHECK = "content" }
 # The installed _core carries no RPATH to the Boost/TBB prefix; point
 # auditwheel at it so it can find, and bundle, those libraries.
-repair-wheel-command = "LD_LIBRARY_PATH=${RMC_CACHE_DIR:-/project/.cache}/prefix/lib:$LD_LIBRARY_PATH auditwheel repair -w {dest_dir} {wheel}"
+repair-wheel-command = "LD_LIBRARY_PATH=\"$RMC_CACHE/prefix/lib:$LD_LIBRARY_PATH\" auditwheel repair -w {dest_dir} {wheel}"
