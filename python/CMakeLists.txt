@@ -4,7 +4,9 @@ pybind11_add_module(_core
         src/module.cpp
         src/errors.cpp
         src/core.cpp
-        src/io.cpp)
+        src/io.cpp
+        src/constraints.cpp
+        src/generators.cpp)
 
 # Linking the targets, not naming their include directories, keeps _core's ABI
 # in step with the library's: cxx_std_23, RMC_USE_TBB and the global -march

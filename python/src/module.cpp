@@ -12,6 +12,8 @@ namespace rmc::python {
 
 void bind_core(py::module_ &m);
 void bind_io(py::module_ &m);
+void bind_constraints(py::module_ &m);
+void bind_generators(py::module_ &m);
 
 } // namespace rmc::python
 
@@ -28,4 +30,8 @@ PYBIND11_MODULE(_core, m) {
   // AtomicStructure and BoundaryConditions rather than raw C++ types.
   rp::bind_core(m);
   rp::bind_io(m);
+  // Constraints before generators: the gradient generators take a
+  // ConstraintCollection, and Group takes a MoveGenerator.
+  rp::bind_constraints(m);
+  rp::bind_generators(m);
 }

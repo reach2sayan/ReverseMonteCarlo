@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/class.hpp>
 #include <boost/describe/enum.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/RngGenerator.hpp>
@@ -73,6 +74,7 @@ struct Amplitude {
     return rng.uniform() < 0.5 ? -a : a;
   }
 };
+BOOST_DESCRIBE_STRUCT(Amplitude, (), (lo, hi))
 
 // Isotropic unit vector: a normalised Gaussian triple.
 [[nodiscard]] inline vec3_t random_unit_vector(Rng &rng) {
