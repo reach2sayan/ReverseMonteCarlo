@@ -267,12 +267,11 @@ void bind_holder(py::module_ &m) {
            py::arg("weight") = 1.0, py::keep_alive<1, 2>(),
            "Add a generator (non-positive weights count as 1).");
 
-  boost::mp11::mp_for_each<boost::mp11::mp_transform<std::type_identity, GeneratorTypes>>(
-      [&](auto id) {
-        using T = typename decltype(id)::type;
-        holder.def(py::init<const T &>(), py::arg("generator"));
-        py::implicitly_convertible<T, MoveGenerator>();
-      });
+  for_each_type<GeneratorTypes>([&](auto id) {
+    using T = typename decltype(id)::type;
+    holder.def(py::init<const T &>(), py::arg("generator"));
+    py::implicitly_convertible<T, MoveGenerator>();
+  });
   // Last, so a concrete generator never lands here.
   holder.def(py::init([](py::object impl) {
                return MoveGenerator{PyMoveGenerator{std::move(impl)}};

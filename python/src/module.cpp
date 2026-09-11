@@ -14,6 +14,9 @@ void bind_core(py::module_ &m);
 void bind_io(py::module_ &m);
 void bind_constraints(py::module_ &m);
 void bind_generators(py::module_ &m);
+void bind_sampling(py::module_ &m);
+void bind_selectors(py::module_ &m);
+void bind_engine(py::module_ &m);
 
 } // namespace rmc::python
 
@@ -34,4 +37,8 @@ PYBIND11_MODULE(_core, m) {
   // ConstraintCollection, and Group takes a MoveGenerator.
   rp::bind_constraints(m);
   rp::bind_generators(m);
+  // Samplers and selectors before the engine that takes them.
+  rp::bind_sampling(m);
+  rp::bind_selectors(m);
+  rp::bind_engine(m);
 }

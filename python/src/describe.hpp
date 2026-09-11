@@ -10,6 +10,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 // Binding from Boost.Describe metadata, so adding an enumerator or a field in
 // C++ adds it in Python with no second list to keep in step.
@@ -28,6 +29,25 @@ void describe_enum(py::handle scope, const char *name, const char *doc) {
       [&](auto d) { e.value(d.name, d.value); });
   e.finalize();
 }
+
+// Calls f(std::type_identity<T>{}) for each T in List (an mp11 list), so the
+// types need not be default-constructible.
+template <class List, class F> void for_each_type(F &&f) {
+  boost::mp11::mp_for_each<boost::mp11::mp_transform<std::type_identity, List>>(
+      std::forward<F>(f));
+}
+
+namespace detail {
+template <class... Ts> std::variant<Ts...> as_variant(const std::variant<Ts...> &);
+} // namespace detail
+
+// The alternatives of V -- a std::variant, or a type deriving from one such as
+// Sampler and GroupSelector -- as an mp11 list. Overload sets generated from it
+// grow with the variant: a new selector in C++ is a new overload in Python.
+template <class V>
+using Alternatives =
+    boost::mp11::mp_rename<decltype(detail::as_variant(std::declval<const V &>())),
+                           boost::mp11::mp_list>;
 
 template <class T>
 concept DescribedStruct = boost::describe::has_describe_members<T>::value &&

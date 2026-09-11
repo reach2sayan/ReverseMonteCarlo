@@ -30,6 +30,11 @@ public:
   explicit RecursiveGroupSelector(GroupSelector inner,
                                   RecursiveMode m = RecursiveMode::Refine,
                                   int retries = 5);
+  // Deep copy, so GroupSelector (and an engine's selector) is a value type.
+  RecursiveGroupSelector(const RecursiveGroupSelector &other);
+  RecursiveGroupSelector &operator=(const RecursiveGroupSelector &other);
+  RecursiveGroupSelector(RecursiveGroupSelector &&) = default;
+  RecursiveGroupSelector &operator=(RecursiveGroupSelector &&) = default;
   std::size_t select(std::size_t n_groups);
   void feedback(std::size_t gi, bool accepted);
 
@@ -65,6 +70,21 @@ inline RecursiveGroupSelector::RecursiveGroupSelector(GroupSelector inner,
                                                       int retries)
     : mode(m), max_retries(retries),
       inner_(std::make_unique<GroupSelector>(std::move(inner))) {}
+
+inline RecursiveGroupSelector::RecursiveGroupSelector(
+    const RecursiveGroupSelector &other)
+    : mode(other.mode), max_retries(other.max_retries),
+      inner_(other.inner_ ? std::make_unique<GroupSelector>(*other.inner_)
+                          : nullptr),
+      last_gi_(other.last_gi_), retries_left_(other.retries_left_) {}
+
+inline RecursiveGroupSelector &
+RecursiveGroupSelector::operator=(const RecursiveGroupSelector &other) {
+  if (this != &other) {
+    *this = RecursiveGroupSelector(other);
+  }
+  return *this;
+}
 
 inline std::size_t RecursiveGroupSelector::select(std::size_t n_groups) {
   if (retries_left_ > 0 && last_gi_ < n_groups) {

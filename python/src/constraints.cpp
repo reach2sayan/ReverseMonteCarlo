@@ -48,13 +48,6 @@ using ConstraintTypes = boost::mp11::mp_list<
     RMC::StructureFactorConstraint, RMC::ReducedStructureFactorConstraint,
     RMC::AngularDistributionConstraint, RMC::ClusterCorrelationConstraint>;
 
-// Calls f(std::type_identity<T>{}) per type; works for types that are not
-// default-constructible, which mp_for_each over the types themselves needs.
-template <class List, class F> void for_each_type(F &&f) {
-  boost::mp11::mp_for_each<boost::mp11::mp_transform<std::type_identity, List>>(
-      std::forward<F>(f));
-}
-
 constexpr const char *kBorrows =
     "Borrows the structure's per-atom arrays: pass engine.structure. The "
     "structure is kept alive and must keep its atom count.";
@@ -419,9 +412,11 @@ void bind_collection(py::module_ &m) {
             return cc[static_cast<std::ptrdiff_t>(require_atom(i, cc.size()))];
           },
           py::arg("i"), py::return_value_policy::reference_internal)
-      .def("total_error", &ConstraintCollection::total_error,
-           "Sum of the soft constraints' errors after the last move.")
-      .def("total_error_before", &ConstraintCollection::total_error_before)
+      .def_property_readonly("total_error", &ConstraintCollection::total_error,
+                             "Sum of the soft constraints' errors after the last "
+                             "move.")
+      .def_property_readonly("total_error_before",
+                             &ConstraintCollection::total_error_before)
       .def("error_breakdown", &ConstraintCollection::error_breakdown,
            "(name, error) per constraint.")
       .def("initialise_all", &ConstraintCollection::initialise_all);
