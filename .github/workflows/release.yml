@@ -150,8 +150,6 @@ jobs:
     needs: version
     runs-on: ubuntu-24.04
     timeout-minutes: 180
-    env:
-      CACHE: ${{ runner.temp }}/rmc-cache
     steps:
       - uses: actions/checkout@v4
 
@@ -184,14 +182,14 @@ jobs:
       # runner user.
       - name: Reclaim the cache directory
         if: always()
-        run: sudo chown -R "$(id -u):$(id -g)" "$CACHE" || true
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/rmc-cache" || true
 
       # A shell test, not hashFiles(): hashFiles only sees GITHUB_WORKSPACE.
       - name: Did the dependency tree complete?
         if: always()
         id: deps-state
         run: |
-          if compgen -G "$CACHE/prefix/.boost-*" >/dev/null && compgen -G "$CACHE/prefix/.tbb-*" >/dev/null; then
+          if compgen -G "$RUNNER_TEMP/rmc-cache/prefix/.boost-*" >/dev/null && compgen -G "$RUNNER_TEMP/rmc-cache/prefix/.tbb-*" >/dev/null; then
             echo "complete=true" >> "$GITHUB_OUTPUT"
           fi
 
