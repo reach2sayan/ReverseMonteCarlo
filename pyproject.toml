@@ -1,0 +1,112 @@
+[build-system]
+# numpy, pandas and pygments are seitz's: it transcribes its data tables at
+# configure time under the build interpreter.
+requires = ["scikit-build-core>=0.10", "numpy>=1.24", "pandas>=2.0", "pygments>=2.15"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "reverse-monte-carlo"
+dynamic = ["version"]
+description = "Reverse Monte Carlo structural refinement against G(r), S(Q) and ADF data"
+readme = "python/README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["numpy>=1.24", "pydantic>=2.9"]
+
+[project.urls]
+Homepage = "https://github.com/reach2sayan/ReverseMonteCarlo"
+
+# One version, CMake's: the project() line release.yml's version job reads.
+[[tool.dynamic-metadata]]
+field = "version"
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = 'project\(ReverseMonteCarlo VERSION (?P<value>[0-9]+\.[0-9]+\.[0-9]+)'
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.28"
+# Only the knobs a wheel needs differently; the compiler gate, warnings and IPO
+# stay in CMakeLists.txt so `cmake --preset python` and `pip install .` build
+# the same target. This path does not read CMakePresets.json and picks up
+# whatever `c++` is on PATH: the library needs GCC 15, so export CXX=g++-15.
+cmake.define.RMC_BUILD_PYTHON = "ON"
+cmake.define.RMC_BUILD_TESTS = "OFF"
+cmake.define.RMC_BUILD_EXAMPLES = "OFF"
+cmake.define.RMC_BUILD_MCSQS = "ON"
+cmake.define.ENABLE_NATIVE_ARCH = "OFF"
+cmake.define.ENABLE_MKL = "OFF"
+cmake.define.ENABLE_LTO = "ON"
+install.components = ["python"]
+wheel.packages = ["python/rmc"]
+build-dir = "build/{wheel_tag}"
+sdist.exclude = ["cmake-build-*", "build", ".deps", ".venv", "*.png", "examples/benchmark/data"]
+
+# No [tool.scikit-build.editable] section, deliberately. scikit-build-core's
+# editable install works through a meta-path finder that maps rmc._core to
+# whichever artifact it installed -- and a meta-path finder wins over PYTHONPATH
+# unconditionally, so an editable install silently shadows the build tree that
+# `ctest` compiles and points at. `cmake --build` IS the edit-rebuild loop.
+[tool.uv]
+# `uv sync` provisions the dev tools; it does not install this project, for the
+# reason above. Reach the package through the CMake build tree (ctest does this
+# for you) or install it non-editably with `pip install .`.
+package = false
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pygments>=2.15",
+  "pydantic>=2.9",
+  "pybind11-stubgen>=2.5",
+  "scikit-build-core>=0.10",
+  "cmake>=3.28",
+  "ninja",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+
+# --- release wheels -----------------------------------------------------------
+# One wheel per CPython (pybind11 has no stable-ABI mode), manylinux_2_28
+# x86_64 only: the tree is written to libstdc++'s C++23, and there is no
+# Windows CI. As seitz does: no image ships GCC 15, but AlmaLinux 8's
+# AppStream carries gcc-toolset-15, whose libstdc++.so is a linker script over
+# libstdc++_nonshared.a -- post-baseline symbols link statically, the rest
+# resolve against the system libstdc++.so.6. release.yml re-checks that with
+# `nm -D`. The wheels need an AVX2 CPU: ENABLE_NATIVE_ARCH=OFF is
+# -march=x86-64-v3, the same floor as the release tarballs.
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux* *_i686 cp3??t-*"
+build-frontend = "build[uv]"
+build-verbosity = 1
+test-requires = "pytest"
+test-command = "pytest -q {package}/python/tests"
+
+# RMC_CACHE_DIR is /host<runner.temp>/rmc-cache under release.yml: cibuildwheel
+# copies only the wheelhouse out of the container, so caches live on the
+# runner's filesystem through /host. It holds the FetchContent tree (fc), the
+# Boost + oneTBB prefix tools/wheel_deps.sh builds, and ccache. CMAKE_ARGS, not
+# SKBUILD_CMAKE_ARGS: scikit-build-core appends the former and lets the latter
+# replace cmake.define. PATH as well as CC/CXX so IPO over the static archives
+# finds gcc-toolset-15's gcc-ar and ld.
+# RMC_CACHE is the one place the cache path is decided, and before-all and the
+# repair command (which see this table too) use it. It goes through sh -c
+# because cibuildwheel evaluates this table with its own parser, which drops
+# ${VAR:-default} to "" (even inside $(...)); that once gave CMake
+# BOOST_ROOT=/prefix while before-all had built Boost under /project/.cache.
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+manylinux-x86_64-image = "manylinux_2_28"
+before-all = [
+  "dnf -y --setopt=retries=5 install gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ gcc-toolset-15-binutils gcc-toolset-15-libatomic-devel ccache",
+  "CXX=/opt/rh/gcc-toolset-15/root/usr/bin/g++ bash {project}/tools/wheel_deps.sh \"$RMC_CACHE\"",
+]
+environment-pass = ["RMC_CACHE_DIR"]
+environment = { RMC_CACHE = "$(sh -c 'echo ${RMC_CACHE_DIR:-/project/.cache}')", CC = "/opt/rh/gcc-toolset-15/root/usr/bin/gcc", CXX = "/opt/rh/gcc-toolset-15/root/usr/bin/g++", PATH = "/opt/rh/gcc-toolset-15/root/usr/bin:$PATH", CMAKE_ARGS = "-DFETCHCONTENT_BASE_DIR=$RMC_CACHE/fc -DBOOST_ROOT=$RMC_CACHE/prefix -DCMAKE_PREFIX_PATH=$RMC_CACHE/prefix", CCACHE_DIR = "$RMC_CACHE/ccache", CCACHE_MAXSIZE = "3G", CCACHE_COMPILERCHECK = "content" }
+# The installed _core carries no RPATH to the Boost/TBB prefix; point
+# auditwheel at it so it can find, and bundle, those libraries.
+repair-wheel-command = "LD_LIBRARY_PATH=\"$RMC_CACHE/prefix/lib:$LD_LIBRARY_PATH\" auditwheel repair -w {dest_dir} {wheel}"

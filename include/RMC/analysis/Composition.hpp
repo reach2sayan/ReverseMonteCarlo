@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/class.hpp>
 #include <RMC/core/SpeciesIndex.hpp>
 #include <RMC/core/Types.hpp>
 #include <boost/container/flat_set.hpp>
@@ -21,12 +22,14 @@ struct SpeciesCount {
     return a.symbol < b.symbol;
   }
 };
+BOOST_DESCRIBE_STRUCT(SpeciesCount, (), (symbol, count))
 
 using Composition = boost::container::flat_set<SpeciesCount>;
 struct LabeledCurve {
   std::string label; // e.g. "Zr-Cu" (pair) or "Zr-Cu-Cu" (triplet)
   vec_t values;      // length n_bins, aligned with the parent grid
 };
+BOOST_DESCRIBE_STRUCT(LabeledCurve, (), (label, values))
 
 // Species symbols of `sp` with their atom counts.
 [[nodiscard]] inline Composition composition_of(const SpeciesIndex &sp) {

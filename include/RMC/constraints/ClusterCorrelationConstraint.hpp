@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/class.hpp>
 #include <RMC/constraints/Constraint.hpp>
 #include <RMC/core/Structure.hpp>
 
@@ -64,6 +65,8 @@ struct ClusterOrbit {
     return funcs.empty() ? 0 : funcs[p];
   }
 };
+BOOST_DESCRIBE_STRUCT(ClusterOrbit, (),
+                      (body, flat_sites, target, weight, funcs, site_types))
 
 // Site-basis table: one dense (n_func × n_occ) block per site type, read as
 // table[site_type](func, occ). The ATAT pipeline keys blocks by sublattice id

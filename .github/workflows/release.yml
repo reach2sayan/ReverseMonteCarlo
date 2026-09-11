@@ -9,6 +9,15 @@
 # and native-arch off), minus tests, examples and mcsqs. ENABLE_NATIVE_ARCH=OFF
 # means -march=x86-64-v3, so the binaries need an AVX2 CPU; building on
 # ubuntu-24.04 means they need glibc 2.39 or newer.
+#
+# The same tag also builds the Python wheels (cibuildwheel, manylinux_2_28,
+# CPython 3.11-3.14) and an sdist. Binaries live on GitHub, Python on PyPI: the
+# GitHub Release carries only the RMC_run tarballs, and the wheels and sdist go
+# to PyPI as reverse-monte-carlo by Trusted Publishing: the `pypi`
+# job's OIDC token is exchanged for a one-off upload credential against the
+# publisher registered for this repository, this workflow file and the `pypi`
+# environment (deployable from v* tags only). No API token is stored anywhere.
+# A workflow_dispatch run builds and checks the wheels and uploads nothing.
 name: Release
 
 on:
@@ -87,23 +96,7 @@ jobs:
 
       - name: Build Boost 1.89
         if: steps.cache-boost.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          ver=1.89.0
-          us=${ver//./_}
-          curl -fsSL "https://archives.boost.io/release/${ver}/source/boost_${us}.tar.bz2" \
-            -o boost.tar.bz2
-          tar xf boost.tar.bz2
-          cd "boost_${us}"
-          toolset=${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
-          echo "using ${toolset} : : ${{ matrix.cxx }} ;" > "${HOME}/user-config.jam"
-          ./bootstrap.sh \
-            --with-libraries=program_options,serialization,container,context,filesystem,process,graph,nowide
-          ./b2 -j"$(nproc)" \
-            toolset=${toolset} cxxstd=23 variant=release link=shared \
-            --user-config="${HOME}/user-config.jam" \
-            --prefix="${HOME}/boost" install
-          cp -af boost "${HOME}/boost/include/"
+        run: bash tools/build_boost.sh "$HOME/boost" ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }} ${{ matrix.cxx }}
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -116,7 +109,7 @@ jobs:
           CXX: ${{ matrix.cxx }}
         run: >
           cmake -S . -B build -G Ninja
-          -DBOOST_ROOT=$HOME/boost
+          -DBOOST_ROOT="$HOME/boost"
           -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
           -DCMAKE_BUILD_TYPE=Release
           -DENABLE_MKL=OFF
@@ -148,6 +141,142 @@ jobs:
           name: native-${{ matrix.compiler }}
           path: dist/*
 
+  # The Python wheels. RMC_CACHE_DIR lives outside the checkout, under /host:
+  # cibuildwheel tar-copies the checkout into the container and copies only the
+  # wheelhouse back out. Two caches: the dependency tree (FetchContent + the
+  # Boost/oneTBB prefix) keyed exactly, saved only on a miss; ccache rolling.
+  wheels:
+    name: wheels (manylinux_2_28 x86_64)
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore the dependency tree
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/rmc-cache/fc
+            ${{ runner.temp }}/rmc-cache/prefix
+          key: wheels-deps-manylinux_2_28-${{ hashFiles('CMakeLists.txt', 'tools/build_boost.sh', 'tools/wheel_deps.sh') }}
+
+      - name: Restore the compiler cache
+        id: cc
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/rmc-cache/ccache
+          key: wheels-ccache-manylinux_2_28-${{ github.run_id }}
+          restore-keys: wheels-ccache-manylinux_2_28-
+
+      # v4.2.1, not 3.x: 3.4.1's manylinux_2_28 image (2026.03.20) ships
+      # patchelf 0.17.2, whose rewrite of the bundled libtbb during auditwheel
+      # repair leaves its init code zeroed -- `import rmc` segfaulted in
+      # ld.so. 4.2.1's image (2026.09.05) ships patchelf 0.19.1; this exact
+      # version and pyproject.toml were run locally for cp311-cp314.
+      - uses: pypa/cibuildwheel@v4.2.1
+        env:
+          RMC_CACHE_DIR: /host${{ runner.temp }}/rmc-cache
+
+      # The container wrote through /host as root; actions/cache tars as the
+      # runner user.
+      - name: Reclaim the cache directory
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/rmc-cache" || true
+
+      # A shell test, not hashFiles(): hashFiles only sees GITHUB_WORKSPACE.
+      - name: Did the dependency tree complete?
+        if: always()
+        id: deps-state
+        run: |
+          if compgen -G "$RUNNER_TEMP/rmc-cache/prefix/.boost-*" >/dev/null && compgen -G "$RUNNER_TEMP/rmc-cache/prefix/.tbb-*" >/dev/null; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save the dependency tree
+        if: always() && steps.deps.outputs.cache-hit != 'true' && steps.deps-state.outputs.complete == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/rmc-cache/fc
+            ${{ runner.temp }}/rmc-cache/prefix
+          key: ${{ steps.deps.outputs.cache-primary-key }}
+
+      - name: Save the compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/rmc-cache/ccache
+          key: ${{ steps.cc.outputs.cache-primary-key }}
+
+      # The wheel's shape: one extension, the pure-Python package, the typed
+      # marker and both stubs, and nothing vendored but Boost and oneTBB (RMC,
+      # seitz and spdlog are linked in).
+      - name: Check the wheels
+        run: |
+          python - <<'PY'
+          import glob, re, sys, zipfile
+          bad = False
+          for w in sorted(glob.glob("wheelhouse/*.whl")):
+              names = set(zipfile.ZipFile(w).namelist())
+              print(f"=== {w}")
+              for want in ("rmc/__init__.py", "rmc/config.py", "rmc/mcsqs.py", "rmc/py.typed",
+                           "rmc/_core/__init__.pyi", "rmc/_core/mcsqs.pyi"):
+                  if want not in names:
+                      print(f"::error::{w}: missing {want}"); bad = True
+              ext = [n for n in names if re.fullmatch(r"rmc/_core\.[^/]+\.so", n)]
+              if len(ext) != 1:
+                  print(f"::error::{w}: expected exactly one extension, got {ext}"); bad = True
+              # Files only: the zip also lists the directory entry itself.
+              vendored = [n for n in names if n.startswith("reverse_monte_carlo.libs/") and not n.endswith("/")]
+              stray = [n for n in vendored if not re.search(r"/lib(boost_|tbb)", n)]
+              if stray:
+                  print(f"::error::{w}: unexpected vendored libraries {stray}"); bad = True
+          sys.exit(1 if bad else 0)
+          PY
+
+      # Stricter than the in-container import test: the image's LD_LIBRARY_PATH
+      # reaches gcc-toolset-14's newer libstdc++, a user's stock system does not.
+      - name: The wheels need nothing newer than the manylinux_2_28 baseline
+        run: |
+          python3 -m pip install --quiet auditwheel
+          for w in wheelhouse/*.whl; do
+            echo "=== $w"
+            python3 -m auditwheel show "$w"
+            rm -rf /tmp/unpack && python3 -m zipfile -e "$w" /tmp/unpack
+            nm -D --undefined-only /tmp/unpack/rmc/_core*.so \
+              | grep -oE 'GLIBCXX_[0-9.]+|CXXABI_[0-9.]+|GLIBC_[0-9.]+' \
+              | sort -uV | tee /tmp/vers
+            if grep -qE 'GLIBCXX_3\.4\.(2[5-9]|[3-9][0-9])' /tmp/vers; then
+              echo "::error::$w requires a post-3.4.24 GLIBCXX; see the wheels comment in pyproject.toml"
+              exit 1
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: wheelhouse/*.whl
+
+  # `pipx run build`, not `uv build`: pyproject.toml sets [tool.uv]
+  # package = false, which uv overrides for an explicit build (astral-sh/uv#12352).
+  sdist:
+    name: sdist
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx run build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
   # Only on a tag. A workflow_dispatch run stops before this, which is what
   # makes a dispatch a rehearsal.
   publish:
@@ -158,11 +287,37 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      # The RMC_run tarballs only; the wheels and sdist go to PyPI.
       - uses: actions/download-artifact@v4
         with:
+          pattern: native-*
           path: dist
           merge-multiple: true
       - run: ls -l dist
       - env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
+
+  # Trusted Publishing: no token. Only the wheels and the sdist are downloaded,
+  # so the RMC_run tarballs never reach the upload.
+  pypi:
+    name: PyPI
+    if: github.ref_type == 'tag'
+    needs: [version, wheels, sdist]
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/reverse-monte-carlo/${{ needs.version.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

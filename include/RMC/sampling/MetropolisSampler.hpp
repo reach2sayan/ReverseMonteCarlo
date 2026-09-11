@@ -15,7 +15,7 @@ namespace RMC {
 class MetropolisSampler {
 public:
   constexpr explicit MetropolisSampler(double temperature) noexcept
-      : t_(temperature) {}
+      : t_{temperature} {}
   [[nodiscard]] bool accept(double e_before, double e_after,
                             std::uint64_t /*step*/, double u01) const noexcept {
     const double dE = e_after - e_before;

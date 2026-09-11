@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/class.hpp>
 #include <RMC/analysis/Composition.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Types.hpp>
@@ -19,6 +20,7 @@ struct AdfParams {
   int n_bins = 100;     // angle bins over [0, π]
   int smooth_range = 2; // boxcar half-width (0 disables); applied in 2 passes
 };
+BOOST_DESCRIBE_STRUCT(AdfParams, (), (max_dis, n_bins, smooth_range))
 
 // Per-element-triplet partial ADFs plus their sum on a shared angle grid.
 // Triplet ordering matches AngularDistributionConstraint (central element

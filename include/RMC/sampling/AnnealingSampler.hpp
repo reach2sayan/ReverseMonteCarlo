@@ -23,7 +23,7 @@ public:
   };
 
   constexpr AnnealingSampler() noexcept = default;
-  constexpr explicit AnnealingSampler(Schedule s) noexcept : s_(s) {}
+  constexpr explicit AnnealingSampler(Schedule s) noexcept : s_{std::move(s)} {}
 
   [[nodiscard]] double temperature(std::uint64_t step) const noexcept {
     const std::uint64_t completed_cools = step / std::max<std::uint64_t>(s_.interval, 1);

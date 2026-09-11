@@ -70,6 +70,24 @@
         "ENABLE_NATIVE_ARCH": "OFF",
         "ENABLE_SANITIZERS": "ON"
       }
+    },
+    {
+      "name": "python",
+      "displayName": "Release + Python bindings",
+      "description": "rmc._core beside a static libRMC, and pytest as a ctest. Python comes from .venv (uv sync), never whatever is first on PATH.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "RMC_BUILD_PYTHON": "ON",
+        "RMC_BUILD_TESTS": "OFF",
+        "RMC_BUILD_EXAMPLES": "OFF",
+        "RMC_BUILD_MCSQS": "ON",
+        "ENABLE_NATIVE_ARCH": "OFF",
+        "ENABLE_MKL": "OFF",
+        "ENABLE_LTO": "ON",
+        "Python_ROOT_DIR": "${sourceDir}/.venv",
+        "Python_FIND_VIRTUALENV": "ONLY"
+      }
     }
   ],
   "buildPresets": [
@@ -101,6 +119,12 @@
       "name": "asan",
       "displayName": "ASan + UBSan",
       "configurePreset": "asan",
+      "jobs": 0
+    },
+    {
+      "name": "python",
+      "displayName": "Release + Python bindings",
+      "configurePreset": "python",
       "jobs": 0
     }
   ],
@@ -134,6 +158,11 @@
     {
       "name": "asan",
       "configurePreset": "asan",
+      "inherits": "base"
+    },
+    {
+      "name": "python",
+      "configurePreset": "python",
       "inherits": "base"
     }
   ]

@@ -50,10 +50,8 @@ jobs:
         if: matrix.compiler == 'clang'
         run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 20
 
-      # ubuntu-24.04's libboost-all-dev is 1.83, which lacks Boost.Parser
-      # (1.87+) and Boost.Process v2's compiled library (1.86+). Build the
-      # handful of compiled Boost libs we need from the 1.89 source release,
-      # matching the local /opt/boost toolchain, and cache the install tree.
+      # tools/build_boost.sh: the compiled Boost libs from the 1.89 source
+      # release (ubuntu-24.04 ships 1.83), cached as an install tree.
       - name: Cache Boost 1.89
         id: cache-boost
         uses: actions/cache@v4
@@ -63,27 +61,7 @@ jobs:
 
       - name: Build Boost 1.89
         if: steps.cache-boost.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          ver=1.89.0
-          us=${ver//./_}
-          curl -fsSL "https://archives.boost.io/release/${ver}/source/boost_${us}.tar.bz2" \
-            -o boost.tar.bz2
-          tar xf boost.tar.bz2
-          cd "boost_${us}"
-          toolset=${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
-          echo "using ${toolset} : : ${{ matrix.cxx }} ;" > "${HOME}/user-config.jam"
-          ./bootstrap.sh \
-            --with-libraries=program_options,serialization,container,context,filesystem,process,graph,nowide
-          ./b2 -j"$(nproc)" \
-            toolset=${toolset} cxxstd=23 variant=release link=shared \
-            --user-config="${HOME}/user-config.jam" \
-            --prefix="${HOME}/boost" install
-          # `b2 install` only copies headers for the --with libraries (and their
-          # scanned deps), which misses header-only modules we use (Boost.Parser)
-          # and the Process v2 umbrella header. The release tarball already ships
-          # the complete real header tree, so install it wholesale.
-          cp -af boost "${HOME}/boost/include/"
+        run: bash tools/build_boost.sh "$HOME/boost" ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }} ${{ matrix.cxx }}
 
       # Eigen 5 is fetched from source by CMake (FetchContent) — no system pkg.
 
@@ -98,7 +76,7 @@ jobs:
           CXX: ${{ matrix.cxx }}
         run: >
           cmake -S . -B build -G Ninja
-          -DBOOST_ROOT=$HOME/boost
+          -DBOOST_ROOT="$HOME/boost"
           -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
           -DCMAKE_BUILD_TYPE=Release
           -DENABLE_MKL=OFF
@@ -113,3 +91,64 @@ jobs:
         run: |
           export LD_LIBRARY_PATH="$HOME/boost/lib:${LD_LIBRARY_PATH:-}"
           ctest --test-dir build --output-on-failure
+
+  # The Python extension (rmc._core) through the python preset: pytest as a
+  # ctest, then the committed stubs regenerated and diffed. LTO off as above;
+  # the wheels in release.yml build with it.
+  python:
+    name: python bindings
+    runs-on: ubuntu-24.04
+    env:
+      CC: gcc-15
+      CXX: g++-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache libspdlog-dev libtbb-dev g++-15
+
+      # The gcc leg's key above, so the two jobs share one Boost build.
+      - name: Cache Boost 1.89
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost
+          key: boost-1.89.0-fullheaders-graph-nowide-g++-15
+
+      - name: Build Boost 1.89
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: bash tools/build_boost.sh "$HOME/boost" gcc g++-15
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-python
+
+      - uses: astral-sh/setup-uv@v7
+
+      # The dev tools and the interpreter the preset points at (.venv). Not an
+      # editable install: its meta-path finder would shadow this build tree.
+      - name: Sync the dev tools
+        run: uv sync
+
+      - name: Configure and build
+        run: |
+          cmake --preset python -DBOOST_ROOT="$HOME/boost" -DENABLE_LTO=OFF
+          cmake --build --preset python
+
+      - name: Test
+        run: |
+          export LD_LIBRARY_PATH="$HOME/boost/lib:${LD_LIBRARY_PATH:-}"
+          ctest --preset python
+
+      - name: Check the committed stubs are current
+        env:
+          PYTHONPATH: ${{ github.workspace }}/build/python/python
+        run: |
+          export LD_LIBRARY_PATH="$HOME/boost/lib:${LD_LIBRARY_PATH:-}"
+          uv run --no-sync python tools/fix_core_stubs.py
+          git diff --exit-code python/rmc/_core

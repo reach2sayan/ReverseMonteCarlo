@@ -8,7 +8,7 @@ namespace RMC {
 class GreedySampler {
 public:
   constexpr explicit GreedySampler(double tolerance = 0.0) noexcept
-      : tolerance_(tolerance) {}
+      : tolerance_{tolerance} {}
   [[nodiscard]] constexpr bool accept(double e_before, double e_after,
                                       std::uint64_t /*step*/,
                                       double /*u01*/) const noexcept {

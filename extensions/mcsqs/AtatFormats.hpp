@@ -3,6 +3,7 @@
 // (str.out) text formats. Coordinates are in the lattice's "axes" frame
 // (fractional w.r.t. the coordinate-system vectors); the Cartesian `axes`
 // matrix is only for emitting physical (Å) coordinates.
+#include <boost/describe/class.hpp>
 #include <RMC/core/Types.hpp>
 
 #include <filesystem>
@@ -19,6 +20,7 @@ struct LatticeSite {
   vec3_t frac{vec3_t::Zero()};                     // axes coords
   std::vector<std::pair<std::string, double>> occ; // (species, occupation)
 };
+BOOST_DESCRIBE_STRUCT(LatticeSite, (), (frac, occ))
 
 // A parsed rndstr.in / lat.in lattice.
 struct AtatLattice {
@@ -30,6 +32,7 @@ struct AtatLattice {
   // Occupation index of a species (its position in `labels`); -1 if absent.
   [[nodiscard]] int occupation_index(const std::string &species) const;
 };
+BOOST_DESCRIBE_STRUCT(AtatLattice, (), (axes, cell, sites, labels))
 
 // ---- lattice parser (throws std::runtime_error on malformed input) ----
 AtatLattice parse_lattice(std::istream &in);

@@ -59,7 +59,8 @@ concept CConstraint =
 // A constraint held by value (Boost.TypeErasure); any CConstraint converts to
 // it. standard_error_before() is the soft error BEFORE the move (0 for rigid).
 using Constraint = boost::type_erasure::any<boost::mpl::vector<
-    boost::type_erasure::copy_constructible<>, boost::type_erasure::relaxed,
+    boost::type_erasure::copy_constructible<>, boost::type_erasure::typeid_<>,
+    boost::type_erasure::relaxed,
     detail::has_compute_before_move<void(const coords_t &,
                                          std::span<const std::size_t>)>,
     detail::has_compute_after_move<void(const coords_t &,

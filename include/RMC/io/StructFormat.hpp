@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/describe/enum.hpp>
 #include <RMC/core/BoundaryConditions.hpp>
 #include <RMC/core/Structure.hpp>
 #include <RMC/core/Types.hpp>
@@ -11,6 +12,7 @@
 namespace RMC::io {
 
 enum class StructFormat { Pdb, Vasp, Lammps };
+BOOST_DESCRIBE_ENUM(StructFormat, Pdb, Vasp, Lammps)
 [[nodiscard]] std::optional<StructFormat>
 classify_structure_format(const std::filesystem::path &p);
 

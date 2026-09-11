@@ -42,6 +42,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 | `RMC_BUILD_TESTS` | `ON` | Build the Catch2 test suite (`RMC_tests`). |
 | `RMC_BUILD_EXAMPLES` | `ON` | Build the bundled C++ examples under `examples/`. |
 | `RMC_BUILD_MCSQS` | `ON` | Build the `mcsqs_rmc` SQS-search extension. |
+| `RMC_BUILD_PYTHON` | `OFF` | Build the `rmc._core` Python extension, with RMC and seitz linked in statically (the `python` preset turns it on). |
 | `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer + UBSan on all targets. |
 
 Example — release build with the kernels run serially:
@@ -49,6 +50,22 @@ Example — release build with the kernels run serially:
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DRMC_USE_TBB=OFF
 cmake --build build -j$(nproc)
+```
+
+## Python
+
+The Python bindings are the `rmc` package, published on PyPI as
+[`reverse-monte-carlo`](https://pypi.org/project/reverse-monte-carlo/). They are
+documented separately in [python/README.md](python/README.md).
+
+To build the extension from this tree, the `python` preset turns on
+`RMC_BUILD_PYTHON` (RMC and seitz linked into the module) and runs the pytest
+suite as a ctest. `uv sync` makes the `.venv` it builds against:
+
+```bash
+uv sync
+cmake --preset python && cmake --build --preset python
+ctest --preset python
 ```
 
 ## CLI

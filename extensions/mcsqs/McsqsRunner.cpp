@@ -186,8 +186,8 @@ void configure_engine(Engine &eng, const McsqsProblem &prob,
     eng.add_group(std::move(g));
   }
 
-  eng.set_selector(
-      GroupSelector{SmartRandomSelector{static_cast<double>(rseed) + 1.0}});
+  // Default bias factor; seeded apart from the swap generator's rseed stream.
+  eng.set_selector(GroupSelector{SmartRandomSelector{1.1, rseed + 1}});
   eng.set_sampler(make_sampler(sampler), rseed);
   eng.set_track_best(true); // annealing's final state isn't the minimum
   eng.set_step_callback(

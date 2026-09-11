@@ -85,6 +85,7 @@ public:
   [[nodiscard]] constexpr std::uint64_t steps_accepted() const noexcept {
     return n_steps_accepted_;
   }
+  [[nodiscard]] std::size_t n_groups() const noexcept { return groups_.size(); }
   [[nodiscard]] io::EngineStats make_stats() const noexcept {
     return io::EngineStats{.steps_total = n_steps_total_,
                            .steps_accepted = n_steps_accepted_,
