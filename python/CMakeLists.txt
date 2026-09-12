@@ -25,8 +25,25 @@ target_compile_definitions(_core PRIVATE RMC_VERSION_STRING="${PROJECT_VERSION}"
 # on, so they are absorbed into _core rather than sitting beside it: one
 # module, one set of Boost.LEAF thread-local error slots, nothing to locate at
 # import.
+# RUNTIME as well as LIBRARY: a .pyd is a RUNTIME artifact on Windows, so
+# without the second property the extension is written somewhere else entirely
+# and the mirrored package below -- and every ctest and pytest that imports
+# through it -- silently has no _core to load.
 set_target_properties(_core PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/rmc>")
+        LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/rmc>"
+        RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/rmc>")
+
+# tbb12.dll beside the module in the build tree. CPython loads an extension with
+# LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH), which searches the .pyd's own
+# directory -- so this is all that is needed, and python/rmc/__init__.py needs no
+# os.add_dll_directory. In the wheel, delvewheel relocates the same DLL and
+# patches its own copy of __init__.py.
+if (WIN32)
+    add_custom_command(TARGET _core POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_RUNTIME_DLLS:_core> $<TARGET_FILE_DIR:_core>
+            COMMAND_EXPAND_LISTS)
+endif ()
 
 # The pure-Python half, mirrored next to the freshly built _core so that
 # PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR} is an importable package with no wheel
@@ -55,6 +72,14 @@ install(TARGETS _core
         LIBRARY DESTINATION rmc
         RUNTIME DESTINATION rmc)
 
+# The one runtime dependency the wheel cannot absorb (Boost and seitz are static
+# archives, spdlog is linked in). $<TARGET_FILE:...> rather than install(TARGETS
+# tbb) so this works whether oneTBB was found or fetched. delvewheel then moves
+# it into reverse_monte_carlo.libs/ during repair.
+if (WIN32 AND RMC_USE_TBB)
+    install(FILES $<TARGET_FILE:TBB::tbb> DESTINATION rmc COMPONENT python)
+endif ()
+
 # The pytest suite, registered so `ctest` stays the single verb for "run the
 # tests". Skipped rather than failed when pytest is absent, so a plain
 # -DRMC_BUILD_PYTHON=ON build without the uv dev group still configures.
@@ -70,29 +95,33 @@ else ()
             "PYTHONDONTWRITEBYTECODE=1"
             "RMC_PACKAGE_DIR=${CMAKE_CURRENT_BINARY_DIR}/rmc")
 
-    # LD_PRELOAD, for two independent reasons, both about the interpreter being
-    # something we load into rather than something we built:
-    # 1. libstdc++. We compile with GCC 15, but a conda or system interpreter
-    #    may load an older libstdc++ first (numpy pulls it in), and then _core
-    #    cannot resolve the GLIBCXX_3.4.3x symbols it was built against.
-    #    Preloading the compiler's own copy settles the order; a no-op when the
-    #    interpreter's is already new enough.
-    # 2. The ASan runtime under ENABLE_SANITIZERS, which must come FIRST.
-    execute_process(
-            COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libstdc++.so.6
-            OUTPUT_VARIABLE RMC_LIBSTDCXX
-            OUTPUT_STRIP_TRAILING_WHITESPACE)
-    set(RMC_PRELOAD "${RMC_LIBSTDCXX}")
-    if (ENABLE_SANITIZERS)
+    # Nothing to preload on Windows, and no libstdc++ to ask cl.exe about; the
+    # DLLs the extension needs are already beside it (see the POST_BUILD above).
+    if (NOT WIN32)
+        # LD_PRELOAD, for two independent reasons, both about the interpreter being
+        # something we load into rather than something we built:
+        # 1. libstdc++. We compile with GCC 15, but a conda or system interpreter
+        #    may load an older libstdc++ first (numpy pulls it in), and then _core
+        #    cannot resolve the GLIBCXX_3.4.3x symbols it was built against.
+        #    Preloading the compiler's own copy settles the order; a no-op when the
+        #    interpreter's is already new enough.
+        # 2. The ASan runtime under ENABLE_SANITIZERS, which must come FIRST.
         execute_process(
-                COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libasan.so
-                OUTPUT_VARIABLE RMC_LIBASAN
+                COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libstdc++.so.6
+                OUTPUT_VARIABLE RMC_LIBSTDCXX
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
-        set(RMC_PRELOAD "${RMC_LIBASAN}:${RMC_PRELOAD}")
-        # CPython and pybind11 leave allocations live at exit by design.
-        list(APPEND RMC_PYTEST_ENV "ASAN_OPTIONS=detect_leaks=0")
+        set(RMC_PRELOAD "${RMC_LIBSTDCXX}")
+        if (ENABLE_SANITIZERS)
+            execute_process(
+                    COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libasan.so
+                    OUTPUT_VARIABLE RMC_LIBASAN
+                    OUTPUT_STRIP_TRAILING_WHITESPACE)
+            set(RMC_PRELOAD "${RMC_LIBASAN}:${RMC_PRELOAD}")
+            # CPython and pybind11 leave allocations live at exit by design.
+            list(APPEND RMC_PYTEST_ENV "ASAN_OPTIONS=detect_leaks=0")
+        endif ()
+        list(APPEND RMC_PYTEST_ENV "LD_PRELOAD=${RMC_PRELOAD}")
     endif ()
-    list(APPEND RMC_PYTEST_ENV "LD_PRELOAD=${RMC_PRELOAD}")
 
     add_test(NAME python.pytest
             COMMAND ${Python_EXECUTABLE} -m pytest -q "${CMAKE_CURRENT_SOURCE_DIR}/tests")

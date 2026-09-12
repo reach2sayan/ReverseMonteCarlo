@@ -14,8 +14,9 @@ pip install reverse-monte-carlo
 ```
 
 The distribution is `reverse-monte-carlo` and the import is `rmc`. Wheels are for
-Linux x86-64 (manylinux_2_28, CPython 3.11–3.14) and need an AVX2 CPU; Boost and
-oneTBB are inside the wheel. Elsewhere, build from source (below).
+Linux x86-64 (manylinux_2_28) and Windows x64 (win_amd64), CPython 3.11–3.14, and
+need an AVX2 CPU. Boost is linked in statically and oneTBB rides inside the wheel.
+Elsewhere, build from source (below).
 
 ## Refine from a configuration
 
@@ -147,12 +148,19 @@ Every library failure raises a subclass of `rmc.RmcError` (`IoError`,
 
 ## Building from source
 
-GCC 15, CMake 3.28+ and Boost 1.88+ (oneTBB and spdlog are optional to install;
-spdlog is fetched when missing):
+GCC 15 (or MSVC 19.43+) and CMake 3.28+. Boost, oneTBB, Catch2 and spdlog are all
+fetched when they are not installed:
 
 ```sh
 git clone https://github.com/reach2sayan/ReverseMonteCarlo && cd ReverseMonteCarlo
 CXX=g++-15 pip install .
+```
+
+On Windows, from an x64 Native Tools prompt:
+
+```bat
+set CMAKE_GENERATOR=Ninja
+pip install .
 ```
 
 For development, the `python` CMake preset builds the extension in place and runs

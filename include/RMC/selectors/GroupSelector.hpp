@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <utility>
 #include <variant>
 
 namespace RMC {

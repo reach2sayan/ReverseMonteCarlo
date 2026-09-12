@@ -121,8 +121,8 @@ private:
   std::deque<AtomicStructure> frames_;
   GroupSelector selector_;
   GroupSelector frame_selector_;
-  [[no_unique_address]] WithSpecies sp_;
-  [[no_unique_address]] WithFeedback fb_;
+  RMC_NO_UNIQUE_ADDRESS WithSpecies sp_;
+  RMC_NO_UNIQUE_ADDRESS WithFeedback fb_;
   WithCollector col_;
   WithBestTracking best_;
   WithCheckpoint ckpt_;

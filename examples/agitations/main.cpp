@@ -17,6 +17,7 @@
 #include <RMC/io/PdbReader.hpp>
 #include <RMC/selectors/SmartRandomSelector.hpp>
 
+#include <initializer_list>
 #include <iostream>
 #include <map>
 #include <numbers>

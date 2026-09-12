@@ -1,5 +1,6 @@
 # RMC_run and libRMC.so, built with GCC 15 and Clang 20, as self-contained
-# Linux tarballs attached to a GitHub Release. A tag `vX.Y.Z` builds and
+# Linux tarballs attached to a GitHub Release, plus an MSVC-built RMC_run.exe as
+# a Windows zip. A tag `vX.Y.Z` builds and
 # publishes -- pushed by hand, or cut on Mondays by weekly-release.yml; a
 # workflow_dispatch run on a branch builds the same tarballs, leaves them on the
 # run page and publishes nothing, which is how a change to this pipeline is
@@ -10,8 +11,8 @@
 # means -march=x86-64-v3, so the binaries need an AVX2 CPU; building on
 # ubuntu-24.04 means they need glibc 2.39 or newer.
 #
-# The same tag also builds the Python wheels (cibuildwheel, manylinux_2_28,
-# CPython 3.11-3.14) and an sdist. Binaries live on GitHub, Python on PyPI: the
+# The same tag also builds the Python wheels (cibuildwheel, manylinux_2_28 and
+# win_amd64, CPython 3.11-3.14) and an sdist. Binaries live on GitHub, Python on PyPI: the
 # GitHub Release carries only the RMC_run tarballs, and the wheels and sdist go
 # to PyPI as reverse-monte-carlo by Trusted Publishing: the `pypi`
 # job's OIDC token is exchanged for a one-off upload credential against the
@@ -141,11 +142,120 @@ jobs:
           name: native-${{ matrix.compiler }}
           path: dist/*
 
+  # RMC_run.exe as a zip. Its own job, not a leg of the matrix above: every step
+  # of that one is bash -- tar, the docker smoke test, $HOME/boost. Boost, oneTBB
+  # and Catch2 come from CMakeLists.txt's fetch fallback, so nothing is installed
+  # on the runner. The artifact name matches native-* so `publish` picks it up
+  # with no change.
+  native-windows:
+    name: msvc (windows-x86_64)
+    needs: version
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      ARCHIVE: ReverseMonteCarlo-${{ needs.version.outputs.version }}-windows-x86_64-msvc.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install numpy pandas pygments
+
+      # The same vcvars64.bat hand-off ci.yml documents.
+      - name: Set up MSVC (x64)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $root = & $vswhere -latest -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $root) { throw "no Visual Studio with the C++ toolset found" }
+          $vcvars = Join-Path $root 'VC\Auxiliary\Build\vcvars64.bat'
+          $env_after = & "$env:COMSPEC" /s /c "`"$vcvars`" && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvars64.bat failed ($LASTEXITCODE)" }
+          foreach ($line in $env_after) {
+            if ($line -notmatch '^([^=\s]+)=(.*)$') { continue }
+            $name, $value = $Matches[1], $Matches[2]
+            if ([Environment]::GetEnvironmentVariable($name) -eq $value) { continue }
+            [Environment]::SetEnvironmentVariable($name, $value)
+            "$name=$value" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvars64.bat" }
+          Write-Host "cl.exe: $($cl.Source)"
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          variant: sccache
+          key: release-msvc
+          max-size: 500M
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:/d
+          key: deps-msvc-release-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-msvc-release-
+
+      # The same flags as the Linux legs, minus what has no MSVC meaning.
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          -DCMAKE_BUILD_TYPE=Release
+          -DFETCHCONTENT_BASE_DIR=C:/d
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+          -DPython_EXECUTABLE=${{ env.pythonLocation }}\python.exe
+          -DENABLE_MKL=OFF
+          -DENABLE_LTO=OFF
+          -DENABLE_NATIVE_ARCH=OFF
+          -DRMC_BUILD_TESTS=OFF
+          -DRMC_BUILD_EXAMPLES=OFF
+          -DRMC_BUILD_MCSQS=OFF
+
+      - name: Build
+        run: cmake --build build --target RMC_run --parallel
+
+      # bin/ holds the exe, tbb12.dll and the MSVC runtime; RMC and seitz are
+      # static archives on Windows, so nothing of them is installed.
+      - name: Stage and pack
+        shell: pwsh
+        run: |
+          cmake --install build --component runtime --prefix stage
+          Get-ChildItem -Recurse stage | Select-Object FullName, Length
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path stage/bin/* -DestinationPath "dist/$env:ARCHIVE"
+
+      # The analogue of the Linux docker check. dumpbin is the assertion that
+      # matters: a runner with the VC redistributable installed would run the exe
+      # happily even if msvcp140.dll had not been staged.
+      - name: Self-contained
+        shell: pwsh
+        run: |
+          & stage/bin/RMC_run.exe --help
+          $staged = (Get-ChildItem stage/bin -Filter *.dll).Name
+          Write-Host "staged DLLs: $($staged -join ', ')"
+          $needed = (dumpbin /dependents stage/bin/RMC_run.exe |
+            Select-String -Pattern '^\s{4}(\S+\.dll)$' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value })
+          Write-Host "imports: $($needed -join ', ')"
+          $missing = $needed | Where-Object {
+            $_ -notin $staged -and $_ -notmatch '^(?i)(KERNEL32|USER32|ADVAPI32|SHELL32|ole32|OLEAUT32|WS2_32|dbghelp|bcrypt|api-ms-|ext-ms-)' }
+          if ($missing) { throw "not self-contained, missing: $($missing -join ', ')" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-msvc
+          path: dist/*
+
   # The Python wheels. RMC_CACHE_DIR lives outside the checkout, under /host:
   # cibuildwheel tar-copies the checkout into the container and copies only the
   # wheelhouse back out. Two caches: the dependency tree (FetchContent + the
   # Boost/oneTBB prefix) keyed exactly, saved only on a miss; ccache rolling.
-  wheels:
+  wheels-linux:
     name: wheels (manylinux_2_28 x86_64)
     needs: version
     runs-on: ubuntu-24.04
@@ -214,31 +324,9 @@ jobs:
           path: ${{ runner.temp }}/rmc-cache/ccache
           key: ${{ steps.cc.outputs.cache-primary-key }}
 
-      # The wheel's shape: one extension, the pure-Python package, the typed
-      # marker and both stubs, and nothing vendored but Boost and oneTBB (RMC,
-      # seitz and spdlog are linked in).
+      # Shared with the Windows job, so the two cannot drift apart.
       - name: Check the wheels
-        run: |
-          python - <<'PY'
-          import glob, re, sys, zipfile
-          bad = False
-          for w in sorted(glob.glob("wheelhouse/*.whl")):
-              names = set(zipfile.ZipFile(w).namelist())
-              print(f"=== {w}")
-              for want in ("rmc/__init__.py", "rmc/config.py", "rmc/mcsqs.py", "rmc/py.typed",
-                           "rmc/_core/__init__.pyi", "rmc/_core/mcsqs.pyi"):
-                  if want not in names:
-                      print(f"::error::{w}: missing {want}"); bad = True
-              ext = [n for n in names if re.fullmatch(r"rmc/_core\.[^/]+\.so", n)]
-              if len(ext) != 1:
-                  print(f"::error::{w}: expected exactly one extension, got {ext}"); bad = True
-              # Files only: the zip also lists the directory entry itself.
-              vendored = [n for n in names if n.startswith("reverse_monte_carlo.libs/") and not n.endswith("/")]
-              stray = [n for n in vendored if not re.search(r"/lib(boost_|tbb)", n)]
-              if stray:
-                  print(f"::error::{w}: unexpected vendored libraries {stray}"); bad = True
-          sys.exit(1 if bad else 0)
-          PY
+        run: python tools/check_wheels.py "wheelhouse/*.whl"
 
       # Stricter than the in-container import test: the image's LD_LIBRARY_PATH
       # reaches gcc-toolset-14's newer libstdc++, a user's stock system does not.
@@ -260,7 +348,91 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels
+          name: wheels-linux
+          path: wheelhouse/*.whl
+
+  # The Windows wheels. No container and no /host: cibuildwheel runs in-process
+  # here, so it inherits the vcvars environment from GITHUB_ENV and the caches
+  # live directly on the runner filesystem.
+  wheels-windows:
+    name: wheels (win_amd64)
+    needs: version
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # pyproject.toml forces the Ninja generator (MSBuild would compile seitz's
+      # tables serially, past the job limit), and Ninja needs this environment.
+      - name: Set up MSVC (x64)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $root = & $vswhere -latest -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $root) { throw "no Visual Studio with the C++ toolset found" }
+          $vcvars = Join-Path $root 'VC\Auxiliary\Build\vcvars64.bat'
+          $env_after = & "$env:COMSPEC" /s /c "`"$vcvars`" && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvars64.bat failed ($LASTEXITCODE)" }
+          foreach ($line in $env_after) {
+            if ($line -notmatch '^([^=\s]+)=(.*)$') { continue }
+            $name, $value = $Matches[1], $Matches[2]
+            if ([Environment]::GetEnvironmentVariable($name) -eq $value) { continue }
+            [Environment]::SetEnvironmentVariable($name, $value)
+            "$name=$value" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $cl) { throw "cl.exe is not on PATH after vcvars64.bat" }
+          Write-Host "cl.exe: $($cl.Source)"
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          variant: sccache
+          key: wheels-msvc
+          max-size: 2G
+
+      # C:/d for MAX_PATH, as pyproject.toml's windows table explains. Keyed on
+      # CMakeLists.txt because that file decides what gets fetched.
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:/d
+          key: wheels-fc-win-amd64-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: wheels-fc-win-amd64-
+
+      # Required, not incidental: pyproject.toml asks for build-frontend
+      # "build[uv]", and on Windows cibuildwheel creates each build venv itself
+      # with `uv venv`, locating the binary in its own environment or on PATH.
+      # The action installs plain cibuildwheel without the uv extra, so without
+      # this step setup_python dies on `assert uv_path is not None` before a
+      # single wheel is built. Linux needs no equivalent: the manylinux container
+      # ships its own uv.
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: pypa/cibuildwheel@v4.2.1
+        env:
+          # Appended to the pyproject line through its $CMAKE_ARGS expansion.
+          CMAKE_ARGS: -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+
+      - name: sccache statistics
+        if: always()
+        run: sccache --show-stats
+
+      # The same script the Linux job runs. No nm -D gate here: the glibc
+      # baseline it protects is a Linux concern, and delvewheel has already
+      # vendored what the extension needs.
+      - name: Check the wheels
+        run: python tools/check_wheels.py "wheelhouse/*.whl"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows
           path: wheelhouse/*.whl
 
   # `pipx run build`, not `uv build`: pyproject.toml sets [tool.uv]
@@ -303,7 +475,7 @@ jobs:
   pypi:
     name: PyPI
     if: github.ref_type == 'tag'
-    needs: [version, wheels, sdist]
+    needs: [version, wheels-linux, wheels-windows, sdist]
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -311,10 +483,14 @@ jobs:
     permissions:
       id-token: write
     steps:
+      # pattern, not an exact name: there is one wheels artifact per platform,
+      # and an exact `name: wheels-linux` would silently drop the Windows wheels
+      # from the upload.
       - uses: actions/download-artifact@v4
         with:
-          name: wheels
+          pattern: wheels-*
           path: dist
+          merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
           name: sdist

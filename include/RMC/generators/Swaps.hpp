@@ -2,6 +2,7 @@
 #include <RMC/generators/MoveGenerator.hpp>
 #include <boost/assert.hpp>
 #include <ranges>
+#include <utility>
 #include <vector>
 
 namespace RMC {

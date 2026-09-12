@@ -5,9 +5,9 @@
 #include <vector>
 
 #if defined(RMC_USE_TBB)
-#include <execution>
 #include <thread>
 
+#include <oneapi/tbb/parallel_for_each.h>
 #include <oneapi/tbb/task_arena.h>
 
 namespace RMC::parallel {
@@ -24,10 +24,15 @@ inline void set_max_concurrency(int n) {
   arena().initialize(n);
 }
 
+// tbb::parallel_for_each, not std::for_each(par_unseq): the standard algorithm
+// only reaches this arena on libstdc++, where par_unseq lowers to TBB anyway.
+// MSVC's STL runs it on the Windows thread pool instead, which would ignore the
+// arena -- and with it RMC_NUM_THREADS and Ensemble's per-replica split. The
+// body is taken by value and invoked as f(*it), which is what every call site
+// already expects.
 template <class It, class F> void for_each(It first, It last, F &&f) {
-  arena().execute([&] {
-    std::for_each(std::execution::par_unseq, first, last, std::forward<F>(f));
-  });
+  arena().execute(
+      [&] { tbb::parallel_for_each(first, last, std::forward<F>(f)); });
 }
 
 } // namespace RMC::parallel

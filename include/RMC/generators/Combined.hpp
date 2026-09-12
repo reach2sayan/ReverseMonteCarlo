@@ -2,6 +2,8 @@
 #include <RMC/generators/MoveGenerator.hpp>
 #include <boost/random/discrete_distribution.hpp>
 #include <tuple>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace RMC {

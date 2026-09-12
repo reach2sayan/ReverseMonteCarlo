@@ -8,8 +8,10 @@
 #include <RMC/selectors/DirectionalOrderSelector.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <array>
 #include <cmath>
 #include <numbers> // std::numbers::pi
+#include <initializer_list>
 #include <vector>
 
 using namespace RMC;

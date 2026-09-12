@@ -87,7 +87,22 @@ foreach (tgt mcsqs_core mcsqs_rmc)
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${tgt} PRIVATE -Wall -Wextra -Wpedantic -Wfatal-errors)
     endif ()
+    if (MSVC)
+        target_compile_options(${tgt} PRIVATE /W4 /permissive-)
+        # AtatFormats.cpp and McsqsRunner.cpp both include Boost.Parser, which
+        # drags in <Windows.h>. In-tree these arrive PUBLIC from RMC; the
+        # standalone branch above links an imported RMC that carries no such
+        # usage requirements, so set them here too. Harmless when duplicated.
+        target_compile_definitions(${tgt} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_compile_options(${tgt} PRIVATE /utf-8 /bigobj)
+    endif ()
     if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         target_compile_options(${tgt} PRIVATE -Wno-gnu-statement-expression-from-macro-expansion)
     endif ()
 endforeach ()
+
+# In-tree only: the parent defines this. A standalone build links an imported
+# RMC and has no such function, so guard rather than hard-error there.
+if (COMMAND rmc_windows_runtime_dlls)
+    rmc_windows_runtime_dlls(mcsqs_rmc)
+endif ()

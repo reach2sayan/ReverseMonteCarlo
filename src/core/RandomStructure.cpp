@@ -11,6 +11,7 @@
 #include <functional>
 #include <ranges>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace RMC {
@@ -58,8 +59,10 @@ make_random_amorphous(std::span<const std::string> elements,
 
   AtomicStructure s;
   s.coordinates.resize(static_cast<Eigen::Index>(total), 3);
+  // The index type is the range's difference_type, which for this joined
+  // cartesian product is wider than Eigen::Index on MSVC -- hence the cast.
   for (const auto [a, site] : sites | std::views::enumerate) {
-    s.coordinates.row(a) = spacing * site.transpose();
+    s.coordinates.row(static_cast<Eigen::Index>(a)) = spacing * site.transpose();
   }
   s.elements = species |
                std::views::transform([&](std::size_t e) { return elements[e]; }) |

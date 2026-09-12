@@ -11,6 +11,7 @@ using placeholders::all;
 #endif
 #include <boost/leaf/result.hpp>
 #include <boost/nowide/cstdlib.hpp>
+#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <cstdlib>
@@ -19,6 +20,14 @@ using placeholders::all;
 #include <span>
 #include <string>
 #include <thread>
+
+// MSVC ignores the standard spelling (warning C5030) and implements the layout
+// optimisation under its own vendor attribute instead.
+#if defined(_MSC_VER)
+#define RMC_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
+#else
+#define RMC_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#endif
 
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline

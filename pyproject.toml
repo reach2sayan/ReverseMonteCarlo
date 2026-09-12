@@ -30,6 +30,8 @@ cmake.version = ">=3.28"
 # stay in CMakeLists.txt so `cmake --preset python` and `pip install .` build
 # the same target. This path does not read CMakePresets.json and picks up
 # whatever `c++` is on PATH: the library needs GCC 15, so export CXX=g++-15.
+# On Windows build from a Developer Prompt so cl.exe is found; the Windows table
+# below also forces the Ninja generator, and ENABLE_LTO is ignored under MSVC.
 cmake.define.RMC_BUILD_PYTHON = "ON"
 cmake.define.RMC_BUILD_TESTS = "OFF"
 cmake.define.RMC_BUILD_EXAMPLES = "OFF"
@@ -70,9 +72,11 @@ dev = [
 testpaths = ["python/tests"]
 
 # --- release wheels -----------------------------------------------------------
-# One wheel per CPython (pybind11 has no stable-ABI mode), manylinux_2_28
-# x86_64 only: the tree is written to libstdc++'s C++23, and there is no
-# Windows CI. As seitz does: no image ships GCC 15, but AlmaLinux 8's
+# One wheel per CPython (pybind11 has no stable-ABI mode), for manylinux_2_28
+# x86_64 and win_amd64. Both need an AVX2 CPU: ENABLE_NATIVE_ARCH=OFF is
+# -march=x86-64-v3 on GCC, and CMakeLists.txt gives MSVC /arch:AVX2
+# unconditionally -- the same floor, which no wheel tag can express.
+# On Linux, as seitz does: no image ships GCC 15, but AlmaLinux 8's
 # AppStream carries gcc-toolset-15, whose libstdc++.so is a linker script over
 # libstdc++_nonshared.a -- post-baseline symbols link statically, the rest
 # resolve against the system libstdc++.so.6. release.yml re-checks that with
@@ -80,7 +84,7 @@ testpaths = ["python/tests"]
 # -march=x86-64-v3, the same floor as the release tarballs.
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
-skip = "*-musllinux* *_i686 cp3??t-*"
+skip = "*-musllinux* *_i686 *-win32 *-win_arm64 cp3??t-*"
 build-frontend = "build[uv]"
 build-verbosity = 1
 test-requires = "pytest"
@@ -110,3 +114,30 @@ environment = { RMC_CACHE = "$(sh -c 'echo ${RMC_CACHE_DIR:-/project/.cache}')",
 # The installed _core carries no RPATH to the Boost/TBB prefix; point
 # auditwheel at it so it can find, and bundle, those libraries.
 repair-wheel-command = "LD_LIBRARY_PATH=\"$RMC_CACHE/prefix/lib:$LD_LIBRARY_PATH\" auditwheel repair -w {dest_dir} {wheel}"
+
+# Windows needs no before-all: CMakeLists.txt falls back to fetching Boost, oneTBB
+# and Catch2 when it finds none, so there is no b2 script to port.
+#
+# CMAKE_GENERATOR=Ninja, not the CMake default. scikit-build-core would pick
+# "Visual Studio 17 2022", which finds the toolchain without vcvars -- but drives
+# MSBuild, and CMake's VS generator emits no /MP, so seitz's table TUs would
+# compile one at a time, past the six-hour job limit. Ninja instead, which needs
+# the environment vcvars64.bat sets: release.yml hands it over through GITHUB_ENV
+# and cibuildwheel inherits it (no container on Windows, so environment-pass does
+# not apply here).
+#
+# C:/d because the Boost superproject nested under the default _deps blows
+# MAX_PATH. $CMAKE_ARGS expands first so release.yml can add the sccache
+# launchers without restating this.
+#
+# delvewheel, the Windows auditwheel: python/CMakeLists.txt already installs
+# tbb12.dll into the wheel, and repair moves it to reverse_monte_carlo.libs/ and
+# patches rmc/__init__.py to find it. msvcp140.dll is named explicitly because
+# delvewheel treats the C++ runtime as a system DLL and the official CPython
+# installers ship only vcruntime140; without it the wheel imports on a developer
+# machine and fails on a clean one.
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
+before-build = "pip install delvewheel"
+environment = { CMAKE_GENERATOR = "Ninja", CMAKE_ARGS = "$CMAKE_ARGS -DFETCHCONTENT_BASE_DIR=C:/d" }
+repair-wheel-command = "delvewheel repair --add-dll msvcp140.dll -w {dest_dir} {wheel}"
