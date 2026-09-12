@@ -72,10 +72,14 @@ dev = [
 testpaths = ["python/tests"]
 
 # --- release wheels -----------------------------------------------------------
-# One wheel per CPython (pybind11 has no stable-ABI mode), for manylinux_2_28
-# x86_64 and win_amd64. Both need an AVX2 CPU: ENABLE_NATIVE_ARCH=OFF is
-# -march=x86-64-v3 on GCC, and CMakeLists.txt gives MSVC /arch:AVX2
-# unconditionally -- the same floor, which no wheel tag can express.
+# One wheel per CPython (pybind11 has no stable-ABI mode), manylinux_2_28 x86_64.
+# The wheels need an AVX2 CPU: ENABLE_NATIVE_ARCH=OFF is -march=x86-64-v3, which
+# no wheel tag can express.
+#
+# release.yml publishes no Windows wheel -- the Windows deliverable is the
+# RMC_run zip on the GitHub Release. The windows table below is kept so
+# `cibuildwheel --platform windows` still produces a correct wheel by hand, and
+# so re-enabling the job later is a workflow change only.
 # On Linux, as seitz does: no image ships GCC 15, but AlmaLinux 8's
 # AppStream carries gcc-toolset-15, whose libstdc++.so is a linker script over
 # libstdc++_nonshared.a -- post-baseline symbols link statically, the rest
@@ -115,8 +119,9 @@ environment = { RMC_CACHE = "$(sh -c 'echo ${RMC_CACHE_DIR:-/project/.cache}')",
 # auditwheel at it so it can find, and bundle, those libraries.
 repair-wheel-command = "LD_LIBRARY_PATH=\"$RMC_CACHE/prefix/lib:$LD_LIBRARY_PATH\" auditwheel repair -w {dest_dir} {wheel}"
 
-# Windows needs no before-all: CMakeLists.txt falls back to fetching Boost, oneTBB
-# and Catch2 when it finds none, so there is no b2 script to port.
+# Not exercised by release.yml, which publishes no Windows wheel; kept for a
+# hand-built one. Windows needs no before-all: CMakeLists.txt falls back to
+# fetching Boost, oneTBB and Catch2 when it finds none, so no b2 script to port.
 #
 # CMAKE_GENERATOR=Ninja, not the CMake default. scikit-build-core would pick
 # "Visual Studio 17 2022", which finds the toolchain without vcvars -- but drives
