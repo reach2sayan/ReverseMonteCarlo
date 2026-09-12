@@ -11,8 +11,10 @@
 # means -march=x86-64-v3, so the binaries need an AVX2 CPU; building on
 # ubuntu-24.04 means they need glibc 2.39 or newer.
 #
-# The same tag also builds the Python wheels (cibuildwheel, manylinux_2_28 and
-# win_amd64, CPython 3.11-3.14) and an sdist. Binaries live on GitHub, Python on PyPI: the
+# The same tag also builds the Python wheels (cibuildwheel, manylinux_2_28,
+# CPython 3.11-3.14) and an sdist. No Windows wheel is published: the Windows
+# deliverable is the RMC_run zip above. pyproject.toml keeps a windows table so
+# one can still be built by hand, and ci.yml still builds the bindings there. Binaries live on GitHub, Python on PyPI: the
 # GitHub Release carries only the RMC_run tarballs, and the wheels and sdist go
 # to PyPI as reverse-monte-carlo by Trusted Publishing: the `pypi`
 # job's OIDC token is exchanged for a one-off upload credential against the
@@ -351,90 +353,6 @@ jobs:
           name: wheels-linux
           path: wheelhouse/*.whl
 
-  # The Windows wheels. No container and no /host: cibuildwheel runs in-process
-  # here, so it inherits the vcvars environment from GITHUB_ENV and the caches
-  # live directly on the runner filesystem.
-  wheels-windows:
-    name: wheels (win_amd64)
-    needs: version
-    runs-on: windows-2022
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      # pyproject.toml forces the Ninja generator (MSBuild would compile seitz's
-      # tables serially, past the job limit), and Ninja needs this environment.
-      - name: Set up MSVC (x64)
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $root = & $vswhere -latest -products '*' `
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-            -property installationPath
-          if (-not $root) { throw "no Visual Studio with the C++ toolset found" }
-          $vcvars = Join-Path $root 'VC\Auxiliary\Build\vcvars64.bat'
-          $env_after = & "$env:COMSPEC" /s /c "`"$vcvars`" && set"
-          if ($LASTEXITCODE -ne 0) { throw "vcvars64.bat failed ($LASTEXITCODE)" }
-          foreach ($line in $env_after) {
-            if ($line -notmatch '^([^=\s]+)=(.*)$') { continue }
-            $name, $value = $Matches[1], $Matches[2]
-            if ([Environment]::GetEnvironmentVariable($name) -eq $value) { continue }
-            [Environment]::SetEnvironmentVariable($name, $value)
-            "$name=$value" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          }
-          $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
-          if (-not $cl) { throw "cl.exe is not on PATH after vcvars64.bat" }
-          Write-Host "cl.exe: $($cl.Source)"
-
-      - name: Set up sccache
-        uses: hendrikmuhs/ccache-action@v1.2.24
-        with:
-          variant: sccache
-          key: wheels-msvc
-          max-size: 2G
-
-      # C:/d for MAX_PATH, as pyproject.toml's windows table explains. Keyed on
-      # CMakeLists.txt because that file decides what gets fetched.
-      - name: Cache fetched dependencies
-        uses: actions/cache@v4
-        with:
-          path: C:/d
-          key: wheels-fc-win-amd64-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: wheels-fc-win-amd64-
-
-      # Required, not incidental: pyproject.toml asks for build-frontend
-      # "build[uv]", and on Windows cibuildwheel creates each build venv itself
-      # with `uv venv`, locating the binary in its own environment or on PATH.
-      # The action installs plain cibuildwheel without the uv extra, so without
-      # this step setup_python dies on `assert uv_path is not None` before a
-      # single wheel is built. Linux needs no equivalent: the manylinux container
-      # ships its own uv.
-      - uses: astral-sh/setup-uv@v7
-
-      - uses: pypa/cibuildwheel@v4.2.1
-        env:
-          # Appended to the pyproject line through its $CMAKE_ARGS expansion.
-          CMAKE_ARGS: -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-
-      - name: sccache statistics
-        if: always()
-        run: sccache --show-stats
-
-      # The same script the Linux job runs. No nm -D gate here: the glibc
-      # baseline it protects is a Linux concern, and delvewheel has already
-      # vendored what the extension needs.
-      - name: Check the wheels
-        run: python tools/check_wheels.py "wheelhouse/*.whl"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-windows
-          path: wheelhouse/*.whl
-
   # `pipx run build`, not `uv build`: pyproject.toml sets [tool.uv]
   # package = false, which uv overrides for an explicit build (astral-sh/uv#12352).
   sdist:
@@ -475,7 +393,7 @@ jobs:
   pypi:
     name: PyPI
     if: github.ref_type == 'tag'
-    needs: [version, wheels-linux, wheels-windows, sdist]
+    needs: [version, wheels-linux, sdist]
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -483,9 +401,8 @@ jobs:
     permissions:
       id-token: write
     steps:
-      # pattern, not an exact name: there is one wheels artifact per platform,
-      # and an exact `name: wheels-linux` would silently drop the Windows wheels
-      # from the upload.
+      # pattern, not an exact name: one artifact per wheel platform, so adding
+      # a platform back needs no change here. Only wheels-linux exists today.
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*

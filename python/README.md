@@ -14,9 +14,10 @@ pip install reverse-monte-carlo
 ```
 
 The distribution is `reverse-monte-carlo` and the import is `rmc`. Wheels are for
-Linux x86-64 (manylinux_2_28) and Windows x64 (win_amd64), CPython 3.11–3.14, and
-need an AVX2 CPU. Boost is linked in statically and oneTBB rides inside the wheel.
-Elsewhere, build from source (below).
+Linux x86-64 (manylinux_2_28, CPython 3.11–3.14) and need an AVX2 CPU; Boost is
+linked in statically and oneTBB rides inside the wheel. Elsewhere — Windows
+included — build from source (below); Windows is supported and tested, it simply
+has no published wheel.
 
 ## Refine from a configuration
 
