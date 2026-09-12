@@ -654,3 +654,14 @@ The legacy `--structure` / `--clusters` / `--species` pipeline and the
 | `--seed` | `42` | RNG seed |
 | `--out` / `-o` | `bestsqs.pdb` | Output SQS PDB; `bestsqs.out` (ATAT `str.out`) is written beside it |
 | `--log-every` / `-l` | `10000` | Print progress every N steps |
+
+## Benchmark
+
+The same 260-atom THF system fullrmc's own bundled benchmark uses (20
+tetrahydrofuran molecules, one molecule moved per step, single core), run
+through fullrmc 4.1, this C++ engine, and the `rmc` Python bindings. Measured on
+an AMD Ryzen 7 PRO 6850U (8 cores / 16 threads, 4.77 GHz boost, 27 GiB RAM),
+Ubuntu 24.04, GCC 15.2, release build. See [BENCHMARKS.md](BENCHMARKS.md) for
+the methodology and the per-constraint table.
+
+![fullrmc 4.1 vs this C++ engine vs its Python bindings](fullrmc_vs_rmc.png)
