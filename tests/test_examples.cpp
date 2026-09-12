@@ -227,7 +227,7 @@ TEST_CASE("bondsConstraint - distorted bond target produces accepted moves",
 // ─── 5. anglesConstraint
 // ────────────────────────────────────────────────────── example:
 // AngleConstraint steers the H-O-H angle.
-TEST_CASE("anglesConstraint - normal angle target holds H-O-H in 80–120 deg",
+TEST_CASE("anglesConstraint - normal angle target holds H-O-H in 80-120 deg",
           "[example_angles_constraint]") {
   auto s = make_structure({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {"O", "H", "H"},
                           {0, 0, 0});
